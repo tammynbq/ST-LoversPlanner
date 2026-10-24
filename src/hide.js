@@ -8,7 +8,8 @@ import { ctx, LOG_PREFIX, MODULE, toast } from './util.js';
 import { getSettings, isTracked } from './settings.js';
 import { t } from './i18n.js';
 import { floorStatus, getChat, getEntry, isAiMessage, isUserMessage, lastAiIndex } from './chat.js';
-import { formatNotesForPrompt, getNotes } from './notes.js';
+import { formatNotesForPrompt, getNotes, NOTE_TYPES } from './notes.js';
+import { countTokens } from './llm.js';
 import { enqueue, floorState, isActive, pendingCount, setHolding, waitForIdle } from './summarize.js';
 
 /** 保留原文的 AI 樓層數（規格：最新 2 個）。 */
@@ -76,7 +77,11 @@ function sceneLine(entry) {
 }
 
 /** 注入的文字：被隱藏樓層的摘要（依序）＋目前的記事。 */
-export function buildInjection(hidden) {
+/**
+ * 注入內容拆成幾塊（大視窗的「送出預覽」用來分別算 token）：
+ * { summaries: { floors, text }, notes: { character|item|promise|todo: { count, text } } }
+ */
+export function injectionParts(hidden) {
     const lines = [];
     const indices = [...hidden].filter((i) => isAiMessage(getChat()[i])).sort((a, b) => a - b);
     for (const i of indices) {
@@ -84,12 +89,43 @@ export function buildInjection(hidden) {
         if (e?.status === 'ok' && e.summary) lines.push(sceneLine(e));
     }
     const notes = getNotes().notes;
-    const hasNotes = [...notes.values()].some((n) => n.state !== 'done' && isTracked(n.type));
-    if (!lines.length && !hasNotes) return '';
+    const byType = {};
+    for (const type of NOTE_TYPES) {
+        if (!isTracked(type)) continue;
+        const count = [...notes.values()].filter((n) => n.type === type && n.state !== 'done').length;
+        byType[type] = { count, text: count ? formatNotesForPrompt(notes, { withIds: false, types: [type], emptyText: '' }) : '' };
+    }
+    return { summaries: { floors: lines.length, text: lines.join('\n') }, notes: byType };
+}
+
+/** 注入的文字：被隱藏樓層的摘要（依序）＋目前的記事。 */
+export function buildInjection(hidden) {
+    const { summaries, notes } = injectionParts(hidden);
+    const noteText = Object.values(notes).map((n) => n.text).filter(Boolean).join('\n');
+    if (!summaries.text && !noteText) return '';
     const parts = [t('inject.intro')];
-    if (lines.length) parts.push(`${t('inject.summaries')}\n${lines.join('\n')}`);
-    if (hasNotes) parts.push(`${t('inject.notes')}\n${formatNotesForPrompt(notes, { withIds: false })}`);
+    if (summaries.text) parts.push(`${t('inject.summaries')}\n${summaries.text}`);
+    if (noteText) parts.push(`${t('inject.notes')}\n${noteText}`);
     return parts.join('\n\n');
+}
+
+/**
+ * 「現在送出的話」會注入什麼、省下多少（大視窗預覽用；token 用酒館的分詞器算）。
+ * 回傳 { hiddenFloors, parts, text, tokens: { summaries, character…, total, hiddenRaw } }。
+ */
+export async function previewInjection() {
+    const { hidden } = computeHidden();
+    const parts = injectionParts(hidden);
+    const text = buildInjection(hidden);
+    const chat = getChat();
+    const hiddenRaw = [...hidden].sort((a, b) => a - b).map((i) => chat[i]?.mes ?? '').join('\n');
+    const tokens = {
+        summaries: parts.summaries.text ? await countTokens(parts.summaries.text) : 0,
+        total: text ? await countTokens(text) : 0,
+        hiddenRaw: hiddenRaw ? await countTokens(hiddenRaw) : 0,
+    };
+    for (const [type, n] of Object.entries(parts.notes)) tokens[type] = n.text ? await countTokens(n.text) : 0;
+    return { hiddenFloors: [...hidden].filter((i) => isAiMessage(chat[i])).length, parts, text, tokens };
 }
 
 function setInjection(text, position, depth) {

@@ -358,17 +358,18 @@ export function describeOp(op, notes) {
  * 記事清單文字：只列進行中（含被打破的約定），已完成的不列，省 token。
  * withIds：給摘要模型看時要有 id（它要引用）；注入給角色看時不需要。
  */
-export function formatNotesForPrompt(notes, { withIds = true } = {}) {
+export function formatNotesForPrompt(notes, { withIds = true, types = null, emptyText = t('prompt.noNotes') } = {}) {
     const lines = [];
     for (const n of notes.values()) {
         if (n.state === 'done' || !isTracked(n.type)) continue;
+        if (types && !types.includes(n.type)) continue;
         const parts = NOTE_FIELDS[n.type]
             .filter((f) => n.data[f])
             .map((f) => `${t(`field.${n.type}.${f}`)}：${n.data[f]}`);
         const flag = n.state === 'broken' ? `｜${resultLabel('broken')}` : '';
         lines.push(`${withIds ? `[${n.id}] ` : ''}${typeLabel(n.type)}｜${parts.join('｜')}${flag}`);
     }
-    return lines.length ? lines.join('\n') : t('prompt.noNotes');
+    return lines.length ? lines.join('\n') : emptyText;
 }
 
 export function initNotes() {

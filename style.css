@@ -465,3 +465,12 @@
     white-space: nowrap;
 }
 .mes.lp-hidden-user .mes_text { opacity: 0.6; }
+
+/* ===== 送出預覽 ===== */
+.lp-preview > summary .lp-sec-hint { font-variant-numeric: tabular-nums; }
+.lp-preview-table { display: flex; flex-direction: column; border-top: 1px solid var(--lp-border); }
+.lp-preview-row { display: flex; justify-content: space-between; gap: 12px; padding: 6px 2px; border-bottom: 1px solid color-mix(in srgb, var(--lp-border) 60%, transparent); }
+.lp-preview-total { font-weight: 600; }
+.lp-preview-num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.lp-preview-raw > summary { cursor: pointer; color: var(--lp-accent); min-height: 36px; display: flex; align-items: center; }
+.lp-preview-text { margin: 0; max-height: 320px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 0.85em; line-height: 1.6; padding: 10px; border-radius: 6px; background: var(--lp-card); }

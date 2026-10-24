@@ -189,6 +189,20 @@ const few = await page.evaluate(async () => {
 });
 check('only 2 AI floors: nothing hidden', few === 3);
 
+// 11. 送出預覽：各部分的 token
+await page.evaluate(() => { document.getElementById('extensionsMenu').style.display = ''; });
+await page.click('#lp_wand_entry');
+await page.click('[data-tab="summary"]');
+await page.click('details[data-preview] > summary');
+await page.waitForSelector('.lp-preview-row');
+const rows = await page.$$eval('.lp-preview-row', (r) => r.map((x) => x.textContent.replace(/\s+/g, ' ').trim()));
+check('preview rows: summaries, four note kinds, total, saved', rows.length === 7 && rows[0].startsWith('前情摘要') && rows[2].startsWith('物件（0 條）') && rows[6].startsWith('不送出的原文'), JSON.stringify(rows));
+check('preview line', (await page.textContent('[data-role="preview-line"]')).includes('tokens'));
+const injected = await page.evaluate(() => window.__runInterceptor('normal'));
+await page.click('.lp-preview-raw > summary');
+check('preview text equals what gets injected', (await page.textContent('.lp-preview-text')) === injected.injection.value);
+await page.screenshot({ path: `${OUT}/hide-2-preview.png` });
+
 console.log(results.join('\n'));
 console.log('ERRORS:', errors.length ? errors.join('\n') : 'none');
 await browser.close();

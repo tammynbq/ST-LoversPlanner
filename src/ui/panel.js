@@ -7,7 +7,7 @@ import { currentLocale, detectHostLocale, LOCALE_NAMES, LOCALES, t } from '../i1
 import { getTemplate, isTemplateModified, resetTemplate, setTemplate, TEMPLATE_KEYS, TEMPLATE_VARS } from '../prompts.js';
 import { listModels, normalizeBaseUrl, testConnection } from '../api/custom.js';
 import { errorText } from '../errors.js';
-import { getLastStats, onStatsChange } from '../hide.js';
+import { getLastStats, onStatsChange, previewInjection } from '../hide.js';
 import { aiIndices, getEntry } from '../chat.js';
 import {
     cancelQueue, enqueue, floorState, isActive, onSummaryChange, pendingCount, unsummarizedIndices,
@@ -72,6 +72,7 @@ const view = {
         newest: true,
         limit: SUMMARY_PAGE,
         confirmBackfill: false,
+        previewOpen: false,
     },
     tpl: 'l1',
     confirmReset: false,
@@ -324,8 +325,17 @@ function renderSummaryTab() {
         ? `<button type="button" class="menu_button lp-btn lp-more" data-action="sum-more">${esc(t('sum.more', { n: list.length - shown.length }))}</button>`
         : '';
 
+    // 送出預覽：先畫框，token 算好再填進去（fillPreview）。
+    queueMicrotask(fillPreview);
+    const preview = `
+      <details class="lp-sec lp-preview" data-preview${view.sum.previewOpen ? ' open' : ''}>
+        <summary><span class="lp-sec-title">${esc(t('preview.title'))}</span><span class="lp-sec-hint" data-role="preview-line">${esc(t('preview.counting'))}</span></summary>
+        <div class="lp-sec-body" data-role="preview-body"><div class="lp-note">${esc(t('preview.counting'))}</div></div>
+      </details>`;
+
     return `
       <div class="lp-summary">
+        ${preview}
         <div class="lp-row">
           <div class="lp-chips">${chips}</div>
           <span class="lp-spacer"></span>
@@ -1024,7 +1034,45 @@ function onInput(e) {
     }
 }
 
+let previewSeq = 0;
+
+/** 算「現在送出的話」各部分的 token，填進摘要分頁最上面的預覽框。 */
+async function fillPreview() {
+    const seq = ++previewSeq;
+    let p;
+    try {
+        p = await previewInjection();
+    } catch (e) {
+        console.warn(LOG_PREFIX, '預覽計算失敗', e);
+        return;
+    }
+    // 算的期間畫面重畫過，就以最新那次為準。
+    if (seq !== previewSeq || !isPanelOpen()) return;
+    const line = panel.querySelector('[data-role="preview-line"]');
+    const body = panel.querySelector('[data-role="preview-body"]');
+    if (!line || !body) return;
+    const n = (x) => Number(x || 0).toLocaleString();
+    line.textContent = p.text
+        ? t('preview.line', { total: n(p.tokens.total), raw: n(p.tokens.hiddenRaw) })
+        : t('preview.nothing');
+    const row = (label, value, cls = '') => `<div class="lp-preview-row${cls}"><span>${esc(label)}</span><span class="lp-preview-num">${esc(value)}</span></div>`;
+    const rows = [row(t('preview.summaries', { n: p.parts.summaries.floors }), `${n(p.tokens.summaries)} tokens`)];
+    for (const [type, info] of Object.entries(p.parts.notes)) {
+        rows.push(row(t('preview.notes', { kind: t(`kind.${KIND_KEY[type]}`), n: info.count }), `${n(p.tokens[type])} tokens`));
+    }
+    rows.push(row(t('preview.total'), `${n(p.tokens.total)} tokens`, ' lp-preview-total'));
+    rows.push(row(t('preview.saved', { n: p.hiddenFloors }), `${n(p.tokens.hiddenRaw)} tokens`));
+    body.innerHTML = `
+      <div class="lp-note">${esc(t('preview.desc'))}</div>
+      <div class="lp-preview-table">${rows.join('')}</div>
+      ${p.text ? `<details class="lp-preview-raw"><summary>${esc(t('preview.show'))}</summary><pre class="lp-preview-text">${esc(p.text)}</pre></details>` : ''}`;
+}
+
 function onToggle(e) {
+    if (e.target?.dataset && 'preview' in e.target.dataset) {
+        view.sum.previewOpen = e.target.open;
+        return;
+    }
     const sec = e.target?.dataset?.sec;
     if (!sec) return;
     if (e.target.open) view.openSections.add(sec);
