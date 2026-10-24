@@ -35,9 +35,14 @@ export function actionsFor(state) {
 export function hintFor(index, state) {
     const entry = getEntry(index);
     switch (state) {
-        case 'none':
-            if (getSettings().summary.mode !== 'auto') return t('sum.hint.manual');
-            return index === lastAiIndex() ? t('sum.hint.latest') : t('sum.hint.manual');
+        case 'none': {
+            const latest = index === lastAiIndex();
+            const mode = getSettings().summary.mode;
+            if (latest && mode === 'before') return t('sum.hint.latest');
+            // 「正文結束後」模式下，最新一層還沒摘要通常是因為還在生成中。
+            if (latest && mode === 'after' && getChat().length - 1 === index) return t('sum.hint.waitReply');
+            return t('sum.hint.manual');
+        }
         case 'skip': return t('sum.hint.skip');
         case 'fail': return t('sum.hint.fail', { error: entry?.error ?? '' });
         case 'stale': return t('sum.hint.stale');

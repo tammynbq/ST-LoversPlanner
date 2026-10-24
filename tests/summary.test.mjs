@@ -121,7 +121,31 @@ await userSends('晚安。');
 await page.evaluate(() => window.__emit('generation_ended', 8));
 await page.waitForTimeout(300);
 check('manual mode: no auto summary', (await page.evaluate(() => window.__prompts.length)) === before && (await state(6)) === 'none');
-await page.evaluate(() => { window.__extSettings.lovers_planner.summary.mode = 'auto'; });
+await page.evaluate(() => { window.__extSettings.lovers_planner.summary.mode = 'before'; });
+
+// 7b. 每回正文結束後自動：AI 一回覆完就摘要；「繼續寫」接長後自動重摘
+await page.evaluate(() => { window.__extSettings.lovers_planner.summary.mode = 'after'; window.__generateRaw = async () => '{"summary":"回覆完就摘","ops":[]}'; });
+await page.evaluate(async () => {
+  await window.__emit('generation_started', 'normal', {}, false);
+  window.__chat.push({ name: '沈言', is_user: false, mes: '那就明天見。', extra: {} });
+  window.__renderChat();
+  await window.__emit('character_message_rendered', window.__chat.length - 1);
+});
+check('after mode: waiting hint while generating', (await page.textContent('.mes[mesid="8"] .lp-sum-preview')).includes('這一回結束後'));
+await page.evaluate(() => window.__emit('message_received', 8));
+await page.waitForFunction(() => window.__chat[8].extra?.lovers_planner?.summary === '回覆完就摘');
+check('after mode: summarized right after reply', true);
+await page.evaluate(() => { window.__generateRaw = async () => '{"summary":"接長後重摘","ops":[]}'; });
+await page.evaluate(async () => { window.__chat[8].mes += '路上小心。'; await window.__emit('message_received', 8); });
+await page.waitForFunction(() => window.__chat[8].extra?.lovers_planner?.summary === '接長後重摘');
+await settle();
+check('after mode: continue re-summarizes', (await state(8)) === 'ok');
+const sentBefore = await page.evaluate(() => window.__prompts.length);
+await userSends('明天見。');
+await page.evaluate(() => window.__emit('generation_ended', 10));
+await page.waitForTimeout(300);
+check('after mode: sending does not summarize again', (await page.evaluate(() => window.__prompts.length)) === sentBefore);
+await page.evaluate(() => { window.__extSettings.lovers_planner.summary.mode = 'before'; window.__generateRaw = async () => '{"summary":"補上的摘要","ops":[]}'; });
 
 // 8. 自訂 API 沒設定好 → 清楚的錯誤
 await page.evaluate(() => { window.__extSettings.lovers_planner.source = 'custom'; });
@@ -134,7 +158,7 @@ await page.evaluate(() => { window.__extSettings.lovers_planner.source = 'main';
 // 9. 大視窗的摘要分頁
 await openPanel();
 const rows = await page.$$eval('.lp-floor-row .lp-floor-no', (els) => els.map((e) => e.textContent));
-check('panel lists AI floors newest first', rows.join() === '#6,#4,#2,#0', rows.join());
+check('panel lists AI floors newest first', rows.join() === '#8,#6,#4,#2,#0', rows.join());
 await page.click('[data-action="sum-filter"][data-filter="fail"]');
 check('filter fail', (await page.$$eval('.lp-floor-row .lp-floor-no', (els) => els.map((e) => e.textContent))).join() === '#6');
 await page.click('[data-action="sum-filter"][data-filter="all"]');
@@ -142,7 +166,7 @@ await page.screenshot({ path: `${OUT}/sum-3-panel.png` });
 await page.click('[data-action="sum-act"][data-act="retry"][data-index="6"]');
 await page.waitForFunction(() => window.__chat[6].extra?.lovers_planner?.status === 'ok');
 await page.waitForTimeout(200);
-check('retry from panel', (await page.textContent('.lp-floor-row')).includes('補上的摘要'));
+check('retry from panel', await page.evaluate(() => [...document.querySelectorAll('.lp-floor-row')].find((r) => r.querySelector('.lp-floor-no').textContent === '#6')?.textContent.includes('補上的摘要')));
 await page.click('[data-action="sum-act"][data-act="jump"][data-index="2"]');
 check('jump closes panel and expands block', !(await page.isVisible('.lp-overlay')) && (await page.isVisible('.mes[mesid="2"] .lp-sum-body')));
 
@@ -161,7 +185,7 @@ await page.click('[data-tab="settings"]');
 await page.click('input[data-path="enabled"]');
 check('disabled removes blocks', (await page.$$('.lp-sum')).length === 0);
 await page.click('input[data-path="enabled"]');
-check('re-enabled shows blocks', (await page.$$('.lp-sum')).length === 4);
+check('re-enabled shows blocks', (await page.$$('.lp-sum')).length === 5);
 
 // 12. 手機版
 await page.keyboard.press('Escape');

@@ -11,7 +11,8 @@ export const DEFAULTS = Object.freeze({
     source: 'main',
     custom: { url: '', key: '', model: '' },
     summary: {
-        mode: 'auto', // 'auto' | 'manual'
+        // 'after' 每回正文結束後自動 | 'manual' 手動 | 'before' 開始下回前自動（使用者送出下一句時摘要上一層）
+        mode: 'before',
         includeUser: true,
         ratioMin: 5,
         ratioMax: 10,
@@ -77,8 +78,12 @@ export function initSettings() {
         fallback = mergeDefaults(DEFAULTS, null);
         return fallback;
     }
-    c.extensionSettings[MODULE] = mergeDefaults(DEFAULTS, c.extensionSettings[MODULE]);
-    return c.extensionSettings[MODULE];
+    const s = mergeDefaults(DEFAULTS, c.extensionSettings[MODULE]);
+    // 舊版的 'auto' 就是現在的 'before'。
+    if (s.summary.mode === 'auto') s.summary.mode = 'before';
+    if (!['after', 'manual', 'before'].includes(s.summary.mode)) s.summary.mode = DEFAULTS.summary.mode;
+    c.extensionSettings[MODULE] = s;
+    return s;
 }
 
 export function getSettings() {

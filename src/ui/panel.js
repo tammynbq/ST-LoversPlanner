@@ -392,7 +392,7 @@ function renderSettings() {
     const summary = `
       <div class="lp-row">
         <label class="lp-label" for="lp-mode">${esc(t('set.summary.mode'))}</label>
-        ${select('summary.mode', 'lp-mode', [['auto', t('set.summary.mode.auto')], ['manual', t('set.summary.mode.manual')]])}
+        ${select('summary.mode', 'lp-mode', ['after', 'manual', 'before'].map((m) => [m, t(`set.summary.mode.${m}`)]))}
       </div>
       ${checkbox('summary.includeUser', t('set.summary.includeUser'), true)}
       ${s.summary.includeUser ? '' : `<div class="lp-callout lp-warn">${esc(t('set.summary.includeUser.warn'))}</div>`}

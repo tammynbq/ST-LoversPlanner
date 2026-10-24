@@ -1,6 +1,9 @@
 // L1 單層摘要：排隊、組提示詞、呼叫模型、解析結果、寫回訊息。
 //
-// 自動模式：使用者送出下一句時，才摘要上一個 AI 樓層（那時才算定案，swipe 不會浪費額度）。
+// 三種模式（設定 › 摘要）：
+//   'after'  每回正文結束後自動：AI 一回覆完就摘要這一層（重新生成／swipe 會再摘一次）。
+//   'before' 開始下回前自動：使用者送出下一句時，才摘要上一個 AI 樓層（那時才算定案，比較省）。
+//   'manual' 手動：只在按「立即摘要」時。
 // 走主 API 時，等酒館這一輪生成結束才開始，避免和正常生成搶同一條連線。
 
 import { ctx, hasCharacterChat, isGroupChat, LOG_PREFIX, toast } from './util.js';
@@ -211,9 +214,9 @@ export function writeSummary(index, text) {
     return true;
 }
 
-/** 還沒摘要的舊樓層（不含最新一層，它要等定案）。 */
+/** 還沒摘要的舊樓層。「開始下回前」模式不含最新一層，它要等定案。 */
 export function unsummarizedIndices() {
-    const last = lastAiIndex();
+    const last = getSettings().summary.mode === 'before' ? lastAiIndex() : -1;
     const out = [];
     getChat().forEach((m, i) => {
         if (i !== last && isAiMessage(m) && floorStatus(i) === 'none') out.push(i);
@@ -224,7 +227,7 @@ export function unsummarizedIndices() {
 // ===== 事件 =====
 
 function onMessageSent(id) {
-    if (!isActive() || getSettings().summary.mode !== 'auto') return;
+    if (!isActive() || getSettings().summary.mode !== 'before') return;
     const chat = getChat();
     const from = Number.isInteger(id) ? id : chat.length - 1;
     for (let i = from - 1; i >= 0; i--) {
@@ -244,6 +247,18 @@ function onGenerationStarted(type, options, dryRun) {
 function onGenerationDone() {
     mainBusySince = 0;
     drain();
+}
+
+/** AI 回覆完成（新回覆、重新生成、swipe、繼續寫都會觸發）。 */
+function onMessageReceived(id) {
+    if (isActive() && getSettings().summary.mode === 'after') {
+        const chat = getChat();
+        const index = Number.isInteger(id) ? id : chat.length - 1;
+        const status = isAiMessage(chat[index]) ? floorStatus(index) : null;
+        // 「過期」在這裡是剛被「繼續寫」接長了，不是使用者手動改的，直接重摘。
+        if (status === 'none' || status === 'stale') enqueue(index);
+    }
+    onGenerationDone();
 }
 
 function onChatChanged() {
@@ -266,7 +281,7 @@ export function initSummarizer() {
     c.eventSource.on(ev.GENERATION_STARTED, onGenerationStarted);
     c.eventSource.on(ev.GENERATION_ENDED, onGenerationDone);
     c.eventSource.on(ev.GENERATION_STOPPED, onGenerationDone);
-    c.eventSource.on(ev.MESSAGE_RECEIVED, onGenerationDone);
+    c.eventSource.on(ev.MESSAGE_RECEIVED, onMessageReceived);
     c.eventSource.on(ev.CHAT_CHANGED, onChatChanged);
     c.eventSource.on(ev.MESSAGE_DELETED, onMessagesShifted);
 }
