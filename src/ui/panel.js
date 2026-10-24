@@ -1,10 +1,11 @@
 // 大視窗：標題列 + 分頁（摘要／記事／已完成／設定）。
 // 第一版只有設定頁是完整的，其他分頁先放「製作中」的說明。
 
-import { ctx, escapeHtml as esc, hasCharacterChat, isGroupChat, isTauriTavern, LOG_PREFIX } from '../util.js';
+import { ctx, escapeHtml as esc, hasCharacterChat, isGroupChat, isTauriTavern, LOG_PREFIX, toast } from '../util.js';
 import { getPath, getSettings, saveSettings, setPath } from '../settings.js';
 import { currentLocale, detectHostLocale, LOCALE_NAMES, LOCALES, t } from '../i18n.js';
 import { getTemplate, isTemplateModified, resetTemplate, setTemplate, TEMPLATE_KEYS, TEMPLATE_VARS } from '../prompts.js';
+import { ApiError, listModels, normalizeBaseUrl, testConnection } from '../api/custom.js';
 
 const TABS = ['summary', 'notes', 'done', 'settings'];
 const SCOPE_KINDS = ['summary', 'characters', 'items', 'promises', 'todos'];
@@ -36,6 +37,15 @@ const view = {
     tpl: 'l1',
     confirmReset: false,
     resetDone: false,
+    // 自訂 API：先改草稿，按「儲存」才寫進設定。
+    custom: {
+        draft: null, // { url, key, model }
+        models: [],
+        manual: false, // 模型改用手動輸入
+        showKey: false,
+        busy: false,
+        status: null, // { type: 'ok' | 'error' | 'saved', text }
+    },
 };
 
 let overlay = null;
@@ -69,6 +79,10 @@ export function closePanel() {
     document.removeEventListener('keydown', onKeydown, true);
     view.confirmReset = false;
     view.resetDone = false;
+    if (customDirty()) toast(t('set.custom.unsavedOnClose'), 'warning');
+    view.custom.draft = null;
+    view.custom.status = null;
+    view.custom.showKey = false;
     try { lastFocus?.focus?.(); } catch (e) { /* 元素可能已經不在 */ }
 }
 
@@ -208,12 +222,6 @@ function select(path, id, options, rerender = false) {
     return `<select id="${id}" class="text_pole lp-select" data-path="${path}"${rerender ? ' data-rerender' : ''}>${opts}</select>`;
 }
 
-function textInput(path, id, label, type = 'text', placeholder = '') {
-    const val = getPath(getSettings(), path) ?? '';
-    return `<label class="lp-field" for="${id}"><span class="lp-label">${esc(label)}</span>
-      <input id="${id}" type="${type}" class="text_pole" data-path="${path}" data-kind="text" value="${esc(val)}" placeholder="${esc(placeholder)}" autocomplete="off" spellcheck="false"></label>`;
-}
-
 function radio(name, path, value, label) {
     const on = getPath(getSettings(), path) === value;
     return `<label class="lp-check"><input type="radio" name="${name}" data-path="${path}" data-rerender value="${esc(value)}"${on ? ' checked' : ''}><span>${esc(label)}</span></label>`;
@@ -239,17 +247,10 @@ function renderSettings() {
       </div>
       <div class="lp-note">${esc(t('set.language.note'))}</div>`;
 
-    const custom = s.source === 'custom' ? `
-      <div class="lp-grid2 lp-card">
-        ${textInput('custom.url', 'lp-custom-url', t('set.custom.url'), 'url', 'https://api.example.com/v1')}
-        ${textInput('custom.model', 'lp-custom-model', t('set.custom.model'))}
-        ${textInput('custom.key', 'lp-custom-key', t('set.custom.key'), 'password')}
-        <div class="lp-note lp-warn lp-span2">${esc(t('set.custom.warn'))}</div>
-      </div>` : '';
     const model = `
       ${radio('lp-source', 'source', 'main', t('set.source.main'))}
       ${radio('lp-source', 'source', 'custom', t('set.source.custom'))}
-      ${custom}`;
+      ${s.source === 'custom' ? renderCustom() : ''}`;
 
     const summary = `
       <div class="lp-row">
@@ -306,6 +307,136 @@ function renderSettings() {
       ${section('inject', t('sec.inject'), t('sec.inject.hint'), inject)}
       ${section('advanced', t('sec.advanced'), t('sec.advanced.hint'), advanced)}
     </div>`;
+}
+
+// ===== 自訂 API =====
+
+function customDraft() {
+    if (!view.custom.draft) view.custom.draft = { ...getSettings().custom };
+    return view.custom.draft;
+}
+
+function customDirty() {
+    const d = view.custom.draft;
+    if (!d) return false;
+    const saved = getSettings().custom;
+    return ['url', 'key', 'model'].some((k) => (d[k] ?? '') !== (saved[k] ?? ''));
+}
+
+function customStatusHtml() {
+    const c = view.custom;
+    if (c.busy) return `<span class="lp-note" role="status">${esc(t('set.custom.busy'))}</span>`;
+    const parts = [];
+    if (c.status) {
+        const cls = c.status.type === 'error' ? 'lp-error-text' : 'lp-ok-text';
+        parts.push(`<span class="${cls}" role="status">${esc(c.status.text)}</span>`);
+    }
+    if (customDirty()) parts.push(`<span class="lp-warn-text">${esc(t('set.custom.dirty'))}</span>`);
+    return parts.join('');
+}
+
+function renderCustom() {
+    const c = view.custom;
+    const d = customDraft();
+    let modelField;
+    if (!c.manual && c.models.length) {
+        // 已儲存的模型不在清單裡時也列出來，免得被默默換掉。
+        const list = d.model && !c.models.includes(d.model) ? [d.model, ...c.models] : c.models;
+        const opts = [
+            `<option value="">${esc(t('set.custom.pick'))}</option>`,
+            ...list.map((m) => `<option value="${esc(m)}"${m === d.model ? ' selected' : ''}>${esc(m)}</option>`),
+            `<option value="__manual__">${esc(t('set.custom.manual'))}</option>`,
+        ].join('');
+        modelField = `<select id="lp-custom-model" class="text_pole lp-grow" data-draft="model">${opts}</select>`;
+    } else {
+        modelField = `<input id="lp-custom-model" type="text" class="text_pole lp-grow" data-draft="model" value="${esc(d.model)}" placeholder="${esc(t('set.custom.modelPlaceholder'))}" autocomplete="off" spellcheck="false">`;
+    }
+    const disabled = c.busy ? ' disabled' : '';
+    return `
+      <div class="lp-card lp-custom">
+        <label class="lp-field" for="lp-custom-url"><span class="lp-label">${esc(t('set.custom.url'))}</span>
+          <input id="lp-custom-url" type="url" inputmode="url" class="text_pole" data-draft="url" value="${esc(d.url)}" placeholder="https://api.example.com/v1" autocomplete="off" spellcheck="false"></label>
+        <div class="lp-field">
+          <label class="lp-label" for="lp-custom-key">${esc(t('set.custom.key'))}</label>
+          <div class="lp-inline">
+            <input id="lp-custom-key" type="${c.showKey ? 'text' : 'password'}" class="text_pole lp-grow" data-draft="key" value="${esc(d.key)}" autocomplete="off" spellcheck="false">
+            <button type="button" class="menu_button lp-btn" data-action="toggle-key" aria-pressed="${c.showKey}">${esc(t(c.showKey ? 'set.custom.keyHide' : 'set.custom.keyShow'))}</button>
+          </div>
+        </div>
+        <div class="lp-field">
+          <label class="lp-label" for="lp-custom-model">${esc(t('set.custom.model'))}</label>
+          <div class="lp-inline">
+            ${modelField}
+            <button type="button" class="menu_button lp-btn" data-action="fetch-models"${disabled}>${esc(t('set.custom.fetch'))}</button>
+          </div>
+        </div>
+        <div class="lp-row">
+          <button type="button" class="menu_button lp-btn" data-action="test-custom"${disabled}>${esc(t('set.custom.test'))}</button>
+          <button type="button" class="menu_button lp-btn lp-primary" data-action="save-custom"${disabled}>${esc(t('set.custom.save'))}</button>
+          <span class="lp-custom-status" data-role="custom-status">${customStatusHtml()}</span>
+        </div>
+        <div class="lp-note lp-warn">${esc(t('set.custom.warn'))}</div>
+      </div>`;
+}
+
+function apiErrorText(e) {
+    if (!(e instanceof ApiError)) return t('err.http', { detail: e?.message ?? String(e) });
+    if (e.code === 'http') {
+        if (e.status === 401) return t('err.401');
+        if (e.status === 404) return t('err.404');
+        const detail = [e.status ? `HTTP ${e.status}` : '', e.detail].filter(Boolean).join(' · ');
+        return t('err.http', { detail });
+    }
+    return t(`err.${e.code}`, { detail: e.detail });
+}
+
+/** 跑一個連線動作：期間按鈕變灰、顯示「連接中」，結束後顯示結果。 */
+async function runCustom(task) {
+    const c = view.custom;
+    c.busy = true;
+    c.status = null;
+    render();
+    try {
+        c.status = { type: 'ok', text: await task() };
+    } catch (e) {
+        console.warn(LOG_PREFIX, '自訂 API 連線失敗', e);
+        c.status = { type: 'error', text: apiErrorText(e) };
+    } finally {
+        c.busy = false;
+        if (isPanelOpen()) render();
+    }
+}
+
+function viaText(via) {
+    return via === 'backend' ? t('set.custom.via') : '';
+}
+
+function fetchModels() {
+    return runCustom(async () => {
+        const { models, via } = await listModels(customDraft());
+        view.custom.models = models;
+        view.custom.manual = models.length === 0;
+        return models.length ? t('set.custom.models', { n: models.length, via: viaText(via) }) : t('set.custom.noModels');
+    });
+}
+
+function testCustom() {
+    return runCustom(async () => {
+        const r = await testConnection(customDraft());
+        return r.kind === 'reply'
+            ? t('set.custom.ok', { reply: r.reply, via: viaText(r.via) })
+            : t('set.custom.okModels', { n: r.count, via: viaText(r.via) });
+    });
+}
+
+function saveCustom() {
+    const d = customDraft();
+    const s = getSettings();
+    s.custom = { url: normalizeBaseUrl(d.url), key: d.key.trim(), model: d.model.trim() };
+    saveSettings();
+    view.custom.draft = { ...s.custom };
+    view.custom.status = { type: 'saved', text: t('set.custom.saved') };
+    render();
 }
 
 function renderTemplates() {
@@ -368,6 +499,20 @@ function onClick(e) {
             view.resetDone = true;
             render();
             return;
+        case 'toggle-key':
+            view.custom.showKey = !view.custom.showKey;
+            render();
+            panel.querySelector('[data-action="toggle-key"]')?.focus();
+            return;
+        case 'fetch-models':
+            fetchModels();
+            return;
+        case 'test-custom':
+            testCustom();
+            return;
+        case 'save-custom':
+            saveCustom();
+            return;
     }
 }
 
@@ -394,7 +539,7 @@ function fixRanges(changedPath) {
 function onChange(e) {
     const el = e.target;
     const path = el.dataset?.path;
-    if (!path || el.dataset.kind === 'text') return;
+    if (!path) return;
     let value;
     if (el.type === 'checkbox') value = el.checked;
     else if (el.type === 'radio') {
@@ -419,9 +564,19 @@ function onChange(e) {
 
 function onInput(e) {
     const el = e.target;
-    if (el.dataset?.kind === 'text') {
-        setPath(getSettings(), el.dataset.path, el.value.trim());
-        saveSettings();
+    if (el.dataset?.draft) {
+        const field = el.dataset.draft;
+        if (field === 'model' && el.value === '__manual__') {
+            view.custom.manual = true;
+            customDraft().model = '';
+            render();
+            panel.querySelector('#lp-custom-model')?.focus();
+            return;
+        }
+        customDraft()[field] = el.value;
+        view.custom.status = null;
+        const status = panel.querySelector('[data-role="custom-status"]');
+        if (status) status.innerHTML = customStatusHtml();
         return;
     }
     if (el.dataset?.template) {

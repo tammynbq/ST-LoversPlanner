@@ -43,8 +43,11 @@ check('sections stay open after rerender', await page.evaluate(() => document.qu
 
 // 自訂 API
 await page.click('input[data-path="source"][value="custom"]');
-await page.fill('#lp-custom-url', 'https://api.example.com/v1');
-check('custom url saved', await page.evaluate(() => window.__extSettings.lovers_planner.custom.url === 'https://api.example.com/v1'));
+await page.fill('#lp-custom-url', 'https://api.example.com/v1/');
+check('custom url not saved before Save', await page.evaluate(() => window.__extSettings.lovers_planner.custom.url === ''));
+check('dirty indicator', (await page.textContent('[data-role="custom-status"]')).includes('未儲存'));
+await page.click('[data-action="save-custom"]');
+check('custom url saved (normalized)', await page.evaluate(() => window.__extSettings.lovers_planner.custom.url === 'https://api.example.com/v1'));
 check('model hint updates', (await page.textContent('details[data-sec="model"] .lp-sec-hint')).includes('自訂'));
 
 // 數字範圍連動
