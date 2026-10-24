@@ -293,13 +293,21 @@
 .lp-sum-actions .lp-btn { min-height: 32px; font-size: 0.85em; }
 
 /* ===== 聊天畫面：每條 AI 訊息下面的摘要區塊 ===== */
+/* 包成一個獨立的框：用主題底色＋霧面模糊，放在任何背景圖上都讀得清楚。 */
 .lp-sum {
-    margin-top: 6px;
-    padding-top: 4px;
-    border-top: 1px dashed var(--lp-border);
+    margin: 8px 0 4px;
+    padding: 2px 10px;
+    border: 1px solid color-mix(in srgb, var(--lp-text) 18%, transparent);
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--lp-bg) 88%, transparent);
+    -webkit-backdrop-filter: blur(6px);
+    backdrop-filter: blur(6px);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
     color: var(--lp-text);
     font-size: 0.9em;
 }
+/* 最後一則訊息底下有切換 swipe 的按鈕，留點空間別被蓋住。 */
+.mes.last_mes .lp-sum { margin-bottom: 2.6em; }
 .lp-sum-head {
     width: 100%;
     min-height: 36px;
@@ -328,10 +336,9 @@
     display: flex;
     flex-direction: column;
     gap: 8px;
-    margin: 2px 0 6px;
-    padding: 10px 12px;
-    border-radius: 8px;
-    background: var(--lp-card);
+    margin: 0 0 8px;
+    padding: 8px 2px 0;
+    border-top: 1px dashed color-mix(in srgb, var(--lp-text) 18%, transparent);
 }
 .lp-sum-editor {
     width: 100%;
