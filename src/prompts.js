@@ -36,13 +36,17 @@ const DEFAULTS = {
 1. time：這一段發生的故事內時間（例如「第三天 晚上」）。沒提到就延續上一層；完全無法判斷就留空字串。
 2. location：發生的地點。沒提到就延續上一層；地點有移動可以寫「A → B」。
 3. characters：這一段出場的人物名字（陣列）。
-4. summary：約 {{length}} 字的摘要。只記發生了什麼、重要的決定和情緒轉折，不要評論，不要加入原文沒有的內容。
-5. ops：對照目前的記事清單，找出這段對話裡新出現、有變化、或已經結束的人物、物件、約定、待辦：
+4. summary：不超過 {{length}} 字，1～3 句，只寫重點：誰做了什麼、結果如何、關係或情緒有什麼變化。
+   - 不要再寫時間、地點（已經在 time、location 裡）。
+   - 不要列出物品數量、功法細節這類會記在 ops 裡的東西。
+   - 不要評論，不要加入原文沒有的內容。
+5. ops：對照目前的記事清單，只記之後劇情還會用到的變化，寧缺勿濫：
    - 新增用 add，type 是 character／item／promise／todo。更新或結束已有的記事時，用清單裡方括號中的 id。
-   - 人物不會被移除，只用 update 更新狀態（例如離開、死亡）。
-   - 物件用掉、遺失、送人時用 complete，result 是 used／lost／gone。
+   - character：只記配角和新登場的重要人物。{{char}} 和 {{user}} 是主角，不要記成人物。人物不會被移除，只用 update 更新狀態（例如離開、死亡）。
+   - item：只記有劇情意義的物件。同一次得到的東西合併成一條（例如「十塊下品靈石、兩瓶辟穀丹」）。用掉、遺失、送人時用 complete，result 是 used／lost／gone。
+   - promise 是和別人的約定或承諾；todo 是主角自己打算做的事。同一件事不要同時記成兩種。
    - 約定履行用 complete 加 kept；被打破用 complete 加 broken。待辦完成用 complete 加 done。
-   - 清單裡已經有的不要重複新增。沒有變化就讓 ops 是空陣列。
+   - 清單裡已經有的不要重複新增。沒有值得記的變化就讓 ops 是空陣列。
 
 上一層：{{previous}}
 
@@ -79,13 +83,17 @@ ${L1_JSON_SPEC}`,
 1. time：这一段发生的故事内时间（例如「第三天 晚上」）。没提到就延续上一层；完全无法判断就留空字符串。
 2. location：发生的地点。没提到就延续上一层；地点有移动可以写「A → B」。
 3. characters：这一段出场的人物名字（数组）。
-4. summary：约 {{length}} 字的摘要。只记发生了什么、重要的决定和情绪转折，不要评论，不要加入原文没有的内容。
-5. ops：对照当前的记事清单，找出这段对话里新出现、有变化、或已经结束的人物、物件、约定、待办：
+4. summary：不超过 {{length}} 字，1～3 句，只写重点：谁做了什么、结果如何、关系或情绪有什么变化。
+   - 不要再写时间、地点（已经在 time、location 里）。
+   - 不要列出物品数量、功法细节这类会记在 ops 里的东西。
+   - 不要评论，不要加入原文没有的内容。
+5. ops：对照当前的记事清单，只记之后剧情还会用到的变化，宁缺毋滥：
    - 新增用 add，type 是 character／item／promise／todo。更新或结束已有的记事时，用清单里方括号中的 id。
-   - 人物不会被移除，只用 update 更新状态（例如离开、死亡）。
-   - 物件用掉、遗失、送人时用 complete，result 是 used／lost／gone。
+   - character：只记配角和新登场的重要人物。{{char}} 和 {{user}} 是主角，不要记成人物。人物不会被移除，只用 update 更新状态（例如离开、死亡）。
+   - item：只记有剧情意义的物件。同一次得到的东西合并成一条（例如「十块下品灵石、两瓶辟谷丹」）。用掉、遗失、送人时用 complete，result 是 used／lost／gone。
+   - promise 是和别人的约定或承诺；todo 是主角自己打算做的事。同一件事不要同时记成两种。
    - 约定履行用 complete 加 kept；被打破用 complete 加 broken。待办完成用 complete 加 done。
-   - 清单里已经有的不要重复新增。没有变化就让 ops 是空数组。
+   - 清单里已经有的不要重复新增。没有值得记的变化就让 ops 是空数组。
 
 上一层：{{previous}}
 
@@ -122,13 +130,17 @@ Read the exchange below and report, in English and in the third person:
 1. time: when this happens in the story (e.g. "day three, evening"). If not mentioned, carry over from the previous floor; if impossible to tell, use an empty string.
 2. location: where it happens. If not mentioned, carry over from the previous floor; for a change of place write "A → B".
 3. characters: names of the characters who appear (array).
-4. summary: about {{length}} words. Record only what happened, key decisions and emotional turns. Don't comment and don't add anything that isn't in the text.
-5. ops: compare with the current notes and find characters, items, promises and to-dos that are new, changed or finished:
+4. summary: at most {{length}} words, 1–3 sentences, only the essentials: who did what, how it turned out, and any change in the relationship or mood.
+   - Don't repeat the time or place (they are already in time and location).
+   - Don't list item quantities or technique details; those belong in ops.
+   - Don't comment and don't add anything that isn't in the text.
+5. ops: compare with the current notes and record only changes the story will need later. Less is more:
    - Use add with type character / item / promise / todo for new ones. To update or finish an existing note, use the id in square brackets from the list.
-   - Characters are never removed; only use update to change their status (e.g. left, died).
-   - When an item is used up, lost or given away, use complete with result used / lost / gone.
+   - character: only supporting or newly introduced important characters. {{char}} and {{user}} are the leads; never add them as characters. Characters are never removed; only use update to change their status (e.g. left, died).
+   - item: only items that matter to the plot. Merge things received together into one entry (e.g. "ten spirit stones, two bottles of fasting pills"). When used up, lost or given away, use complete with result used / lost / gone.
+   - promise is a commitment made with someone; todo is something a lead plans to do. Never record the same thing as both.
    - A kept promise is complete + kept; a broken one is complete + broken. A finished to-do is complete + done.
-   - Don't add anything that is already in the list. If nothing changed, leave ops as an empty array.
+   - Don't add anything that is already in the list. If nothing worth recording changed, leave ops as an empty array.
 
 Previous floor: {{previous}}
 

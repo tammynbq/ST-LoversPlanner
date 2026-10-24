@@ -16,7 +16,7 @@ window.__events = {};
 window.__saved = 0;
 window.__chatSaves = 0;
 window.__prompts = [];
-const extensionSettings = {};
+const extensionSettings = window.__presetSettings || {};
 const chatMetadata = {};
 window.__chat = window.__chat || [];
 window.__emit = async (name, ...args) => { for (const f of (window.__events[name] || [])) await f(...args); };

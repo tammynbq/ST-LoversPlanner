@@ -14,10 +14,10 @@ export const DEFAULTS = Object.freeze({
         // 'after' 每回正文結束後自動 | 'manual' 手動 | 'before' 開始下回前自動（使用者送出下一句時摘要上一層）
         mode: 'before',
         includeUser: true,
-        ratioMin: 5,
-        ratioMax: 10,
+        ratioMin: 3,
+        ratioMax: 6,
         minTokens: 30,
-        maxTokens: 300,
+        maxTokens: 150,
     },
     compress: {
         l1PerL2: 10,
@@ -44,6 +44,8 @@ export const DEFAULTS = Object.freeze({
     prompts: { l1: null, l2: null, l3: null, recap: null },
     // 每張角色卡自己的資料，key 是角色卡頭像檔名：{ [avatar]: { scope } }
     characters: {},
+    // 設定格式的版本，用來做一次性的轉換。
+    settingsVersion: 2,
 });
 
 function isPlainObject(v) {
@@ -78,7 +80,16 @@ export function initSettings() {
         fallback = mergeDefaults(DEFAULTS, null);
         return fallback;
     }
-    const s = mergeDefaults(DEFAULTS, c.extensionSettings[MODULE]);
+    const saved = c.extensionSettings[MODULE];
+    const s = mergeDefaults(DEFAULTS, saved);
+    // v1 → v2：摘要預設長度調短（使用者回報太長）。還是舊預設值的才換，自己改過的不動。
+    if (saved && !(saved.settingsVersion >= 2)) {
+        const sum = s.summary;
+        if (sum.ratioMin === 5 && sum.ratioMax === 10 && sum.maxTokens === 300) {
+            Object.assign(sum, { ratioMin: DEFAULTS.summary.ratioMin, ratioMax: DEFAULTS.summary.ratioMax, maxTokens: DEFAULTS.summary.maxTokens });
+        }
+    }
+    s.settingsVersion = DEFAULTS.settingsVersion;
     // 舊版的 'auto' 就是現在的 'before'。
     if (s.summary.mode === 'auto') s.summary.mode = 'before';
     if (!['after', 'manual', 'before'].includes(s.summary.mode)) s.summary.mode = DEFAULTS.summary.mode;

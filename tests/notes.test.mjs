@@ -24,6 +24,8 @@ const MODEL = `async ({ prompt }) => {
       summary: '林姐把咖啡店交給小雨，沈言送了手鍊並約好看海。',
       ops: [
         { op: 'add', type: 'character', data: { name: '林姐', relation: '咖啡店老闆', status: '回老家' } },
+        { op: 'add', type: 'character', data: { name: '沈言', relation: '主角' } },
+        { op: 'add', type: 'character', data: { name: '小雨' } },
         { op: 'add', type: 'item', data: { name: '銀色手鍊', holder: '小雨' } },
         { op: 'add', type: 'promise', data: { content: '週末去看海', with: '沈言', when: '週末' } },
         { op: 'add', type: 'todo', data: { content: '查車班' } },
@@ -78,6 +80,7 @@ const summarize = async (i) => {
 await summarize(0);
 const e0 = await entry(0);
 check('scene fields stored', e0.time === '第三天 傍晚' && e0.location === '咖啡店' && e0.characters.join() === '沈言,小雨,林姐', JSON.stringify(e0));
+check('leads not recorded as characters', !e0.ops.some((o) => ['沈言', '小雨'].includes(o.data?.name)));
 check('ops normalized with ids', e0.ops.length === 4 && e0.ops.every((o) => o.op === 'add' && /^[cipt]_/.test(o.id)));
 check('scene shown in block', (await page.textContent('.mes[mesid="0"] .lp-scene')).includes('咖啡店'));
 check('changes listed in block', (await page.$$('.mes[mesid="0"] .lp-change')).length === 4);

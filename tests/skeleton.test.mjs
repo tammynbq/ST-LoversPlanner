@@ -21,7 +21,7 @@ async function newPage(viewport, init = '') {
 const page = await newPage({ width: 1200, height: 860 });
 check('wand label', (await page.textContent('#lp_wand_entry')).trim() === '戀人手帳');
 check('drawer button', (await page.textContent('.lp-drawer-open')).trim() === '打開戀人手帳');
-check('settings merged', await page.evaluate(() => window.__extSettings.lovers_planner?.summary?.ratioMax === 10));
+check('settings merged', await page.evaluate(() => window.__extSettings.lovers_planner?.summary?.ratioMax === 6));
 check('default mode is before', await page.evaluate(() => window.__extSettings.lovers_planner.summary.mode === 'before'));
 const miss = await page.evaluate(async () => (await import('/src/i18n.js')).missingKeys());
 check('i18n keys consistent', Object.keys(miss).length === 0, JSON.stringify(miss));
@@ -119,6 +119,12 @@ await mobile.click('input[data-path="source"][value="custom"]');
 const overflow = await mobile.evaluate(() => document.querySelector('.lp-body').scrollWidth > document.querySelector('.lp-body').clientWidth);
 check('no horizontal overflow on phone', !overflow);
 await mobile.screenshot({ path: `${OUT}/5-mobile-settings.png` });
+
+// 舊版設定的轉換：還是舊預設長度的換成新預設；自己改過的不動
+const old = await newPage({ width: 800, height: 600 }, 'window.__presetSettings = { lovers_planner: { summary: { mode: "auto", ratioMin: 5, ratioMax: 10, minTokens: 30, maxTokens: 300 } } };');
+check('migrate old default length', await old.evaluate(() => { const s = window.__extSettings.lovers_planner; return s.summary.ratioMin === 3 && s.summary.ratioMax === 6 && s.summary.maxTokens === 150 && s.summary.mode === 'before' && s.settingsVersion === 2; }));
+const custom = await newPage({ width: 800, height: 600 }, 'window.__presetSettings = { lovers_planner: { summary: { ratioMin: 8, ratioMax: 12, maxTokens: 400 } } };');
+check('keep customized length', await custom.evaluate(() => { const s = window.__extSettings.lovers_planner.summary; return s.ratioMin === 8 && s.ratioMax === 12 && s.maxTokens === 400; }));
 
 // 英文瀏覽器、酒館沒有語言設定
 const en = await newPage({ width: 1000, height: 700 }, 'window.__locale = "en";');

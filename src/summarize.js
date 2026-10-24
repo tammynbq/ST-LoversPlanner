@@ -202,7 +202,8 @@ async function summarizeFloor(index) {
         if (!stillHere()) return;
         // 對照這一層之前的記事整理變化：配上 id、去掉重複新增和找不到的。
         const prevOps = getEntry(index)?.ops;
-        const ops = normalizeModelOps(parsed.ops, built.notesBefore, prevOps);
+        const c = ctx();
+        const ops = normalizeModelOps(parsed.ops, built.notesBefore, prevOps, { leads: [c?.name1, c?.name2].filter(Boolean) });
         // 摘要途中原文被改的話，hash 對不上，會自動顯示成「過期」。
         setEntry(index, {
             v: 2, status: 'ok', time: parsed.time, location: parsed.location, characters: parsed.characters,
