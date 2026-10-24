@@ -112,12 +112,18 @@ await page.click('.mes[mesid="2"] [data-lp-act="redo-op"][data-k="0"]');
 check('restore change', (await notes()).find((x) => x.type === 'promise').state === 'done');
 
 // 4. 大視窗：記事分頁
-await openPanel('notes');
-const sections = await page.$$eval('.lp-note-section', (s) => s.map((x) => x.querySelectorAll('.lp-note-card').length));
-check('notes tab: 3 characters, 1 item, 0 promise, 1 todo', sections.join() === '3,1,0,1', sections.join());
+const tabs = async () => page.$$eval('.lp-tab', (b) => b.map((x) => x.dataset.tab).join());
+const cards = async () => page.$$eval('.lp-note-section', (s) => s.map((x) => x.querySelectorAll('.lp-note-card').length).join());
+await openPanel('characters');
+check('tabs: summary, characters, items, notes, done, settings', (await tabs()) === 'summary,characters,items,notes,done,settings', await tabs());
+check('characters tab: 3', (await cards()) === '3', await cards());
 check('likes shown on card', (await page.textContent('.lp-note-section')).includes('熱可可'));
 check('trace links', (await page.textContent('.lp-note-section')).includes('在 #0 新增'));
 await page.screenshot({ path: `${OUT}/notes-2-tab.png` });
+await page.click('[data-tab="items"]');
+check('items tab: 1', (await cards()) === '1', await cards());
+await page.click('[data-tab="notes"]');
+check('promises & to-dos tab: 0 promise, 1 todo', (await cards()) === '0,1', await cards());
 // 手動新增待辦（按 Enter 儲存）
 await page.click('[data-action="note-add"][data-type="todo"]');
 await page.fill('[data-note-form] [data-note-field="content"]', '買防曬乳');
@@ -125,6 +131,7 @@ await page.press('[data-note-form] [data-note-field="content"]', 'Enter');
 check('manual add', (await notes()).some((x) => x.content === '買防曬乳'));
 // 標題不能清空
 const itemId = (await notes()).find((x) => x.type === 'item').id;
+await page.click('[data-tab="items"]');
 await page.click(`[data-action="note-edit"][data-id="${itemId}"]`);
 await page.fill('[data-note-form] [data-note-field="name"]', '');
 await page.click('[data-action="note-save"]');
@@ -135,6 +142,7 @@ await page.click('[data-action="note-save"]');
 check('manual edit', (await notes()).find((x) => x.id === itemId).name === '銀手鍊');
 // 完成待辦 → 已完成分頁 → 還原
 const todoId = (await notes()).find((x) => x.content === '查車班').id;
+await page.click('[data-tab="notes"]');
 await page.click(`[data-action="note-complete"][data-id="${todoId}"]`);
 check('todo done', (await notes()).find((x) => x.id === todoId).state === 'done');
 await page.click('[data-tab="done"]');

@@ -7,18 +7,22 @@
 
 import { ctx, MODULE } from './util.js';
 import { t } from './i18n.js';
+import { isTracked } from './settings.js';
 import { getChat, getEntry, isAiMessage, saveChatSoon } from './chat.js';
 
 export const NOTE_TYPES = ['character', 'item', 'promise', 'todo'];
 
 export const NOTE_FIELDS = {
-    character: ['name', 'relation', 'status', 'likes', 'dislikes', 'note'],
-    item: ['name', 'holder', 'status'],
+    character: ['name', 'identity', 'relation', 'appearance', 'outfit', 'status', 'likes', 'dislikes', 'note'],
+    item: ['name', 'quantity', 'holder', 'status'],
     promise: ['content', 'with', 'when'],
     todo: ['content'],
 };
 
 const ID_PREFIX = { character: 'c', item: 'i', promise: 'p', todo: 't' };
+
+/** 數字欄位（輸入框用 number、可以用 −／＋ 調整）。 */
+export const NUMBER_FIELDS = new Set(['quantity']);
 
 /** 每種記事拿來當標題、也用來判斷「是不是同一條」的欄位。 */
 const TITLE_FIELD = { character: 'name', item: 'name', promise: 'content', todo: 'content' };
@@ -120,7 +124,7 @@ function applyOp(state, op, floor) {
  * previousOps：重做這一層時，舊的那份變化。重新新增同一條時沿用舊 id，
  * 之後樓層對它的更新／完成才不會失效。
  */
-export function normalizeModelOps(rawOps, stateBefore, previousOps = []) {
+export function normalizeModelOps(rawOps, stateBefore, previousOps = [], { types = NOTE_TYPES } = {}) {
     const state = new Map(stateBefore);
     const out = [];
     const oldIds = new Map();
@@ -133,7 +137,8 @@ export function normalizeModelOps(rawOps, stateBefore, previousOps = []) {
         let op = null;
         if (kind === 'add') {
             const type = String(raw.type ?? '').toLowerCase();
-            if (!NOTE_TYPES.includes(type)) continue;
+            // 沒勾選要記錄的類型不收。
+            if (!types.includes(type)) continue;
             const data = cleanData(type, raw.data ?? raw);
             const existing = findByTitle(state, type, data[TITLE_FIELD[type]]);
             if (existing) {
@@ -154,7 +159,7 @@ export function normalizeModelOps(rawOps, stateBefore, previousOps = []) {
                     if (note) break;
                 }
             }
-            if (!note) continue;
+            if (!note || !types.includes(note.type)) continue;
             if (kind === 'update') {
                 const data = cleanData(note.type, raw.data ?? {});
                 // 模型常把名字一起寫進來只是為了指明是哪一條，沒改名就拿掉。
@@ -240,12 +245,27 @@ export function getNotes() {
     return cache;
 }
 
+/** 已完成的記事只算有勾選的類型。 */
 export function notesOfType(type, { states = ['active', 'broken'] } = {}) {
     return [...getNotes().notes.values()].filter((n) => n.type === type && states.includes(n.state));
 }
 
 export function closedNotes() {
-    return [...getNotes().notes.values()].filter((n) => n.state === 'done');
+    return [...getNotes().notes.values()].filter((n) => n.state === 'done' && isTracked(n.type));
+}
+
+/** 一個變化屬於哪一類記事（新增的看 op.type，其他看它指向的記事）。 */
+export function opType(op, notes = getNotes().notes) {
+    return op.type ?? notes.get(op.id)?.type ?? null;
+}
+
+/** 手動調整物件數量（−／＋）。 */
+export function changeQuantity(id, delta) {
+    const note = getNotes().notes.get(id);
+    if (!note || note.type !== 'item') return false;
+    const now = Number.parseInt(note.data.quantity, 10);
+    const next = Math.max(0, (Number.isFinite(now) ? now : (delta > 0 ? 0 : 1)) + delta);
+    return pushManual({ op: 'update', id, data: { quantity: String(next) }, raw: true });
 }
 
 // ===== 手動修改 =====
@@ -341,7 +361,7 @@ export function describeOp(op, notes) {
 export function formatNotesForPrompt(notes, { withIds = true } = {}) {
     const lines = [];
     for (const n of notes.values()) {
-        if (n.state === 'done') continue;
+        if (n.state === 'done' || !isTracked(n.type)) continue;
         const parts = NOTE_FIELDS[n.type]
             .filter((f) => n.data[f])
             .map((f) => `${t(`field.${n.type}.${f}`)}：${n.data[f]}`);

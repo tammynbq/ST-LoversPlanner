@@ -1,11 +1,11 @@
 // 聊天畫面：每條 AI 訊息下面那個可以折疊的摘要區塊。操作按鈕都收在這裡面。
 
 import { ctx, escapeHtml as esc } from '../util.js';
-import { getSettings } from '../settings.js';
+import { getSettings, isTracked } from '../settings.js';
 import { t } from '../i18n.js';
 import { getChat, getEntry, isAiMessage, lastAiIndex } from '../chat.js';
 import { enqueue, floorState, isActive, onSummaryChange, skipFloor, unskipFloor, writeSummary } from '../summarize.js';
-import { describeOp, getNotes, onNotesChange, setFloorOpUndone } from '../notes.js';
+import { describeOp, getNotes, onNotesChange, opType, setFloorOpUndone } from '../notes.js';
 import { computeHidden } from '../hide.js';
 
 const expanded = new Set(); // 展開中的樓層
@@ -78,9 +78,9 @@ export function runAction(index, act) {
 export function sceneHtml(entry) {
     if (!entry) return '';
     const items = [
-        ['time', 'fa-regular fa-clock', entry.time],
-        ['location', 'fa-solid fa-location-dot', entry.location],
-        ['characters', 'fa-solid fa-user-group', (entry.characters ?? []).join('、')],
+        ['time', 'fa-regular fa-clock', isTracked('time') ? entry.time : ''],
+        ['location', 'fa-solid fa-location-dot', isTracked('location') ? entry.location : ''],
+        ['characters', 'fa-solid fa-user-group', isTracked('cast') ? (entry.characters ?? []).join('、') : ''],
     ].filter(([, , v]) => v);
     if (!items.length) return '';
     return `<div class="lp-scene">${items.map(([k, icon, v]) =>
@@ -90,7 +90,8 @@ export function sceneHtml(entry) {
 /** 這一層造成的記事變化，每條可以撤銷／恢復。 */
 export function changesHtml(index, { actions = true } = {}) {
     const { notes, perFloor } = getNotes();
-    const list = perFloor.get(index) ?? [];
+    // 沒勾選要記錄的類型不顯示（資料還在）。
+    const list = (perFloor.get(index) ?? []).filter(({ op }) => isTracked(opType(op, notes)));
     if (!list.length) return '';
     const rows = list.map(({ op, k, valid }) => {
         const undone = Boolean(op.undone);
@@ -105,12 +106,13 @@ export function changesHtml(index, { actions = true } = {}) {
 
 function editorHtml(entry) {
     const v = (x) => esc(x ?? '');
+    // 沒勾選的欄位不顯示；儲存時沿用原本的值。
+    const time = isTracked('time') ? `<label class="lp-field"><span class="lp-label">${esc(t('meta.time'))}</span><input type="text" class="text_pole" data-field="time" value="${v(entry?.time)}"></label>` : '';
+    const location = isTracked('location') ? `<label class="lp-field"><span class="lp-label">${esc(t('meta.location'))}</span><input type="text" class="text_pole" data-field="location" value="${v(entry?.location)}"></label>` : '';
+    const cast = isTracked('cast') ? `<label class="lp-field"><span class="lp-label">${esc(t('meta.characters'))}</span><input type="text" class="text_pole" data-field="characters" value="${v((entry?.characters ?? []).join('、'))}" placeholder="${esc(t('meta.charactersHint'))}"></label>` : '';
     return `
-      <div class="lp-editor-grid">
-        <label class="lp-field"><span class="lp-label">${esc(t('meta.time'))}</span><input type="text" class="text_pole" data-field="time" value="${v(entry?.time)}"></label>
-        <label class="lp-field"><span class="lp-label">${esc(t('meta.location'))}</span><input type="text" class="text_pole" data-field="location" value="${v(entry?.location)}"></label>
-      </div>
-      <label class="lp-field"><span class="lp-label">${esc(t('meta.characters'))}</span><input type="text" class="text_pole" data-field="characters" value="${v((entry?.characters ?? []).join('、'))}" placeholder="${esc(t('meta.charactersHint'))}"></label>
+      ${time || location ? `<div class="lp-editor-grid">${time}${location}</div>` : ''}
+      ${cast}
       <label class="lp-field"><span class="lp-label">${esc(t('meta.summary'))}</span><textarea class="text_pole lp-sum-editor" data-field="summary" placeholder="${esc(t('sum.editPlaceholder'))}">${v(entry?.summary)}</textarea></label>
       <div class="lp-sum-actions">
         <button type="button" class="menu_button lp-btn lp-primary" data-lp-act="save">${esc(t('act.save'))}</button>
@@ -224,9 +226,14 @@ function onChatClick(e) {
             expanded.add(index);
         }
     } else if (act === 'save') {
-        const field = (name) => block.querySelector(`[data-field="${name}"]`)?.value ?? '';
+        const entry = getEntry(index);
+        // 畫面上沒有的欄位（沒勾選記錄）沿用原本的值。
+        const field = (name, fallback) => block.querySelector(`[data-field="${name}"]`)?.value ?? fallback;
         const ok = writeSummary(index, {
-            time: field('time'), location: field('location'), characters: field('characters'), summary: field('summary'),
+            time: field('time', entry?.time ?? ''),
+            location: field('location', entry?.location ?? ''),
+            characters: field('characters', entry?.characters ?? []),
+            summary: field('summary', ''),
         });
         if (!ok) {
             block.querySelector('[data-field="summary"]')?.focus();

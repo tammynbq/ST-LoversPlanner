@@ -392,8 +392,18 @@
 .lp-sum .text_pole, .lp-note-form .text_pole { margin: 0; width: 100%; box-sizing: border-box; }
 
 /* ===== 記事分頁 ===== */
-.lp-notes-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: start; }
-@media (max-width: 720px) { .lp-notes-grid { grid-template-columns: minmax(0, 1fr); } }
+.lp-notes-stack { display: flex; flex-direction: column; gap: 18px; }
+.lp-card-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; align-items: start; }
+.lp-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 10px; }
+.lp-note-form { grid-column: 1 / -1; }
+@media (max-width: 720px) {
+    .lp-card-grid, .lp-form-grid { grid-template-columns: minmax(0, 1fr); }
+}
+.lp-qty { display: flex; align-items: center; gap: 8px; }
+.lp-qty-btn { width: 36px; justify-content: center; font-size: 1em !important; }
+.lp-qty-val { min-width: 2.5em; text-align: center; font-weight: 600; font-variant-numeric: tabular-nums; }
+.lp-track-group { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 16px; }
+.lp-track-group > .lp-label { width: 100%; }
 .lp-note-section { display: flex; flex-direction: column; gap: 8px; }
 .lp-note-card {
     display: flex;

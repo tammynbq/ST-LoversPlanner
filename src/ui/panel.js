@@ -2,7 +2,7 @@
 // 第一版只有設定頁是完整的，其他分頁先放「製作中」的說明。
 
 import { ctx, escapeHtml as esc, hasCharacterChat, isGroupChat, isTauriTavern, LOG_PREFIX, toast } from '../util.js';
-import { getPath, getSettings, saveSettings, setPath } from '../settings.js';
+import { getPath, getSettings, isTracked, saveSettings, setPath } from '../settings.js';
 import { currentLocale, detectHostLocale, LOCALE_NAMES, LOCALES, t } from '../i18n.js';
 import { getTemplate, isTemplateModified, resetTemplate, setTemplate, TEMPLATE_KEYS, TEMPLATE_VARS } from '../prompts.js';
 import { listModels, normalizeBaseUrl, testConnection } from '../api/custom.js';
@@ -14,7 +14,8 @@ import {
 } from '../summarize.js';
 import { actionsFor, hintFor, revealFloor, runAction, sceneHtml, STATUS_ICONS } from './message.js';
 import {
-    addNoteManual, closedNotes, completeNoteManual, deleteNoteManual, NOTE_FIELDS, NOTE_TYPES, noteTitle,
+    addNoteManual, changeQuantity, closedNotes, completeNoteManual, deleteNoteManual, NOTE_FIELDS, NOTE_TYPES,
+    noteTitle, NUMBER_FIELDS,
     notesOfType, onNotesChange, reopenNoteManual, resultLabel, typeLabel, updateNoteManual,
 } from '../notes.js';
 import {
@@ -22,7 +23,19 @@ import {
     setCharacterScope, setChatScope,
 } from '../scope.js';
 
-const TABS = ['summary', 'notes', 'done', 'settings'];
+const TABS = ['summary', 'characters', 'items', 'notes', 'done', 'settings'];
+
+/** 每個分頁放哪些記事類型（記事分頁＝約定＋待辦）。 */
+const TAB_TYPES = { characters: ['character'], items: ['item'], notes: ['promise', 'todo'] };
+
+/** 目前看得到的分頁：沒勾選記錄的類型，對應的分頁就不顯示。 */
+function visibleTabs() {
+    return TABS.filter((tab) => {
+        if (TAB_TYPES[tab]) return TAB_TYPES[tab].some(isTracked);
+        if (tab === 'done') return ['item', 'promise', 'todo'].some(isTracked);
+        return true;
+    });
+}
 const SUMMARY_FILTERS = ['all', 'none', 'fail', 'stale', 'skip'];
 const SUMMARY_PAGE = 100;
 
@@ -206,7 +219,8 @@ function statsText() {
 }
 
 function renderTabs() {
-    const items = TABS.map((tab) => {
+    if (!visibleTabs().includes(view.tab)) view.tab = 'summary';
+    const items = visibleTabs().map((tab) => {
         const on = view.tab === tab;
         return `<button type="button" role="tab" class="lp-tab${on ? ' lp-on' : ''}" aria-selected="${on}" data-action="tab" data-tab="${tab}">${esc(t(`tab.${tab}`))}</button>`;
     }).join('');
@@ -225,7 +239,10 @@ function renderBanner() {
 function renderTab() {
     switch (view.tab) {
         case 'summary': return renderSummaryTab();
-        case 'notes': return renderNotesTab();
+        case 'characters':
+        case 'items':
+        case 'notes':
+            return renderNotesTab(TAB_TYPES[view.tab].filter(isTracked));
         case 'done': return renderDoneTab();
         case 'settings': return renderSettings();
         default: return '';
@@ -348,12 +365,16 @@ function noteTrace(note) {
 }
 
 function noteForm(type, data, { id = null } = {}) {
-    const fields = NOTE_FIELDS[type].map((f, i) => `
+    const fields = NOTE_FIELDS[type].map((f, i) => {
+        const num = NUMBER_FIELDS.has(f);
+        const attrs = num ? 'type="number" min="0" step="1" inputmode="numeric"' : 'type="text"';
+        return `
       <label class="lp-field"><span class="lp-label">${esc(t(`field.${type}.${f}`))}</span>
-        <input type="text" class="text_pole" data-note-field="${f}" value="${esc(data?.[f] ?? '')}"${i === 0 ? ' data-autofocus' : ''}></label>`).join('');
+        <input ${attrs} class="text_pole" data-note-field="${f}" value="${esc(data?.[f] ?? '')}"${i === 0 ? ' data-autofocus' : ''}></label>`;
+    }).join('');
     return `
       <div class="lp-note-card lp-note-form" data-note-form="${id ?? ''}" data-type="${type}">
-        ${fields}
+        <div class="lp-form-grid">${fields}</div>
         <div class="lp-sum-actions">
           <button type="button" class="menu_button lp-btn lp-primary" data-action="note-save">${esc(t('notes.act.save'))}</button>
           <button type="button" class="menu_button lp-btn" data-action="note-cancel">${esc(t('notes.act.cancel'))}</button>
@@ -379,22 +400,31 @@ function noteCard(note) {
     if (view.notes.editing === note.id) return noteForm(note.type, note.data, { id: note.id });
     const titleField = NOTE_FIELDS[note.type][0];
     const lines = NOTE_FIELDS[note.type]
-        .filter((f) => f !== titleField && note.data[f])
+        .filter((f) => f !== titleField && !NUMBER_FIELDS.has(f) && note.data[f])
         .map((f) => `<div class="lp-note-line"><span class="lp-label">${esc(t(`field.${note.type}.${f}`))}</span> ${esc(note.data[f])}</div>`)
         .join('');
+    // 物件的數量：直接用 −／＋ 改。
+    const qty = note.type === 'item' ? `
+        <div class="lp-qty">
+          <span class="lp-label">${esc(t('field.item.quantity'))}</span>
+          <button type="button" class="menu_button lp-btn lp-mini lp-qty-btn" data-action="note-qty" data-delta="-1" data-id="${note.id}" aria-label="${esc(t('notes.qtyMinus'))}">−</button>
+          <span class="lp-qty-val" aria-live="polite">${esc(note.data.quantity ?? '—')}</span>
+          <button type="button" class="menu_button lp-btn lp-mini lp-qty-btn" data-action="note-qty" data-delta="1" data-id="${note.id}" aria-label="${esc(t('notes.qtyPlus'))}">＋</button>
+        </div>` : '';
     const broken = note.state === 'broken' ? `<span class="lp-badge lp-st-fail">${esc(resultLabel('broken'))}</span>` : '';
     return `
       <div class="lp-note-card${note.state === 'broken' ? ' lp-note-broken' : ''}">
         <div class="lp-note-head"><span class="lp-note-title">${esc(noteTitle(note))}</span>${broken}</div>
+        ${qty}
         ${lines}
         ${noteTrace(note)}
         ${noteActions(note)}
       </div>`;
 }
 
-function renderNotesTab() {
+function renderNotesTab(types = NOTE_TYPES) {
     if (!isActive()) return '';
-    const sections = NOTE_TYPES.map((type) => {
+    const sections = types.map((type) => {
         // 進行中的在前，被打破的約定在後。
         const list = notesOfType(type).sort((a, b) => (a.state === 'broken') - (b.state === 'broken'));
         const hint = SECTION_HINT[type] ? `<span class="lp-note">${esc(t(SECTION_HINT[type]))}</span>` : '';
@@ -409,12 +439,12 @@ function renderNotesTab() {
               <button type="button" class="menu_button lp-btn lp-mini" data-action="note-add" data-type="${type}">${esc(t('notes.add'))}</button>
             </div>
             ${adding}
-            ${list.map(noteCard).join('')}
+            <div class="lp-card-grid">${list.map(noteCard).join('')}</div>
           </section>`;
     }).join('');
-    const empty = NOTE_TYPES.every((type) => !notesOfType(type).length) && !view.notes.adding
+    const empty = types.every((type) => !notesOfType(type).length) && !view.notes.adding
         ? `<div class="lp-wip">${esc(t('notes.empty'))}</div>` : '';
-    return `${empty}<div class="lp-notes-grid">${sections}</div>`;
+    return `${empty}<div class="lp-notes-stack">${sections}</div>`;
 }
 
 // ===== 已完成分頁 =====
@@ -565,6 +595,12 @@ function renderSettings() {
       <div class="lp-row">${inline('set.summary.tokens', { min: numberInput('summary.minTokens', 'min tokens'), max: numberInput('summary.maxTokens', 'max tokens') })}</div>
       <div class="lp-note">${esc(t('set.summary.note'))}</div>`;
 
+    const trackItem = (key) => checkbox(`track.${key}`, t(`track.${key}`), true);
+    const track = `
+      <div class="lp-note">${esc(t('set.track.desc'))}</div>
+      <div class="lp-track-group"><span class="lp-label">${esc(t('set.track.scene'))}</span>${['time', 'location', 'cast'].map(trackItem).join('')}</div>
+      <div class="lp-track-group"><span class="lp-label">${esc(t('set.track.notes'))}</span>${['character', 'item', 'promise', 'todo'].map(trackItem).join('')}</div>`;
+
     const compress = `
       <div class="lp-row">${inline('set.compress.l2', { n: numberInput('compress.l1PerL2', 'L1 → L2') })}</div>
       <div class="lp-row">${inline('set.compress.l3', { n: numberInput('compress.l2PerL3', 'L2 → L3') })}</div>
@@ -592,6 +628,7 @@ function renderSettings() {
       ${section('general', t('sec.general'), t('sec.general.hint'), general)}
       ${section('model', t('sec.model'), t(`set.source.current.${s.source}`), model)}
       ${section('summary', t('sec.summary'), t('sec.summary.hint'), summary)}
+      ${section('track', t('sec.track'), t('sec.track.hint'), track)}
       ${section('compress', t('sec.compress'), t('sec.compress.hint'), compress)}
       ${section('hide', t('sec.hide'), t('sec.hide.hint'), hide)}
       ${section('scope', t('sec.scope'), t('sec.scope.hint'), scope)}
@@ -860,6 +897,10 @@ function onClick(e) {
             return;
         case 'note-delete':
             deleteNoteManual(btn.dataset.id);
+            render();
+            return;
+        case 'note-qty':
+            changeQuantity(btn.dataset.id, Number(btn.dataset.delta));
             render();
             return;
         case 'note-jump':

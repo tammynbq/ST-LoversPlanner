@@ -7,13 +7,14 @@
 // 走主 API 時，等酒館這一輪生成結束才開始，避免和正常生成搶同一條連線。
 
 import { ctx, hasCharacterChat, isGroupChat, LOG_PREFIX, toast } from './util.js';
-import { getSettings } from './settings.js';
+import { getSettings, isTracked, trackedNoteTypes } from './settings.js';
 import { currentLocale, t } from './i18n.js';
 import { getTemplate } from './prompts.js';
 import { ApiError } from './api/custom.js';
 import { countTokens, generateText } from './llm.js';
 import { errorText } from './errors.js';
 import { formatNotesForPrompt, invalidateNotes, normalizeModelOps, replay } from './notes.js';
+import { buildL1Parts } from './l1rules.js';
 import {
     chatKey, floorSource, floorStatus, getChat, getEntry, isAiMessage, lastAiIndex, saveChatSoon, setEntry,
 } from './chat.js';
@@ -113,15 +114,30 @@ function lengthUnits(content, tokens, targetTokens) {
 
 /** 往前找最近一個有時間或地點的已摘要樓層，讓模型延續。 */
 function previousSceneText(index) {
+    const useTime = isTracked('time');
+    const useLocation = isTracked('location');
+    // 時間、地點都沒勾，就不需要「上一層」這段。
+    if (!useTime && !useLocation) return '';
     const chat = getChat();
     for (let i = index - 1; i >= 0; i--) {
         if (!isAiMessage(chat[i])) continue;
         const e = getEntry(i);
-        if (e?.status === 'ok' && (e.time || e.location)) {
-            return t('prompt.previous', { time: e.time || '—', location: e.location || '—' });
+        const time = useTime ? e?.time : '';
+        const location = useLocation ? e?.location : '';
+        if (e?.status === 'ok' && (time || location)) {
+            const parts = [];
+            if (useTime) parts.push(t('prompt.previousTime', { time: time || '—' }));
+            if (useLocation) parts.push(t('prompt.previousLocation', { location: location || '—' }));
+            return `${t('prompt.previousLabel')}${parts.join('｜')}`;
         }
     }
-    return t('prompt.noPrevious');
+    return `${t('prompt.previousLabel')}${t('prompt.noPrevious')}`;
+}
+
+/** 記事清單（連標題）；沒勾任何記事類型就是空的。 */
+function notesSection(notesBefore) {
+    if (!trackedNoteTypes().length) return '';
+    return `${t('prompt.notesLabel')}\n${formatNotesForPrompt(notesBefore)}`;
 }
 
 export async function buildL1Prompt(index) {
@@ -140,14 +156,18 @@ export async function buildL1Prompt(index) {
     const tokens = await countTokens(content);
     const ratio = (s.summary.ratioMin + s.summary.ratioMax) / 200;
     const targetTokens = Math.min(s.summary.maxTokens, Math.max(s.summary.minTokens, Math.round(tokens * ratio)));
+    const length = lengthUnits(content, tokens, targetTokens);
+    const { rules, format } = buildL1Parts({ length, char: c?.name2 ?? '', user: c?.name1 ?? '' });
     const prompt = fillTemplate(getTemplate('l1'), {
         char: c?.name2 ?? '',
         user: c?.name1 ?? '',
-        length: lengthUnits(content, tokens, targetTokens),
+        length,
         content,
-        notes: formatNotesForPrompt(notesBefore),
+        rules,
+        format,
+        notes: notesSection(notesBefore),
         previous: previousSceneText(index),
-    });
+    }).replace(/\n{3,}/g, '\n\n'); // 空掉的段落不要留下一堆空行
     // 摘要本身＋時間、地點、人物＋記事 JSON 的空間。
     return { prompt, hash: src.hash, notesBefore, maxTokens: targetTokens * 2 + 600 };
 }
@@ -201,12 +221,14 @@ async function summarizeFloor(index) {
         const parsed = parseL1(raw);
         if (!stillHere()) return;
         // 對照這一層之前的記事整理變化：配上 id、去掉重複新增和找不到的。
-        const prevOps = getEntry(index)?.ops;
-        const ops = normalizeModelOps(parsed.ops, built.notesBefore, prevOps);
+        const prev = getEntry(index);
+        const ops = normalizeModelOps(parsed.ops, built.notesBefore, prev?.ops, { types: trackedNoteTypes() });
+        // 沒勾的欄位模型不會回報；沿用舊值，重新勾起來時資料還在。
+        const keep = (key, field) => (isTracked(key) ? parsed[field] : (prev?.[field] ?? parsed[field]));
         // 摘要途中原文被改的話，hash 對不上，會自動顯示成「過期」。
         setEntry(index, {
-            v: 2, status: 'ok', time: parsed.time, location: parsed.location, characters: parsed.characters,
-            summary: parsed.summary, ops, hash, at: Date.now(),
+            v: 2, status: 'ok', time: keep('time', 'time'), location: keep('location', 'location'),
+            characters: keep('cast', 'characters'), summary: parsed.summary, ops, hash, at: Date.now(),
         });
     } catch (e) {
         console.warn(LOG_PREFIX, `第 ${index} 層摘要失敗`, e);

@@ -5,7 +5,7 @@
 // 聊天紀錄本身完全不動；關掉插件就恢復原狀。
 
 import { ctx, LOG_PREFIX, MODULE } from './util.js';
-import { getSettings } from './settings.js';
+import { getSettings, isTracked } from './settings.js';
 import { t } from './i18n.js';
 import { floorStatus, getChat, getEntry, isAiMessage, isUserMessage } from './chat.js';
 import { formatNotesForPrompt, getNotes } from './notes.js';
@@ -66,7 +66,12 @@ export function estimateTokens(text) {
 }
 
 function sceneLine(entry) {
-    const head = [entry.time, entry.location, (entry.characters ?? []).join('、')].filter(Boolean).join('｜');
+    // 沒勾選要記錄的欄位不送出。
+    const head = [
+        isTracked('time') ? entry.time : '',
+        isTracked('location') ? entry.location : '',
+        isTracked('cast') ? (entry.characters ?? []).join('、') : '',
+    ].filter(Boolean).join('｜');
     return head ? `［${head}］${entry.summary}` : entry.summary;
 }
 
@@ -79,7 +84,7 @@ export function buildInjection(hidden) {
         if (e?.status === 'ok' && e.summary) lines.push(sceneLine(e));
     }
     const notes = getNotes().notes;
-    const hasNotes = [...notes.values()].some((n) => n.state !== 'done');
+    const hasNotes = [...notes.values()].some((n) => n.state !== 'done' && isTracked(n.type));
     if (!lines.length && !hasNotes) return '';
     const parts = [t('inject.intro')];
     if (lines.length) parts.push(`${t('inject.summaries')}\n${lines.join('\n')}`);

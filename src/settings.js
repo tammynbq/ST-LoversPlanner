@@ -25,6 +25,16 @@ export const DEFAULTS = Object.freeze({
         ratioMin: 30,
         ratioMax: 40,
     },
+    // 要記錄哪些：沒勾的不會要求模型摘要、不顯示、也不注入（已經記下的資料保留）。
+    track: {
+        time: true,
+        location: true,
+        cast: true, // 這一層出場的人物
+        character: true,
+        item: true,
+        promise: true,
+        todo: true,
+    },
     hide: {
         markHidden: true,
     },
@@ -73,6 +83,18 @@ function mergeDefaults(defaults, saved) {
 }
 
 let fallback = null;
+
+export const NOTE_TYPE_KEYS = ['character', 'item', 'promise', 'todo'];
+
+/** 某一項有沒有勾選要記錄（time／location／cast／character／item／promise／todo）。 */
+export function isTracked(key) {
+    return getSettings().track?.[key] !== false;
+}
+
+/** 有勾選的記事類型。 */
+export function trackedNoteTypes() {
+    return NOTE_TYPE_KEYS.filter(isTracked);
+}
 
 /** 啟動時呼叫一次：補齊設定並寫回 extensionSettings。 */
 export function initSettings() {
