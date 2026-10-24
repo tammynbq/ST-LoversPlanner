@@ -138,7 +138,8 @@ function blockHtml(index) {
         if (editing.has(index)) {
             body = editorHtml(state === 'skip' ? null : entry);
         } else {
-            const hint = summary && (state === 'stale' || state === 'fail') ? `<div class="lp-sum-hint">${esc(hintFor(index, state))}</div>` : '';
+            let hint = summary && (state === 'stale' || state === 'fail') ? `<div class="lp-sum-hint">${esc(hintFor(index, state))}</div>` : '';
+            if (state === 'ok' && entry?.repaired) hint = `<div class="lp-sum-hint lp-warn">${esc(t('sum.hint.repaired'))}</div>`;
             const scene = state === 'skip' ? '' : sceneHtml(entry);
             const text = summary ? `<div class="lp-sum-text">${esc(summary)}</div>` : `<div class="lp-sum-hint">${esc(hintFor(index, state))}</div>`;
             const changes = state === 'ok' || state === 'stale' ? changesHtml(index) : '';

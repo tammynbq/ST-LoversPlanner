@@ -15,6 +15,7 @@ import { countTokens, generateText } from './llm.js';
 import { errorText } from './errors.js';
 import { formatNotesForPrompt, invalidateNotes, normalizeModelOps, replay } from './notes.js';
 import { buildL1Parts } from './l1rules.js';
+import { parseJsonLenient } from './json.js';
 import {
     chatKey, floorSource, floorStatus, getChat, getEntry, isAiMessage, lastAiIndex, saveChatSoon, setEntry,
 } from './chat.js';
@@ -190,8 +191,9 @@ export async function buildL1Prompt(index) {
         notes: notesSection(notesBefore),
         previous: previousSceneText(index),
     }).replace(/\n{3,}/g, '\n\n'); // 空掉的段落不要留下一堆空行
-    // 摘要本身＋時間、地點、人物＋記事 JSON 的空間。
-    return { prompt, hash: src.hash, notesBefore, maxTokens: targetTokens * 2 + 600 };
+    // 摘要本身＋時間、地點、人物＋記事 JSON 的空間要給夠，不然 JSON 會被截斷；
+    // 會先「思考」的模型也會吃掉一部分額度。只按實際用到的計費，給多不會多花錢。
+    return { prompt, hash: src.hash, notesBefore, maxTokens: Math.max(2000, targetTokens * 2 + 1500) };
 }
 
 // ===== 解析結果 =====
@@ -200,23 +202,22 @@ export function parseL1(raw) {
     const text = String(raw ?? '').trim();
     if (!text) throw new ApiError('empty');
     const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
-    const start = cleaned.indexOf('{');
-    const end = cleaned.lastIndexOf('}');
-    if (start !== -1 && end > start) {
-        try {
-            const obj = JSON.parse(cleaned.slice(start, end + 1));
-            if (typeof obj?.summary === 'string' && obj.summary.trim()) {
-                return {
-                    ...cleanScene(obj),
-                    summary: obj.summary.trim(),
-                    ops: Array.isArray(obj.ops) ? obj.ops : [],
-                };
-            }
-        } catch (e) { /* 往下判斷 */ }
-    }
     // 模型沒照 JSON 格式，但給了一段純文字：直接當摘要用。
-    if (start === -1) return { time: '', location: '', characters: [], summary: cleaned, ops: [] };
-    throw new ApiError('parse', text.slice(0, 120));
+    if (cleaned.indexOf('{') === -1) return { time: '', location: '', characters: [], summary: cleaned, ops: [], repaired: false };
+    // 被截斷或格式有小錯也盡量救回（json.js）。
+    const parsed = parseJsonLenient(cleaned, { accept: (v) => typeof v?.summary === 'string' && v.summary.trim() !== '' });
+    const obj = parsed?.value;
+    if (typeof obj?.summary === 'string' && obj.summary.trim()) {
+        return {
+            ...cleanScene(obj),
+            summary: obj.summary.trim(),
+            ops: Array.isArray(obj.ops) ? obj.ops : [],
+            repaired: parsed.repaired,
+        };
+    }
+    // 救不回來：錯誤訊息附上頭尾，方便看出是在哪裡斷掉的。
+    const detail = text.length > 200 ? `${text.slice(0, 100)} … ${text.slice(-80)}` : text;
+    throw new ApiError('parse', detail);
 }
 
 /** 時間、地點、出場人物：整理成固定格式。 */
@@ -251,6 +252,8 @@ async function summarizeFloor(index) {
         setEntry(index, {
             v: 2, status: 'ok', time: keep('time', 'time'), location: keep('location', 'location'),
             characters: keep('cast', 'characters'), summary: parsed.summary, ops, hash, at: Date.now(),
+            // 回覆被截斷、是救回來的：摘要或記事可能不完整，畫面上會提醒。
+            ...(parsed.repaired ? { repaired: true } : {}),
         });
     } catch (e) {
         console.warn(LOG_PREFIX, `第 ${index} 層摘要失敗`, e);

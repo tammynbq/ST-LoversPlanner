@@ -321,6 +321,7 @@ const DICT = {
         'preview.total': '注入合計（含標題）',
         'preview.saved': '不送出的原文（{n} 層）',
         'preview.show': '查看完整注入內容',
+        'sum.hint.repaired': '模型的回覆被截斷了，這是救回來的部分，摘要或記事可能不完整。不滿意可以按「重做」。',
     },
     'zh-CN': {
         'app.name': '恋人手帐',
@@ -607,6 +608,7 @@ const DICT = {
         'preview.total': '注入合计（含标题）',
         'preview.saved': '不发送的原文（{n} 层）',
         'preview.show': '查看完整注入内容',
+        'sum.hint.repaired': '模型的回复被截断了，这是救回来的部分，摘要或记事可能不完整。不满意可以点「重做」。',
     },
     en: {
         'app.name': "Lover's Planner",
@@ -893,6 +895,7 @@ const DICT = {
         'preview.total': 'Total injected (with headings)',
         'preview.saved': 'Raw text not sent ({n} floors)',
         'preview.show': 'Show the full injection',
+        'sum.hint.repaired': "The model's reply was cut off; this is what could be recovered, so the summary or notes may be incomplete. Press Redo if needed.",
     },
 };
 

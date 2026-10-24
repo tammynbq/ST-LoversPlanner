@@ -108,6 +108,30 @@ await page.waitForFunction(() => window.__chat[4].extra?.lovers_planner?.summary
 await settle();
 check('fenced JSON parsed, ops kept', (await entry(4)).ops?.length === 1 && (await state(4)) === 'ok');
 
+// 6b. 回覆被截斷：救回摘要和完整的記事，丟掉寫到一半的，畫面上提醒
+await page.evaluate(() => { window.__generateRaw = async () => '{"time":"清晨","summary":"截斷前的完整摘要","ops":[{"op":"add","type":"item","data":{"name":"靈石","quantity":10}},{"op":"add","type":"character","data":{"name":"周'; });
+await page.click('.mes[mesid="4"] [data-lp-act="redo"]');
+await page.waitForFunction(() => window.__chat[4].extra?.lovers_planner?.summary === '截斷前的完整摘要');
+await settle();
+const tr = await entry(4);
+check('truncated reply salvaged', tr.status === 'ok' && tr.repaired === true && tr.ops.length === 1 && tr.ops[0].data.name === '靈石', JSON.stringify(tr.ops));
+check('repaired hint shown', (await page.textContent('.mes[mesid="4"] .lp-sum')).includes('被截斷'));
+// 字串裡直接換行
+await page.evaluate(() => { window.__generateRaw = async () => '{"summary":"第一行\n第二行","ops":[]}'.replace('\\n', '\n'); });
+await page.click('.mes[mesid="4"] [data-lp-act="redo"]');
+await page.waitForFunction(() => window.__chat[4].extra?.lovers_planner?.summary?.startsWith('第一行'));
+check('raw newline inside string accepted', (await entry(4)).summary === '第一行\n第二行');
+// 截在摘要之前、救不回摘要 → 失敗，錯誤訊息附上頭尾
+await page.evaluate(() => { window.__generateRaw = async () => '{"time":"清晨","location":"山門","characters":["菜菜","沈'; });
+await page.click('.mes[mesid="4"] [data-lp-act="redo"]');
+await page.waitForFunction(() => window.__chat[4].extra?.lovers_planner?.status === 'fail');
+check('no summary recoverable → fail', (await entry(4)).error.includes('看不懂'));
+await page.evaluate(() => { window.__generateRaw = async () => '{"summary":"重做的摘要","ops":[]}'; });
+await page.click('.mes[mesid="4"] [data-lp-act="retry"]');
+await page.waitForFunction(() => window.__chat[4].extra?.lovers_planner?.status === 'ok');
+await settle();
+check('output limit generous', (await page.evaluate(() => window.__prompts.at(-1).responseLength)) >= 2000);
+
 // 7. 手動模式：送出時不自動摘要
 await page.evaluate(() => { window.__extSettings.lovers_planner.summary.mode = 'manual'; });
 const before = await page.evaluate(() => window.__prompts.length);
