@@ -12,7 +12,7 @@ import { getChat, getEntry, isAiMessage, saveChatSoon } from './chat.js';
 export const NOTE_TYPES = ['character', 'item', 'promise', 'todo'];
 
 export const NOTE_FIELDS = {
-    character: ['name', 'relation', 'status', 'note'],
+    character: ['name', 'relation', 'status', 'likes', 'dislikes', 'note'],
     item: ['name', 'holder', 'status'],
     promise: ['content', 'with', 'when'],
     todo: ['content'],
@@ -116,12 +116,11 @@ function applyOp(state, op, floor) {
 
 /**
  * 模型的 ops 可能格式不一、id 寫錯、或重複新增已經有的。
- * leads：主角的名字（角色和使用者），模型就算想新增成人物也會被擋掉。
  * 對照「這一層之前」的記事整理一次，新增的配上 id，結果存進該層。
  * previousOps：重做這一層時，舊的那份變化。重新新增同一條時沿用舊 id，
  * 之後樓層對它的更新／完成才不會失效。
  */
-export function normalizeModelOps(rawOps, stateBefore, previousOps = [], { leads = [] } = {}) {
+export function normalizeModelOps(rawOps, stateBefore, previousOps = []) {
     const state = new Map(stateBefore);
     const out = [];
     const oldIds = new Map();
@@ -136,8 +135,6 @@ export function normalizeModelOps(rawOps, stateBefore, previousOps = [], { leads
             const type = String(raw.type ?? '').toLowerCase();
             if (!NOTE_TYPES.includes(type)) continue;
             const data = cleanData(type, raw.data ?? raw);
-            // 主角（{{char}}、{{user}}）每層都在，不記成人物記事。
-            if (type === 'character' && leads.some((name) => sameKey(name, data.name))) continue;
             const existing = findByTitle(state, type, data[TITLE_FIELD[type]]);
             if (existing) {
                 // 已經有同一條：改成更新，不重複新增。

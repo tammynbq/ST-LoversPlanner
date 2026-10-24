@@ -25,7 +25,7 @@ const MODEL = `async ({ prompt }) => {
       ops: [
         { op: 'add', type: 'character', data: { name: '林姐', relation: '咖啡店老闆', status: '回老家' } },
         { op: 'add', type: 'character', data: { name: '沈言', relation: '主角' } },
-        { op: 'add', type: 'character', data: { name: '小雨' } },
+        { op: 'add', type: 'character', data: { name: '小雨', likes: '熱可可', dislikes: '下雨天' } },
         { op: 'add', type: 'item', data: { name: '銀色手鍊', holder: '小雨' } },
         { op: 'add', type: 'promise', data: { content: '週末去看海', with: '沈言', when: '週末' } },
         { op: 'add', type: 'todo', data: { content: '查車班' } },
@@ -80,12 +80,12 @@ const summarize = async (i) => {
 await summarize(0);
 const e0 = await entry(0);
 check('scene fields stored', e0.time === '第三天 傍晚' && e0.location === '咖啡店' && e0.characters.join() === '沈言,小雨,林姐', JSON.stringify(e0));
-check('leads not recorded as characters', !e0.ops.some((o) => ['沈言', '小雨'].includes(o.data?.name)));
-check('ops normalized with ids', e0.ops.length === 4 && e0.ops.every((o) => o.op === 'add' && /^[cipt]_/.test(o.id)));
+check('leads can be characters, with likes', e0.ops.some((o) => o.data?.name === '沈言') && e0.ops.some((o) => o.data?.name === '小雨' && o.data?.likes === '熱可可'));
+check('ops normalized with ids', e0.ops.length === 6 && e0.ops.every((o) => o.op === 'add' && /^[cipt]_/.test(o.id)));
 check('scene shown in block', (await page.textContent('.mes[mesid="0"] .lp-scene')).includes('咖啡店'));
-check('changes listed in block', (await page.$$('.mes[mesid="0"] .lp-change')).length === 4);
+check('changes listed in block', (await page.$$('.mes[mesid="0"] .lp-change')).length === 6);
 let n = await notes();
-check('four notes active', n.length === 4 && n.every((x) => x.state === 'active'), JSON.stringify(n));
+check('six notes active', n.length === 6 && n.every((x) => x.state === 'active'), JSON.stringify(n));
 
 // 2. 第 2 層：提示詞看得到記事 id 和上一層的時間地點
 await summarize(2);
@@ -97,7 +97,7 @@ check('floor 2 ops: complete + update by name + duplicate add→update; unknown 
 n = await notes();
 const promise = n.find((x) => x.type === 'promise');
 const item = n.find((x) => x.type === 'item');
-const chars = n.filter((x) => x.type === 'character');
+const chars = n.filter((x) => x.type === 'character' && x.name === '林姐');
 check('promise kept → done', promise.state === 'done' && promise.result === 'kept');
 check('item holder updated', item.holder === '沈言');
 check('identifying name dropped from update', !('name' in e2.ops[1].data), JSON.stringify(e2.ops[1]));
@@ -114,7 +114,8 @@ check('restore change', (await notes()).find((x) => x.type === 'promise').state 
 // 4. 大視窗：記事分頁
 await openPanel('notes');
 const sections = await page.$$eval('.lp-note-section', (s) => s.map((x) => x.querySelectorAll('.lp-note-card').length));
-check('notes tab: 1 character, 1 item, 0 promise, 1 todo', sections.join() === '1,1,0,1', sections.join());
+check('notes tab: 3 characters, 1 item, 0 promise, 1 todo', sections.join() === '3,1,0,1', sections.join());
+check('likes shown on card', (await page.textContent('.lp-note-section')).includes('熱可可'));
 check('trace links', (await page.textContent('.lp-note-section')).includes('在 #0 新增'));
 await page.screenshot({ path: `${OUT}/notes-2-tab.png` });
 // 手動新增待辦（按 Enter 儲存）
@@ -161,7 +162,7 @@ await page.fill('.mes[mesid="0"] [data-field="time"]', '第三天 黃昏');
 await page.fill('.mes[mesid="0"] [data-field="characters"]', '沈言、小雨');
 await page.click('.mes[mesid="0"] [data-lp-act="save"]');
 const e0b = await entry(0);
-check('edit four fields', e0b.time === '第三天 黃昏' && e0b.characters.join() === '沈言,小雨' && e0b.ops.length === 4);
+check('edit four fields', e0b.time === '第三天 黃昏' && e0b.characters.join() === '沈言,小雨' && e0b.ops.length === 6);
 
 // 7. 跳過第 0 層 → 它新增的記事消失，第 2 層引用它的變化顯示「已略過」
 await expand(0);
