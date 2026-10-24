@@ -1,0 +1,259 @@
+/* 戀人手帳：第一版只用酒館主題的 CSS 變數，換主題時自動配合。 */
+
+.lp-overlay {
+    --lp-text: var(--SmartThemeBodyColor, #dcdcd2);
+    --lp-muted: var(--SmartThemeEmColor, #9a9a92);
+    --lp-accent: var(--SmartThemeQuoteColor, #e18a24);
+    --lp-border: var(--SmartThemeBorderColor, #343434);
+    --lp-bg: var(--SmartThemeBlurTintColor, #171717);
+    --lp-card: color-mix(in srgb, var(--lp-text) 5%, transparent);
+    --lp-warn: #f0c060;
+    --lp-ok: #8fd19e;
+
+    position: fixed;
+    inset: 0;
+    z-index: 9990;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    box-sizing: border-box;
+    background: rgba(0, 0, 0, 0.6);
+}
+
+.lp-panel {
+    width: min(960px, 100%);
+    height: min(760px, 100%);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    box-sizing: border-box;
+    color: var(--lp-text);
+    background: var(--lp-bg);
+    border: 1px solid var(--lp-border);
+    border-radius: 10px;
+    box-shadow: 0 12px 40px var(--SmartThemeShadowColor, rgba(0, 0, 0, 0.55));
+    backdrop-filter: blur(var(--SmartThemeBlurStrength, 0px));
+    font-size: var(--mainFontSize, 15px);
+}
+
+/* 手機：全螢幕 */
+@media (max-width: 768px) {
+    .lp-overlay { padding: 0; }
+    .lp-panel {
+        width: 100%;
+        height: 100%;
+        border-radius: 0;
+        border: none;
+        padding-top: env(safe-area-inset-top, 0px);
+        padding-bottom: env(safe-area-inset-bottom, 0px);
+    }
+}
+
+.lp-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 12px 10px 18px;
+    border-bottom: 1px solid var(--lp-border);
+}
+.lp-title-icon { color: var(--lp-accent); font-size: 1.3em; }
+.lp-title-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.lp-title { font-size: 1.15em; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lp-subtitle { font-weight: 400; font-size: 0.85em; color: var(--lp-muted); }
+.lp-stats { font-size: 0.85em; color: var(--lp-muted); }
+
+.lp-icon-btn {
+    width: 44px;
+    height: 44px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--lp-text);
+    font-size: 1.2em;
+    cursor: pointer;
+}
+.lp-icon-btn:hover, .lp-icon-btn:focus-visible { background: var(--lp-card); }
+
+.lp-tabs {
+    display: flex;
+    gap: 2px;
+    padding: 0 10px;
+    border-bottom: 1px solid var(--lp-border);
+    overflow-x: auto;
+    scrollbar-width: none;
+}
+.lp-tab {
+    min-height: 44px;
+    padding: 0 16px;
+    border: none;
+    border-bottom: 2px solid transparent;
+    background: transparent;
+    color: var(--lp-muted);
+    font: inherit;
+    white-space: nowrap;
+    cursor: pointer;
+}
+.lp-tab.lp-on { color: var(--lp-text); font-weight: 700; border-bottom-color: var(--lp-accent); }
+.lp-tab:focus-visible { outline: 2px solid var(--lp-accent); outline-offset: -2px; }
+
+.lp-body {
+    flex: 1;
+    overflow: auto;
+    padding: 14px 18px 24px;
+    -webkit-overflow-scrolling: touch;
+}
+
+.lp-banner {
+    margin-bottom: 12px;
+    padding: 10px 14px;
+    border: 1px solid color-mix(in srgb, var(--lp-warn) 40%, transparent);
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--lp-warn) 10%, transparent);
+    color: var(--lp-text);
+}
+
+.lp-wip {
+    padding: 32px 16px;
+    text-align: center;
+    color: var(--lp-muted);
+    border: 1px dashed var(--lp-border);
+    border-radius: 8px;
+}
+
+/* ===== 設定頁 ===== */
+
+.lp-settings { display: flex; flex-direction: column; gap: 8px; }
+
+.lp-sec {
+    border: 1px solid var(--lp-border);
+    border-radius: 8px;
+    background: var(--lp-card);
+}
+.lp-sec > summary {
+    min-height: 48px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 0 14px;
+    cursor: pointer;
+    list-style: none;
+}
+.lp-sec > summary::-webkit-details-marker { display: none; }
+.lp-sec > summary::before {
+    content: '▸';
+    width: 12px;
+    color: var(--lp-muted);
+}
+.lp-sec[open] > summary::before { content: '▾'; }
+.lp-sec-title { flex: 1; font-weight: 600; }
+.lp-sec-hint { color: var(--lp-muted); font-size: 0.85em; text-align: right; }
+
+.lp-sec-body {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 4px 14px 14px 36px;
+}
+
+.lp-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.lp-label { color: var(--lp-muted); font-size: 0.9em; }
+.lp-note { color: var(--lp-muted); font-size: 0.85em; }
+.lp-warn { color: var(--lp-warn); }
+.lp-warn-text { color: var(--lp-warn); font-size: 0.9em; }
+.lp-ok-text { color: var(--lp-ok); font-size: 0.9em; }
+.lp-spacer { flex: 1; }
+
+.lp-callout {
+    padding: 8px 12px;
+    border: 1px solid color-mix(in srgb, var(--lp-warn) 40%, transparent);
+    border-radius: 6px;
+    background: color-mix(in srgb, var(--lp-warn) 8%, transparent);
+    font-size: 0.9em;
+}
+
+.lp-check {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 36px;
+    cursor: pointer;
+}
+.lp-check input { width: 18px; height: 18px; margin: 0; flex-shrink: 0; accent-color: var(--lp-accent); }
+
+.lp-overlay .text_pole { margin: 0; }
+.lp-num { width: 72px !important; height: 36px; box-sizing: border-box; }
+.lp-select { width: auto !important; max-width: 100%; height: 36px; box-sizing: border-box; }
+
+.lp-card {
+    padding: 10px 12px;
+    border-radius: 8px;
+    background: var(--lp-card);
+}
+.lp-grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.lp-span2 { grid-column: span 2; }
+.lp-field { display: flex; flex-direction: column; gap: 4px; }
+@media (max-width: 560px) {
+    .lp-grid2 { grid-template-columns: minmax(0, 1fr); }
+    .lp-span2 { grid-column: auto; }
+    .lp-sec-body { padding-left: 14px; }
+}
+
+.lp-scroll-x { overflow-x: auto; }
+.lp-scope-grid {
+    display: grid;
+    grid-template-columns: 96px repeat(3, minmax(88px, 1fr));
+    gap: 4px 10px;
+    align-items: center;
+    min-width: 380px;
+    max-width: 560px;
+}
+.lp-scope-kind { font-weight: 500; }
+.lp-radio-cell { display: flex; align-items: center; min-height: 36px; cursor: pointer; }
+.lp-radio-cell input { width: 18px; height: 18px; margin: 0; accent-color: var(--lp-accent); }
+
+.lp-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.lp-chip {
+    min-height: 36px;
+    padding: 0 14px;
+    border: 1px solid var(--lp-border);
+    border-radius: 999px;
+    background: transparent;
+    color: var(--lp-muted);
+    font: inherit;
+    font-size: 0.9em;
+    cursor: pointer;
+}
+.lp-chip.lp-on {
+    border-color: var(--lp-accent);
+    color: var(--lp-text);
+    background: color-mix(in srgb, var(--lp-accent) 14%, transparent);
+}
+.lp-chip-static {
+    padding: 2px 8px;
+    border-radius: 999px;
+    border: 1px solid color-mix(in srgb, var(--lp-accent) 50%, transparent);
+    color: var(--lp-accent);
+    font-size: 0.8em;
+}
+.lp-chip-static[hidden] { display: none; }
+
+.lp-template {
+    width: 100%;
+    min-height: 220px;
+    box-sizing: border-box;
+    padding: 10px;
+    line-height: 1.6;
+    font-family: var(--monoFontFamily, monospace);
+    font-size: 0.9em;
+    resize: vertical;
+}
+.lp-btn { margin: 0 !important; min-height: 36px; }
+.lp-btn:disabled { opacity: 0.45; cursor: default; }
+
+/* ===== 擴充設定面板的入口 ===== */
+.lp-drawer-hint { margin-bottom: 8px; color: var(--SmartThemeEmColor, #9a9a92); font-size: 0.9em; }

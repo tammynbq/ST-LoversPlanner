@@ -177,7 +177,7 @@ L0 原文 → L1 單層摘要 → L2（每 10 個 L1）→ L3（每 10 份 L2）
 
 ## 10. 開發順序
 
-1. **骨架：** 三語介面、魔術棒入口、大視窗、設定頁
+1. ✅ **骨架：** 三語介面、魔術棒入口、大視窗、設定頁（2026-10-24，分支 `skeleton`）
 2. **L1 摘要：** 自動、手動、跳過，以及兩種模型來源
 3. **隱藏攔截器和失敗彈窗：** 做到這裡就真的開始省 token 了
 4. L2 / L3 壓縮
@@ -190,12 +190,35 @@ L0 原文 → L1 單層摘要 → L2（每 10 個 L1）→ L3（每 10 份 L2）
 
 > 動手時把狀態更新在這裡：`[ ]` 未做、`[x]` 完成，並在後面註明結果。
 
-- [ ] 查 TauriTavern 的 `docs/FrontendHostContract.md`、`docs/FrontendGuide.md`、`ExtensionDEV.md`：
-  - [ ] 自訂 API 是插件直接 `fetch`，還是要走它的代理？會不會被 CORS 擋？（其他插件的自訂 API 都能用，應該沒問題，但要確認做法）
-  - [ ] 支不支援 manifest 的 `generate_interceptor`？
-  - [ ] 能不能偵測到「開了同角色的新聊天」？用哪個事件？
+- [x] 查 TauriTavern 的文件（2026-10-24），結果整理在下面的「TauriTavern 筆記」。
+  - [x] 自訂 API：宿主只攔截同源請求，跨網域的 `fetch` 直接交給原生 fetch，**會受 CORS 限制**，要看對方 API 有沒有開 CORS。第 2 步要實測；被擋的話，改走酒館後端的 `/api/backends/chat-completions/generate`（同源，由宿主處理）。
+  - [ ] `generate_interceptor`：文件沒提到。宿主照原樣讀 manifest，前端沿用 SillyTavern 1.19 的擴充載入，應該支援，第 3 步實測。
+  - [ ] 偵測「開了同角色的新聊天」：第 6 步再查（可能用 `CHAT_CREATED` 或 `CHAT_CHANGED` 加上判斷聊天是空的）。
+- [ ] 第 2 步：設定頁的「測試連線」按鈕還沒做，和自訂 API 一起做。
+- [ ] 第 2 步：設定頁的「摘要模式」目前只是存設定，還沒有作用。
 - [ ] 參考現成插件怎麼處理 swipe 和隱藏，例如 qvink 的 Message Summarize，以及用表格追蹤人物、物品的記憶插件。
 - [ ] 主 API 模式下用哪個函式呼叫（`generateQuietPrompt` 或 `generateRaw`），會不會跟正常生成搶佇列？
+
+## 🔧 TauriTavern 筆記
+
+查文件得到的事實（來源：TauriTavern repo 的 `ExtensionDEV.md`、`docs/API/Chat.md`、`docs/API/Extension.md`、`docs/CurrentState/ChatPayload.md`、`docs/FrontendHostContract.md`）：
+
+- **擴充載入：** 和 SillyTavern 相容。JS 入口以 `<script type="module">` 載入，可以用相對路徑 `import`。資源路徑是 `/scripts/extensions/third-party/<資料夾>/`。
+- **等待就緒：** `await (window.__TAURITAVERN__?.ready ?? window.__TAURITAVERN_MAIN_READY__)`。一般 SillyTavern 沒有這個物件，可以直接略過（`index.js` 已處理）。
+- **`getContext().chat` 是完整的聊天陣列。** 但如果使用者開了「歷史滑動按需載入」（`cold_swipes_enabled`，預設關閉），舊樓層「沒選中的 swipe」會是 `null`，要讀之前得先讀回來。**讀 swipe 相關資料時要容忍 null。**
+- **`saveMetadata()` 不會順便存訊息。** 改了 `chat[i].extra` 之後，一定要另外呼叫完整的 `saveChat()`。
+- **專用的儲存 API（只有 TauriTavern 有）：**
+  - `api.chat.current.handle().store.*`：每個聊天各自的 KV JSON 儲存，不會讓聊天檔變大。
+  - `api.chat.current.handle().metadata.setExtension()`：寫進 `chat_metadata.extensions[namespace]`。
+  - `api.extension.store.*`：全域的 KV JSON 和 Blob 儲存，不綁定聊天。很適合放「即時共用」的資料。
+  - 要不要改用這些，等第 2、5、6 步再決定。一般 SillyTavern 沒有它們，所以至少要保留用 `chat[i].extra`、`chat_metadata`、`extensionSettings` 的做法。
+- **手機排版：** 全螢幕面板可以用 `/scripts/tauritavern/layout-kit.js` 的 `applySurface()`，讓宿主處理瀏海、系統列和鍵盤。大視窗已經接上（只在 TauriTavern 裡動態載入）。
+- **搜尋／定位：** `searchMessages()`（中日韓文有優化）、`findLastMessage()`。目前用不到，以後如果要「從摘要跳到樓層」或搜尋記憶可以考慮。
+
+## 🧪 測試方式
+
+這個環境沒有酒館，所以用一個模擬酒館的測試頁（假的 `SillyTavern.getContext()`、`#extensionsMenu`、`#extensions_settings2`），再用 Playwright 開瀏覽器實際點擊。骨架的 32 項檢查全部通過，包括：三語 key 一致、設定儲存、數字範圍連動、模板恢復預設要先確認、換語言時介面和預設模板跟著換、Esc 和點背景會關閉、群組聊天提示、手機寬度沒有橫向捲動。
+**真正的酒館裡還沒測過**，請使用者在 TauriTavern 安裝 `skeleton` 分支試用。
 
 ## 🐞 已知問題 / 踩過的坑
 
@@ -215,3 +238,9 @@ L0 原文 → L1 單層摘要 → L2（每 10 個 L1）→ L3（每 10 份 L2）
   - 過期的樓層在重做之前照樣送出原文（第 4 節）。
   - 互動示意圖：https://claude.ai/artifact/QNowicU3AjaZLwDAnxAoDW
 - 2026-10-24：使用者確認過期的樓層也要強制彈窗，和失敗一樣處理，不自動在背景重做。
+- 2026-10-24：做骨架時補上的小決定：
+  - 記憶範圍的預設值：摘要＝複製帶走、人物＝即時共用、物件＝複製帶走、約定＝複製帶走、待辦＝不帶（和示意圖一致）。
+  - 提示詞模板只在使用者改過時才存起來；沒改過就跟著語言用預設，所以換語言時預設模板也會換。
+  - 「恢復預設」在模板沒改過時是灰的（不能按）。
+  - 注入位置有三種：聊天中（依深度）、角色描述之後、提示詞最前面。只有「聊天中」才顯示深度。
+  - L1 提示詞要求模型輸出 JSON：`{ summary, ops: [{op: add|update|complete, ...}] }`，完成的結果可以是 done／kept／broken／used／lost／gone。

@@ -1,0 +1,329 @@
+// 三語介面：繁中、簡中、英文。摘要和記事也跟著這裡的語言寫。
+
+import { ctx } from './util.js';
+import { getSettings } from './settings.js';
+
+export const LOCALES = ['zh-TW', 'zh-CN', 'en'];
+
+/** 把酒館或瀏覽器的語言代碼對應到我們支援的三種之一。 */
+export function normalizeLocale(code) {
+    const c = String(code || '').toLowerCase().replace('_', '-');
+    if (!c) return null;
+    if (c.startsWith('zh')) {
+        return /(tw|hk|mo|hant)/.test(c) ? 'zh-TW' : 'zh-CN';
+    }
+    if (c.startsWith('en')) return 'en';
+    return null;
+}
+
+/** 酒館目前的介面語言。 */
+export function detectHostLocale() {
+    const candidates = [];
+    try { candidates.push(ctx()?.getCurrentLocale?.()); } catch (e) { /* 舊版沒有 */ }
+    try { candidates.push(globalThis.localStorage?.getItem('language')); } catch (e) { /* 被封鎖 */ }
+    candidates.push(globalThis.document?.documentElement?.lang);
+    candidates.push(globalThis.navigator?.language);
+    for (const c of candidates) {
+        const n = normalizeLocale(c);
+        if (n) return n;
+    }
+    return 'en';
+}
+
+export function currentLocale() {
+    const lang = getSettings().language;
+    return LOCALES.includes(lang) ? lang : detectHostLocale();
+}
+
+const DICT = {
+    'zh-TW': {
+        'app.name': '戀人手帳',
+        'drawer.open': '打開戀人手帳',
+        'drawer.hint': '所有功能和設定都在大視窗裡。也可以從魔術棒選單打開。',
+        'panel.close': '關閉',
+        'panel.subtitle': '{char} / {chat}',
+        'panel.stats': '原文 {raw} → 實際注入 {injected} tokens',
+        'panel.statsNone': '還沒有摘要，目前不會省下 token',
+        'panel.group': '暫不支援群組聊天。在群組聊天裡，戀人手帳不會隱藏或注入任何內容。',
+        'panel.noChat': '還沒有打開角色聊天。',
+        'panel.disabled': '戀人手帳目前是關閉的，不會隱藏或注入任何內容。可以在「設定 › 一般」重新打開。',
+        'tab.summary': '摘要',
+        'tab.notes': '記事',
+        'tab.done': '已完成',
+        'tab.settings': '設定',
+        'wip.summary': '單層摘要、分層壓縮會出現在這裡（製作中）。',
+        'wip.notes': '人物、物件、約定、待辦會出現在這裡（製作中）。',
+        'wip.done': '完成或用掉的項目會先放在這裡，可以還原（製作中）。',
+
+        'sec.general': '一般',
+        'sec.general.hint': '啟用、介面語言',
+        'sec.model': '模型來源',
+        'sec.summary': '摘要',
+        'sec.summary.hint': '模式、長度',
+        'sec.compress': '壓縮',
+        'sec.compress.hint': 'L2、L3',
+        'sec.hide': '隱藏',
+        'sec.hide.hint': '保留最新 2 個 AI 樓層',
+        'sec.scope': '記憶範圍',
+        'sec.scope.hint': '開新聊天時帶走哪些',
+        'sec.inject': '注入',
+        'sec.inject.hint': '位置、深度',
+        'sec.advanced': '進階',
+        'sec.advanced.hint': '提示詞模板',
+
+        'set.enabled': '啟用戀人手帳',
+        'set.language': '介面語言',
+        'set.language.auto': '跟隨酒館（目前：{name}）',
+        'set.language.note': '摘要和記事也會用這個語言寫。',
+        'set.source.main': '主 API（沿用酒館目前的連線）',
+        'set.source.custom': '自訂 API（OpenAI 相容格式，可以用便宜的小模型）',
+        'set.source.current.main': '目前：主 API',
+        'set.source.current.custom': '目前：自訂 API',
+        'set.custom.url': 'API 網址',
+        'set.custom.model': '模型名稱',
+        'set.custom.key': 'API Key',
+        'set.custom.warn': '注意：Key 會以明文存在酒館的設定檔裡。',
+        'set.summary.mode': '預設模式',
+        'set.summary.mode.auto': '自動：你送出下一句時，摘要上一層',
+        'set.summary.mode.manual': '手動：只在按「立即摘要」時',
+        'set.summary.includeUser': '摘要時包含使用者發言（一問一答一起摘）',
+        'set.summary.includeUser.warn': '關掉後，你的發言被隱藏時不會留下任何內容，只剩 AI 回覆的摘要。',
+        'set.summary.ratio': '長度：正文的 {min} % ～ {max} %',
+        'set.summary.tokens': '最低 {min} tokens，最高 {max} tokens',
+        'set.summary.note': '寫法固定為第三人稱。長度只會落在範圍附近，不保證精準。',
+        'set.compress.l2': '每 {n} 個單層摘要（L1）壓成一份章節總結（L2）',
+        'set.compress.l3': '每 {n} 份章節總結（L2）壓成一份卷總結（L3）',
+        'set.compress.ratio': '壓縮後約為原長度的 {min} % ～ {max} %',
+        'set.compress.note': '跳過的樓層不算在數量裡。',
+        'set.hide.desc': '只送出最新 2 個 AI 樓層的原文，以及它們前面的使用者發言和你正在送出的這句。其他已摘要的樓層都不送出。',
+        'set.hide.mark': '在聊天畫面標示「已隱藏」的樓層',
+        'set.hide.note': '隱藏只在送出時生效，不會改動聊天紀錄；關掉插件就恢復原狀。',
+        'set.scope.desc': '這是預設值；開同角色的新聊天時還會再問一次。複製帶走＝拷貝一份，之後各自獨立；即時共用＝兩邊讀寫同一份。',
+        'scope.none': '不帶',
+        'scope.copy': '複製帶走',
+        'scope.share': '即時共用',
+        'kind.summary': '摘要',
+        'kind.characters': '人物',
+        'kind.items': '物件',
+        'kind.promises': '約定',
+        'kind.todos': '待辦',
+        'set.inject.position': '位置',
+        'set.inject.pos.in_chat': '聊天中（依深度）',
+        'set.inject.pos.in_prompt': '角色描述之後',
+        'set.inject.pos.before_prompt': '提示詞最前面',
+        'set.inject.depth': '深度',
+        'set.inject.note': '順序：前情提要 → L3 → 未壓縮的 L2 → 未壓縮的 L1 → 記事清單 → 最新原文',
+        'tpl.l1': 'L1 摘要＋記事',
+        'tpl.l2': 'L2 壓縮',
+        'tpl.l3': 'L3 壓縮',
+        'tpl.recap': '前情提要濃縮',
+        'tpl.vars': '可用變數：{vars}',
+        'tpl.modified': '已修改',
+        'tpl.reset': '恢復預設',
+        'tpl.reset.confirm': '要把「{name}」恢復成預設嗎？你改過的內容會不見。',
+        'tpl.reset.yes': '確定恢復',
+        'tpl.reset.no': '取消',
+        'tpl.reset.done': '已恢復預設',
+    },
+    'zh-CN': {
+        'app.name': '恋人手帐',
+        'drawer.open': '打开恋人手帐',
+        'drawer.hint': '所有功能和设置都在大窗口里。也可以从魔术棒菜单打开。',
+        'panel.close': '关闭',
+        'panel.subtitle': '{char} / {chat}',
+        'panel.stats': '原文 {raw} → 实际注入 {injected} tokens',
+        'panel.statsNone': '还没有摘要，目前不会省下 token',
+        'panel.group': '暂不支持群聊。在群聊里，恋人手帐不会隐藏或注入任何内容。',
+        'panel.noChat': '还没有打开角色聊天。',
+        'panel.disabled': '恋人手帐目前是关闭的，不会隐藏或注入任何内容。可以在「设置 › 常规」重新打开。',
+        'tab.summary': '摘要',
+        'tab.notes': '记事',
+        'tab.done': '已完成',
+        'tab.settings': '设置',
+        'wip.summary': '单层摘要、分层压缩会出现在这里（制作中）。',
+        'wip.notes': '人物、物件、约定、待办会出现在这里（制作中）。',
+        'wip.done': '完成或用掉的项目会先放在这里，可以还原（制作中）。',
+
+        'sec.general': '常规',
+        'sec.general.hint': '启用、界面语言',
+        'sec.model': '模型来源',
+        'sec.summary': '摘要',
+        'sec.summary.hint': '模式、长度',
+        'sec.compress': '压缩',
+        'sec.compress.hint': 'L2、L3',
+        'sec.hide': '隐藏',
+        'sec.hide.hint': '保留最新 2 个 AI 楼层',
+        'sec.scope': '记忆范围',
+        'sec.scope.hint': '开新聊天时带走哪些',
+        'sec.inject': '注入',
+        'sec.inject.hint': '位置、深度',
+        'sec.advanced': '高级',
+        'sec.advanced.hint': '提示词模板',
+
+        'set.enabled': '启用恋人手帐',
+        'set.language': '界面语言',
+        'set.language.auto': '跟随酒馆（当前：{name}）',
+        'set.language.note': '摘要和记事也会用这个语言写。',
+        'set.source.main': '主 API（沿用酒馆当前的连接）',
+        'set.source.custom': '自定义 API（OpenAI 兼容格式，可以用便宜的小模型）',
+        'set.source.current.main': '当前：主 API',
+        'set.source.current.custom': '当前：自定义 API',
+        'set.custom.url': 'API 地址',
+        'set.custom.model': '模型名称',
+        'set.custom.key': 'API Key',
+        'set.custom.warn': '注意：Key 会以明文保存在酒馆的设置文件里。',
+        'set.summary.mode': '默认模式',
+        'set.summary.mode.auto': '自动：你发送下一句时，摘要上一层',
+        'set.summary.mode.manual': '手动：只在点「立即摘要」时',
+        'set.summary.includeUser': '摘要时包含用户发言（一问一答一起摘）',
+        'set.summary.includeUser.warn': '关掉后，你的发言被隐藏时不会留下任何内容，只剩 AI 回复的摘要。',
+        'set.summary.ratio': '长度：正文的 {min} % ～ {max} %',
+        'set.summary.tokens': '最低 {min} tokens，最高 {max} tokens',
+        'set.summary.note': '写法固定为第三人称。长度只会落在范围附近，不保证精准。',
+        'set.compress.l2': '每 {n} 个单层摘要（L1）压成一份章节总结（L2）',
+        'set.compress.l3': '每 {n} 份章节总结（L2）压成一份卷总结（L3）',
+        'set.compress.ratio': '压缩后约为原长度的 {min} % ～ {max} %',
+        'set.compress.note': '跳过的楼层不计入数量。',
+        'set.hide.desc': '只发送最新 2 个 AI 楼层的原文，以及它们前面的用户发言和你正在发送的这句。其他已摘要的楼层都不发送。',
+        'set.hide.mark': '在聊天界面标示「已隐藏」的楼层',
+        'set.hide.note': '隐藏只在发送时生效，不会改动聊天记录；关掉插件就恢复原状。',
+        'set.scope.desc': '这是默认值；开同角色的新聊天时还会再问一次。复制带走＝拷贝一份，之后各自独立；实时共享＝两边读写同一份。',
+        'scope.none': '不带',
+        'scope.copy': '复制带走',
+        'scope.share': '实时共享',
+        'kind.summary': '摘要',
+        'kind.characters': '人物',
+        'kind.items': '物件',
+        'kind.promises': '约定',
+        'kind.todos': '待办',
+        'set.inject.position': '位置',
+        'set.inject.pos.in_chat': '聊天中（按深度）',
+        'set.inject.pos.in_prompt': '角色描述之后',
+        'set.inject.pos.before_prompt': '提示词最前面',
+        'set.inject.depth': '深度',
+        'set.inject.note': '顺序：前情提要 → L3 → 未压缩的 L2 → 未压缩的 L1 → 记事清单 → 最新原文',
+        'tpl.l1': 'L1 摘要＋记事',
+        'tpl.l2': 'L2 压缩',
+        'tpl.l3': 'L3 压缩',
+        'tpl.recap': '前情提要浓缩',
+        'tpl.vars': '可用变量：{vars}',
+        'tpl.modified': '已修改',
+        'tpl.reset': '恢复默认',
+        'tpl.reset.confirm': '要把「{name}」恢复成默认吗？你改过的内容会丢失。',
+        'tpl.reset.yes': '确定恢复',
+        'tpl.reset.no': '取消',
+        'tpl.reset.done': '已恢复默认',
+    },
+    en: {
+        'app.name': "Lover's Planner",
+        'drawer.open': "Open Lover's Planner",
+        'drawer.hint': 'Everything lives in the main window. You can also open it from the wand menu.',
+        'panel.close': 'Close',
+        'panel.subtitle': '{char} / {chat}',
+        'panel.stats': 'Raw {raw} → injected {injected} tokens',
+        'panel.statsNone': 'No summaries yet, so no tokens are saved',
+        'panel.group': "Group chats aren't supported yet. Lover's Planner won't hide or inject anything here.",
+        'panel.noChat': 'No character chat is open.',
+        'panel.disabled': "Lover's Planner is turned off and won't hide or inject anything. Turn it back on in Settings › General.",
+        'tab.summary': 'Summaries',
+        'tab.notes': 'Notes',
+        'tab.done': 'Done',
+        'tab.settings': 'Settings',
+        'wip.summary': 'Per-floor summaries and compression will show up here (in progress).',
+        'wip.notes': 'Characters, items, promises and to-dos will show up here (in progress).',
+        'wip.done': 'Finished or used-up entries will wait here and can be restored (in progress).',
+
+        'sec.general': 'General',
+        'sec.general.hint': 'On/off, language',
+        'sec.model': 'Model',
+        'sec.summary': 'Summaries',
+        'sec.summary.hint': 'Mode, length',
+        'sec.compress': 'Compression',
+        'sec.compress.hint': 'L2, L3',
+        'sec.hide': 'Hiding',
+        'sec.hide.hint': 'Keep the latest 2 AI floors',
+        'sec.scope': 'Memory scope',
+        'sec.scope.hint': 'What a new chat brings along',
+        'sec.inject': 'Injection',
+        'sec.inject.hint': 'Position, depth',
+        'sec.advanced': 'Advanced',
+        'sec.advanced.hint': 'Prompt templates',
+
+        'set.enabled': "Enable Lover's Planner",
+        'set.language': 'Language',
+        'set.language.auto': 'Follow SillyTavern (now: {name})',
+        'set.language.note': 'Summaries and notes are written in this language too.',
+        'set.source.main': 'Main API (use the current SillyTavern connection)',
+        'set.source.custom': 'Custom API (OpenAI-compatible, e.g. a cheap small model)',
+        'set.source.current.main': 'Now: main API',
+        'set.source.current.custom': 'Now: custom API',
+        'set.custom.url': 'API URL',
+        'set.custom.model': 'Model name',
+        'set.custom.key': 'API key',
+        'set.custom.warn': 'Note: the key is stored in plain text in the SillyTavern settings file.',
+        'set.summary.mode': 'Default mode',
+        'set.summary.mode.auto': 'Auto: summarize the previous floor when you send your next message',
+        'set.summary.mode.manual': 'Manual: only when you press "Summarize now"',
+        'set.summary.includeUser': 'Include your own message (summarize each exchange together)',
+        'set.summary.includeUser.warn': 'With this off, nothing is kept from your messages once they are hidden — only the AI replies are summarized.',
+        'set.summary.ratio': 'Length: {min} % – {max} % of the original',
+        'set.summary.tokens': 'At least {min} tokens, at most {max} tokens',
+        'set.summary.note': 'Always written in third person. Length lands near the range, not exactly on it.',
+        'set.compress.l2': 'Compress every {n} floor summaries (L1) into one chapter (L2)',
+        'set.compress.l3': 'Compress every {n} chapters (L2) into one volume (L3)',
+        'set.compress.ratio': 'Compressed text is about {min} % – {max} % of the original',
+        'set.compress.note': "Skipped floors don't count.",
+        'set.hide.desc': 'Only the latest 2 AI floors are sent as raw text, together with the user messages before them and the one you are sending. All other summarized floors are left out.',
+        'set.hide.mark': 'Mark hidden floors in the chat',
+        'set.hide.note': "Hiding only applies when a prompt is sent; the chat log itself is never changed. Turn the extension off and everything is back to normal.",
+        'set.scope.desc': 'These are the defaults; you will be asked again when starting a new chat with the same character. Copy = take a snapshot, then each chat goes its own way. Share = both chats read and write the same data.',
+        'scope.none': "Don't bring",
+        'scope.copy': 'Copy',
+        'scope.share': 'Share live',
+        'kind.summary': 'Summaries',
+        'kind.characters': 'Characters',
+        'kind.items': 'Items',
+        'kind.promises': 'Promises',
+        'kind.todos': 'To-dos',
+        'set.inject.position': 'Position',
+        'set.inject.pos.in_chat': 'In chat (at depth)',
+        'set.inject.pos.in_prompt': 'After the character description',
+        'set.inject.pos.before_prompt': 'At the very top of the prompt',
+        'set.inject.depth': 'Depth',
+        'set.inject.note': 'Order: recap → L3 → uncompressed L2 → uncompressed L1 → notes → latest raw floors',
+        'tpl.l1': 'L1 summary + notes',
+        'tpl.l2': 'L2 compression',
+        'tpl.l3': 'L3 compression',
+        'tpl.recap': 'Recap condensing',
+        'tpl.vars': 'Variables: {vars}',
+        'tpl.modified': 'Edited',
+        'tpl.reset': 'Restore default',
+        'tpl.reset.confirm': 'Restore "{name}" to the default? Your edits will be lost.',
+        'tpl.reset.yes': 'Restore',
+        'tpl.reset.no': 'Cancel',
+        'tpl.reset.done': 'Default restored',
+    },
+};
+
+export const LOCALE_NAMES = { 'zh-TW': '繁體中文', 'zh-CN': '简体中文', en: 'English' };
+
+export function t(key, vars) {
+    const locale = currentLocale();
+    let str = DICT[locale]?.[key] ?? DICT.en[key] ?? key;
+    if (vars) {
+        str = str.replace(/\{(\w+)\}/g, (m, name) => (name in vars ? String(vars[name]) : m));
+    }
+    return str;
+}
+
+/** 測試用：確認三種語言的 key 一致。 */
+export function missingKeys() {
+    const base = Object.keys(DICT['zh-TW']);
+    const out = {};
+    for (const loc of LOCALES) {
+        const miss = base.filter((k) => !(k in DICT[loc]));
+        const extra = Object.keys(DICT[loc]).filter((k) => !base.includes(k));
+        if (miss.length || extra.length) out[loc] = { miss, extra };
+    }
+    return out;
+}

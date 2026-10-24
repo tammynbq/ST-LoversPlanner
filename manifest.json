@@ -1,0 +1,11 @@
+{
+  "display_name": "Lover's Planner (戀人手帳)",
+  "loading_order": 100,
+  "requires": [],
+  "optional": [],
+  "js": "index.js",
+  "css": "style.css",
+  "author": "tammynbq",
+  "version": "0.1.0",
+  "homePage": "https://github.com/tammynbq/ST-LoversPlanner"
+}
