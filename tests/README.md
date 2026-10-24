@@ -8,6 +8,10 @@
 npx http-server -p 8765 -s .   # 換埠號的話，跑測試時加上 PORT=埠號
 # 另一個終端機：跑測試，截圖存到 /tmp/shots
 mkdir -p /tmp/shots && node tests/skeleton.test.mjs /tmp/shots
+node tests/custom-api.test.mjs /tmp/shots
 ```
 
-每一行輸出是 PASS 或 FAIL；最後的 ERRORS 只有找不到網站圖示（favicon）的 404 是正常的。
+- `skeleton.test.mjs`：骨架（入口、分頁、設定、三語、手機版）
+- `custom-api.test.mjs`：自訂 API（拉取模型、測試連接、儲存、CORS 被擋時改走酒館轉發、401）
+
+每一行輸出是 PASS 或 FAIL，最後一行 ERRORS 應該是 none。

@@ -7,8 +7,10 @@
     --lp-border: var(--SmartThemeBorderColor, #343434);
     --lp-bg: var(--SmartThemeBlurTintColor, #171717);
     --lp-card: color-mix(in srgb, var(--lp-text) 5%, transparent);
-    --lp-warn: #f0c060;
-    --lp-ok: #8fd19e;
+    /* 狀態色和文字色混合：深色主題會偏亮、淺色主題會偏暗，兩邊都看得清楚。 */
+    --lp-warn: color-mix(in srgb, #e0a020 60%, var(--lp-text));
+    --lp-ok: color-mix(in srgb, #3fae5f 60%, var(--lp-text));
+    --lp-error: color-mix(in srgb, #e5534b 65%, var(--lp-text));
 
     position: fixed;
     inset: 0;
@@ -166,6 +168,7 @@
 .lp-warn { color: var(--lp-warn); }
 .lp-warn-text { color: var(--lp-warn); font-size: 0.9em; }
 .lp-ok-text { color: var(--lp-ok); font-size: 0.9em; }
+.lp-error-text { color: var(--lp-error); font-size: 0.9em; }
 .lp-spacer { flex: 1; }
 
 .lp-callout {
@@ -194,12 +197,14 @@
     border-radius: 8px;
     background: var(--lp-card);
 }
-.lp-grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
-.lp-span2 { grid-column: span 2; }
 .lp-field { display: flex; flex-direction: column; gap: 4px; }
+.lp-inline { display: flex; align-items: center; gap: 8px; }
+.lp-grow { flex: 1; min-width: 0; width: auto !important; height: 36px; box-sizing: border-box; }
+.lp-custom { display: flex; flex-direction: column; gap: 12px; max-width: 640px; }
+.lp-custom .text_pole { height: 36px; box-sizing: border-box; }
+.lp-custom-status { display: flex; flex-wrap: wrap; gap: 4px 10px; flex: 1 1 200px; }
+.lp-primary { border-color: var(--lp-accent) !important; }
 @media (max-width: 560px) {
-    .lp-grid2 { grid-template-columns: minmax(0, 1fr); }
-    .lp-span2 { grid-column: auto; }
     .lp-sec-body { padding-left: 14px; }
 }
 
