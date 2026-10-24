@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="zh-TW"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="stylesheet" href="../style.css">
+<style>
+:root{--SmartThemeBodyColor:rgb(220,220,210);--SmartThemeEmColor:rgb(145,145,145);--SmartThemeQuoteColor:rgb(225,138,36);--SmartThemeBorderColor:rgba(0,0,0,0.5);--SmartThemeBlurTintColor:rgba(23,23,23,1);--mainFontSize:15px}
+body{background:#333;color:rgb(220,220,210);font-family:sans-serif;margin:0}
+.text_pole{background:rgba(0,0,0,.3);color:inherit;border:1px solid #555;border-radius:5px;padding:3px 5px}
+.menu_button{background:#333;color:inherit;border:1px solid #555;border-radius:5px;padding:4px 10px;cursor:pointer}
+</style>
+<script>
+window.__events = {};
+window.__saved = 0;
+const extensionSettings = {};
+window.jQuery = (arg) => { if (typeof arg === 'function') { document.addEventListener('DOMContentLoaded', arg); if (document.readyState !== 'loading') arg(); return; } return { fadeOut(){ arg.style.display='none'; } }; };
+window.SillyTavern = { getContext: () => ({
+  extensionSettings, saveSettingsDebounced(){ window.__saved++; },
+  eventSource: { on(n, f){ (window.__events[n] ||= []).push(f); } },
+  eventTypes: { CHAT_CHANGED: 'chat_changed' },
+  characterId: window.__noChat ? undefined : 0, groupId: window.__group ? 'g1' : null,
+  name2: '沈言', chatId: '雨天的約定', getCurrentLocale: () => window.__locale || 'zh-tw',
+}) };
+window.__extSettings = extensionSettings;
+</script>
+</head><body>
+<div id="extensionsMenu"></div>
+<div id="extensions_settings2"></div>
+<script type="module" src="../index.js"></script>
+</body></html>
