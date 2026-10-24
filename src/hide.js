@@ -4,12 +4,12 @@
 // 我們從它給的訊息陣列裡拿掉已摘要的舊樓層，再用 setExtensionPrompt 放進摘要和記事。
 // 聊天紀錄本身完全不動；關掉插件就恢復原狀。
 
-import { ctx, LOG_PREFIX, MODULE } from './util.js';
+import { ctx, LOG_PREFIX, MODULE, toast } from './util.js';
 import { getSettings, isTracked } from './settings.js';
 import { t } from './i18n.js';
-import { floorStatus, getChat, getEntry, isAiMessage, isUserMessage } from './chat.js';
+import { floorStatus, getChat, getEntry, isAiMessage, isUserMessage, lastAiIndex } from './chat.js';
 import { formatNotesForPrompt, getNotes } from './notes.js';
-import { floorState, isActive } from './summarize.js';
+import { enqueue, floorState, isActive, pendingCount, setHolding, waitForIdle } from './summarize.js';
 
 /** 保留原文的 AI 樓層數（規格：最新 2 個）。 */
 export const KEEP_AI = 2;
@@ -105,37 +105,100 @@ export function clearInjection() {
 }
 
 /**
- * 酒館給攔截器的訊息是複本，`index` 是它在「非系統訊息」裡的位置。
- * 對回真正的聊天索引；對不上就回傳 null（寧可不隱藏，也不要藏錯）。
+ * 酒館給攔截器的訊息是複本，而且順序和聊天一樣、只是少了一些（系統訊息、工具呼叫等，
+ * 各版本過濾的規則不同，TauriTavern 還會拿掉舊的工具回合）。
+ * 所以不靠 `index`，而是沿著聊天往下找「送出時間、說話者、是不是使用者」都一樣的那則。
+ * 有任何一則找不到就回傳 null（寧可不隱藏，也不要藏錯）。
  */
-function mapToChat(coreChat) {
+export function mapToChat(coreChat) {
     const chat = getChat();
-    const eligible = [];
-    chat.forEach((m, i) => {
-        if (m && (!m.is_system || Array.isArray(m.extra?.tool_invocations))) eligible.push(i);
-    });
+    const same = (m, item) => m
+        && Boolean(m.is_user) === Boolean(item.is_user)
+        && (m.name ?? '') === (item.name ?? '')
+        && (m.send_date ?? null) === (item.send_date ?? null);
     const out = [];
+    let j = 0;
     for (const item of coreChat) {
-        const ci = eligible[item?.index];
-        const m = chat[ci];
-        if (!m || Boolean(m.is_user) !== Boolean(item.is_user) || m.send_date !== item.send_date || m.name !== item.name) return null;
-        out.push(ci);
+        while (j < chat.length && !same(chat[j], item)) j++;
+        if (j >= chat.length) return null;
+        out.push(j);
+        j++;
     }
     return out;
 }
 
 let lastStats = null;
+const statsListeners = new Set();
 
-/** 最近一次送出時的統計：{ hiddenFloors, hiddenTokens, injectedTokens, unsummarized }。 */
+/**
+ * 最近一次生成時的結果：
+ * { reason: null | 'inactive' | 'mismatch' | 'error' | 'cancelled', hiddenFloors, hiddenTokens, injectedTokens, unsummarized }。
+ * reason 不是 null 時表示這次沒有隱藏（原因寫在 reason）。
+ */
 export function getLastStats() {
     return lastStats;
 }
 
-const attentionListeners = new Set();
+/** 每次攔截器跑完都會通知（大視窗用來更新標題列）。 */
+export function onStatsChange(fn) {
+    statsListeners.add(fn);
+}
 
-/** 生成時發現有失敗／過期、沒辦法隱藏的樓層時通知（用來跳彈窗）。 */
-export function onAttentionNeeded(fn) {
-    attentionListeners.add(fn);
+function setStats(stats) {
+    lastStats = { hiddenFloors: 0, hiddenTokens: 0, injectedTokens: 0, unsummarized: 0, reason: null, ...stats };
+    for (const fn of statsListeners) {
+        try { fn(lastStats); } catch (e) { console.error(LOG_PREFIX, e); }
+    }
+}
+
+/**
+ * 有失敗／過期的樓層時，讓使用者決定怎麼辦（由 ui/attention.js 提供）。
+ * 回傳 Promise<'continue' | 'cancel'>。
+ */
+let attentionHandler = null;
+
+export function setAttentionHandler(fn) {
+    attentionHandler = fn;
+}
+
+/** 不需要等摘要、也不跳彈窗的生成類型。 */
+const NO_HOLD_TYPES = new Set(['quiet', 'impersonate']);
+
+/**
+ * 生成前先把摘要準備好（使用者要求：沒摘要好就先暫停生成）：
+ *   1.「開始下回前自動摘要」模式下，上一個 AI 樓層還沒摘要的話，現在就摘要。
+ *   2. 等排隊中、摘要中的都完成。
+ *   3. 還有失敗或過期的樓層，就跳彈窗讓使用者處理，選完才繼續（或取消這次生成）。
+ * 回傳 false 表示使用者取消了這次生成。
+ */
+async function prepareSummaries(type) {
+    if (NO_HOLD_TYPES.has(type)) return true;
+    const s = getSettings();
+    const normalSend = !type || type === 'normal';
+    const latest = lastAiIndex();
+    setHolding(true);
+    try {
+        if (normalSend && s.summary.mode === 'before' && latest >= 0 && floorState(latest) === 'none') {
+            enqueue(latest, { front: true });
+        }
+        if (pendingCount()) {
+            toast(t('hold.waiting'), 'info');
+            await waitForIdle();
+        }
+        const limit = type === 'swipe' ? getChat().length - 1 : getChat().length;
+        const { attention } = computeHidden(limit);
+        // 剛剛在「開始下回前」自動摘要失敗的那一層也要問。
+        if (normalSend && s.summary.mode === 'before' && latest >= 0 && ['fail', 'stale'].includes(floorState(latest)) && !attention.includes(latest)) {
+            attention.push(latest);
+        }
+        if (attention.length && attentionHandler) {
+            const choice = await attentionHandler(attention);
+            if (choice === 'cancel') return false;
+        }
+        return true;
+    } finally {
+        setHolding(false);
+    }
 }
 
 export async function interceptor(coreChat, contextSize, abort, type) {
@@ -144,14 +207,21 @@ export async function interceptor(coreChat, contextSize, abort, type) {
             clearInjection();
             return;
         }
+        if (!(await prepareSummaries(type))) {
+            setStats({ reason: 'cancelled' });
+            abort(true);
+            return;
+        }
+
         const chat = getChat();
         // swipe 時酒館已經把正在重新生成的那層拿掉了，我們也不把它算進「最新 2 層」。
         const limit = type === 'swipe' ? chat.length - 1 : chat.length;
-        const { hidden, keepFrom, attention, unsummarized } = computeHidden(limit);
+        const { hidden, keepFrom, unsummarized } = computeHidden(limit);
         const map = mapToChat(coreChat);
         if (!map) {
-            console.warn(LOG_PREFIX, '對不上聊天索引，這次不隱藏也不注入');
+            console.warn(LOG_PREFIX, '對不上聊天索引，這次不隱藏也不注入', { coreChat: coreChat.length, chat: chat.length });
             clearInjection();
+            setStats({ reason: 'mismatch', unsummarized });
             return;
         }
 
@@ -178,20 +248,17 @@ export async function interceptor(coreChat, contextSize, abort, type) {
             }
         }
 
-        lastStats = {
+        setStats({
             hiddenFloors: [...hidden].filter((i) => isAiMessage(chat[i])).length,
             hiddenTokens,
             injectedTokens: estimateTokens(text),
             unsummarized,
-        };
-        if (attention.length && type !== 'quiet') {
-            for (const fn of attentionListeners) {
-                try { fn(attention); } catch (e) { console.error(LOG_PREFIX, e); }
-            }
-        }
+        });
+        console.debug(LOG_PREFIX, '攔截器完成', lastStats);
     } catch (e) {
         console.error(LOG_PREFIX, '攔截器出錯，這次不隱藏也不注入', e);
         clearInjection();
+        setStats({ reason: 'error' });
     }
 }
 

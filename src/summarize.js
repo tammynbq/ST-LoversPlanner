@@ -26,6 +26,8 @@ const queue = []; // { index, chatId }
 const queued = new Set();
 let running = null; // 正在摘要的 index
 let mainBusySince = 0;
+// 攔截器正在「等摘要好才開始生成」：這時候主 API 是空的，可以直接摘要。
+let holding = false;
 const listeners = new Set();
 
 export function onSummaryChange(fn) {
@@ -76,9 +78,29 @@ function mainBusy() {
     return mainBusySince > 0 && Date.now() - mainBusySince < MAIN_BUSY_TIMEOUT_MS;
 }
 
+export function setHolding(on) {
+    holding = Boolean(on);
+    if (holding) drain();
+}
+
+/** 等到排隊和進行中的摘要都結束（最多等 timeoutMs）。 */
+export function waitForIdle(timeoutMs = 5 * 60 * 1000) {
+    if (!pendingCount()) return Promise.resolve(true);
+    return new Promise((resolve) => {
+        const timer = setTimeout(() => { listeners.delete(check); resolve(false); }, timeoutMs);
+        function check() {
+            if (pendingCount()) return;
+            clearTimeout(timer);
+            listeners.delete(check);
+            resolve(true);
+        }
+        listeners.add(check);
+    });
+}
+
 async function drain() {
     if (running !== null) return;
-    if (getSettings().source === 'main' && mainBusy()) return;
+    if (getSettings().source === 'main' && mainBusy() && !holding) return;
     const item = queue.shift();
     if (!item) return;
     queued.delete(item.index);

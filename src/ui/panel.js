@@ -7,7 +7,7 @@ import { currentLocale, detectHostLocale, LOCALE_NAMES, LOCALES, t } from '../i1
 import { getTemplate, isTemplateModified, resetTemplate, setTemplate, TEMPLATE_KEYS, TEMPLATE_VARS } from '../prompts.js';
 import { listModels, normalizeBaseUrl, testConnection } from '../api/custom.js';
 import { errorText } from '../errors.js';
-import { getLastStats } from '../hide.js';
+import { getLastStats, onStatsChange } from '../hide.js';
 import { aiIndices, getEntry } from '../chat.js';
 import {
     cancelQueue, enqueue, floorState, isActive, onSummaryChange, pendingCount, unsummarizedIndices,
@@ -214,7 +214,10 @@ function renderHeader() {
 function statsText() {
     const st = getLastStats();
     if (!st) return t('panel.statsNone');
-    const main = t('panel.stats', { floors: st.hiddenFloors, raw: st.hiddenTokens.toLocaleString(), injected: st.injectedTokens.toLocaleString() });
+    if (st.reason) return t(`panel.stats.${st.reason}`);
+    const main = st.hiddenFloors
+        ? t('panel.stats', { floors: st.hiddenFloors, raw: st.hiddenTokens.toLocaleString(), injected: st.injectedTokens.toLocaleString() })
+        : t('panel.statsNoneHidden');
     return st.unsummarized ? `${main}｜${t('panel.statsPending', { n: st.unsummarized })}` : main;
 }
 
@@ -344,6 +347,11 @@ function scheduleRefresh() {
 }
 onSummaryChange(scheduleRefresh);
 onNotesChange(scheduleRefresh);
+// 每次送出後更新標題列的統計（不整頁重畫）。
+onStatsChange(() => {
+    const el = isPanelOpen() ? panel.querySelector('.lp-stats') : null;
+    if (el) el.textContent = statsText();
+});
 
 // ===== 記事分頁 =====
 

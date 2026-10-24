@@ -66,44 +66,87 @@ await page.evaluate(async () => { const { setEntry } = await import('/src/chat.j
 await run('normal');
 await page.keyboard.press('Escape');
 
-// 4. 過期的樓層不隱藏、照送原文，並跳出強制彈窗
+// 4. 過期的樓層：生成先暫停並跳彈窗；選「先不管，繼續生成」→ 照送原文
 await page.evaluate(async () => { window.__chat[2].mes = 'AI2 被編輯過'; await window.__emit('message_edited', 2); });
-r = await run('normal');
-check('stale floor sent raw (with its user message)', r.kept.join() === 'd1,d2,d5,d6,d7,d8,d9', r.kept.join());
-check('stale summary not injected', !r.injection.value.includes('第2層的摘要'));
+let pending = page.evaluate(() => window.__runInterceptor('normal'));
 await page.waitForSelector('.lp-attention');
 check('popup lists the stale floor', (await page.textContent('.lp-attention')).includes('#2') && (await page.textContent('.lp-attention .lp-title')).includes('1 層'));
+check('generation is held while popup open', await Promise.race([pending.then(() => false), page.waitForTimeout(300).then(() => true)]));
 await page.screenshot({ path: `${OUT}/hide-1-popup.png` });
-// 稍後再說 → 下次送出還會再跳
-await page.click('[data-attn="later"]');
-check('later closes popup', !(await page.isVisible('.lp-attention')));
-await run('normal');
-check('popup again on next send', await page.isVisible('.lp-attention'));
-// 在彈窗裡跳過 → 下次送出就隱藏
+await page.click('[data-attn="continue"]');
+r = await pending;
+check('continue: stale floor sent raw (with its user message)', r.kept.join() === 'd1,d2,d5,d6,d7,d8,d9' && !r.aborted, r.kept.join());
+check('stale summary not injected', !r.injection.value.includes('第2層的摘要'));
+// 取消這次生成
+pending = page.evaluate(() => window.__runInterceptor('normal'));
+await page.waitForSelector('.lp-attention');
+await page.click('[data-attn="cancel"]');
+r = await pending;
+check('cancel aborts generation', r.aborted === true);
+// 在彈窗裡跳過 → 處理完自動開始生成，而且這次就隱藏
+pending = page.evaluate(() => window.__runInterceptor('normal'));
+await page.waitForSelector('.lp-attention');
 await page.click('[data-attn="skip"][data-index="2"]');
-check('popup shows skipped', (await page.textContent('.lp-attention')).includes('已跳過'));
-r = await run('normal');
-check('skipped floor now hidden, nothing injected for it', r.kept.join() === 'd5,d6,d7,d8,d9' && !r.injection.value.includes('第2層'), r.kept.join());
+r = await pending;
+check('skip in popup → auto start, floor hidden now', r.kept.join() === 'd5,d6,d7,d8,d9' && !r.aborted, r.kept.join());
 check('skipped floor notes dropped', !r.injection.value.includes('銀色手鍊'));
-await page.click('[data-attn="later"]').catch(() => {});
+check('popup closed after auto start', !(await page.isVisible('.lp-attention')));
 
-// 5. 失敗的樓層 → 彈窗裡手動寫 → 隱藏
+// 5. 失敗的樓層 → 彈窗裡重新摘要成功 → 自動開始生成
 await page.evaluate(async () => {
   const { setEntry, floorSource } = await import('/src/chat.js');
   setEntry(4, { v: 2, status: 'fail', error: 'API 逾時', hash: floorSource(4).hash, summary: '' });
   await window.__emit('chat_id_changed');
+  window.__generateRaw = async () => '{"summary":"重新摘要好了","ops":[]}';
+});
+pending = page.evaluate(() => window.__runInterceptor('normal'));
+await page.waitForSelector('.lp-attention [data-attn="retry"]');
+check('popup shows error', (await page.textContent('.lp-attention')).includes('API 逾時'));
+await page.click('[data-attn="retry"][data-index="4"]');
+r = await pending;
+check('retry in popup → summarized, hidden and injected', !r.kept.includes('d4') && r.injection.value.includes('重新摘要好了'), r.kept.join());
+
+// 5b. 「開始下回前自動摘要」：上一層還沒摘要 → 先摘要好才開始生成
+await page.evaluate(async () => {
+  const { setEntry } = await import('/src/chat.js');
+  setEntry(8, null);
+  window.__prompts.length = 0;
+  window.__generateRaw = async () => { await new Promise((ok) => setTimeout(ok, 300)); return '{"summary":"上一層的摘要","ops":[]}'; };
 });
 r = await run('normal');
-check('failed floor sent raw', r.kept.includes('d4') && r.kept.includes('d3'));
-await page.waitForSelector('.lp-attention [data-attn="write"]');
-check('popup shows error', (await page.textContent('.lp-attention')).includes('API 逾時'));
-await page.click('[data-attn="write"][data-index="4"]');
+check('before mode: previous floor summarized before generation continues', await page.evaluate(() => window.__chat[8].extra.lovers_planner?.summary === '上一層的摘要' && window.__prompts.length === 1));
+// 摘要失敗 → 彈窗 → 手動寫 → 自動開始
+await page.evaluate(async () => {
+  const { setEntry } = await import('/src/chat.js');
+  setEntry(8, null);
+  window.__generateRaw = async () => { throw new Error('連不上'); };
+});
+pending = page.evaluate(() => window.__runInterceptor('normal'));
+await page.waitForSelector('.lp-attention [data-attn="write"][data-index="8"]');
+await page.click('[data-attn="write"][data-index="8"]');
 await page.fill('[data-attn-text]', '小雨手寫的摘要');
-await page.click('[data-attn="save"][data-index="4"]');
-check('popup all done', (await page.textContent('.lp-attention .lp-title')).includes('都處理好了'));
-r = await run('normal');
-check('written floor hidden and injected', !r.kept.includes('d4') && r.injection.value.includes('小雨手寫的摘要'));
-await page.click('[data-attn="later"]').catch(() => {});
+await page.click('[data-attn="save"][data-index="8"]');
+r = await pending;
+check('failed auto summary → write in popup → generation continues', !r.aborted && await page.evaluate(() => window.__chat[8].extra.lovers_planner.summary === '小雨手寫的摘要'));
+check('quiet generations never hold', await page.evaluate(async () => {
+  const { setEntry } = await import('/src/chat.js');
+  setEntry(8, null);
+  const res = await Promise.race([window.__runInterceptor('quiet').then(() => 'done'), new Promise((ok) => setTimeout(() => ok('held'), 500))]);
+  return res === 'done' && !document.querySelector('.lp-attention');
+}));
+
+// 之後的測試用會成功的假模型。
+await page.evaluate(() => { window.__generateRaw = async () => '{"summary":"一般摘要","ops":[]}'; });
+
+// 5c. 比對：中間少了幾則（例如 TauriTavern 拿掉工具回合、index 重新編號）也對得上
+const robust = await page.evaluate(async () => {
+  const core = window.__chat.filter((x) => !x.is_system).map((m, index) => ({ ...m, index }));
+  core.splice(3, 1); // 拿掉一則，後面的 index 也跟著亂掉
+  core.forEach((m, i) => { m.index = i; });
+  const { mapToChat } = await import('/src/hide.js');
+  return mapToChat(core)?.join();
+});
+check('mapping survives filtered/renumbered copies', robust === '0,1,2,4,5,6,7,8,9', robust);
 
 // 6. swipe：正在重新生成的那層不算進「最新 2 層」
 await page.evaluate(() => { window.__chat.push({ name: '沈言', is_user: false, mes: 'AI10', send_date: 'd10', extra: {} }); });
@@ -128,6 +171,7 @@ const safe = await page.evaluate(async () => {
   return { n: core.length, inj: window.__extPrompts.lovers_planner.value };
 });
 check('mismatch → nothing hidden, nothing injected', safe.n === 10 && safe.inj === '');
+check('mismatch reason recorded', await page.evaluate(async () => (await import('/src/hide.js')).getLastStats().reason === 'mismatch'));
 
 // 9. 關掉插件 → 不隱藏、注入清空
 await page.evaluate(() => { window.__extSettings.lovers_planner.enabled = false; });
