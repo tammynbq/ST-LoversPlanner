@@ -65,7 +65,7 @@ check('summary stored', e4.summary === '摘要#1' && typeof e4.hash === 'string'
 check('synced to swipe extra', await page.evaluate(() => window.__chat[4].swipe_info[0].extra.lovers_planner?.summary === '摘要#1'));
 const p = await page.evaluate(() => window.__prompts[0]);
 check('prompt has user + AI text', p.prompt.includes('小雨: 好，我等你。') && p.prompt.includes('沈言: 沈言把外套'));
-check('prompt variables filled', !/\{\{(content|length|notes|char|user)\}\}/.test(p.prompt) && /約 \d+ 字/.test(p.prompt), p.prompt.match(/約 \d+ 字/)?.[0]);
+check('prompt variables filled', !/\{\{(content|length|notes|char|user|previous)\}\}/.test(p.prompt) && /約 \d+ 字/.test(p.prompt), p.prompt.match(/約 \d+ 字/)?.[0]);
 check('prompt in zh-TW', p.prompt.includes('繁體中文'));
 check('response length passed', p.responseLength > 0, String(p.responseLength));
 await page.waitForTimeout(500);

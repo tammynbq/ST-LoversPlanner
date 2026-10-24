@@ -7,31 +7,44 @@ import { getSettings, saveSettings } from './settings.js';
 export const TEMPLATE_KEYS = ['l1', 'l2', 'l3', 'recap'];
 
 export const TEMPLATE_VARS = {
-    l1: ['{{char}}', '{{user}}', '{{length}}', '{{content}}', '{{notes}}'],
+    l1: ['{{char}}', '{{user}}', '{{length}}', '{{content}}', '{{notes}}', '{{previous}}'],
     l2: ['{{summaries}}', '{{length}}'],
     l3: ['{{chapters}}', '{{length}}'],
     recap: ['{{recap}}', '{{length}}'],
 };
 
 const L1_JSON_SPEC = `{
+  "time": "…",
+  "location": "…",
+  "characters": ["…"],
   "summary": "…",
   "ops": [
-    { "op": "add", "type": "character|item|promise|todo", "data": { … } },
-    { "op": "update", "id": "…", "data": { … } },
-    { "op": "complete", "id": "…", "result": "done|kept|broken|used|lost|gone" }
+    { "op": "add", "type": "character", "data": { "name": "…", "relation": "…", "status": "…", "note": "…" } },
+    { "op": "add", "type": "item", "data": { "name": "…", "holder": "…", "status": "…" } },
+    { "op": "add", "type": "promise", "data": { "content": "…", "with": "…", "when": "…" } },
+    { "op": "add", "type": "todo", "data": { "content": "…" } },
+    { "op": "update", "id": "…", "data": { "status": "…" } },
+    { "op": "complete", "id": "…", "result": "kept" }
   ]
 }`;
 
 const DEFAULTS = {
     'zh-TW': {
-        l1: `你是故事記錄員，負責替 {{char}} 和 {{user}} 的故事寫摘要。
+        l1: `你是故事記錄員，負責替 {{char}} 和 {{user}} 的故事做紀錄。
 
-請用第三人稱、繁體中文，把下面這一段對話寫成約 {{length}} 字的摘要。只記發生了什麼、重要的決定和情緒轉折，不要評論，不要加入原文沒有的內容。
+請讀下面這一段對話，用繁體中文、第三人稱回報：
+1. time：這一段發生的故事內時間（例如「第三天 晚上」）。沒提到就延續上一層；完全無法判斷就留空字串。
+2. location：發生的地點。沒提到就延續上一層；地點有移動可以寫「A → B」。
+3. characters：這一段出場的人物名字（陣列）。
+4. summary：約 {{length}} 字的摘要。只記發生了什麼、重要的決定和情緒轉折，不要評論，不要加入原文沒有的內容。
+5. ops：對照目前的記事清單，找出這段對話裡新出現、有變化、或已經結束的人物、物件、約定、待辦：
+   - 新增用 add，type 是 character／item／promise／todo。更新或結束已有的記事時，用清單裡方括號中的 id。
+   - 人物不會被移除，只用 update 更新狀態（例如離開、死亡）。
+   - 物件用掉、遺失、送人時用 complete，result 是 used／lost／gone。
+   - 約定履行用 complete 加 kept；被打破用 complete 加 broken。待辦完成用 complete 加 done。
+   - 清單裡已經有的不要重複新增。沒有變化就讓 ops 是空陣列。
 
-接著對照目前的記事清單，找出這段對話裡新出現、有變化、或已經結束的人物、物件、約定、待辦：
-- 人物不會被移除，只更新狀態（例如離開、死亡）。
-- 約定被打破時用 "broken"，不要當成完成。
-- 沒有變化就讓 ops 是空陣列。
+上一層：{{previous}}
 
 目前的記事清單：
 {{notes}}
@@ -60,14 +73,21 @@ ${L1_JSON_SPEC}`,
 只輸出濃縮後的內容。`,
     },
     'zh-CN': {
-        l1: `你是故事记录员，负责替 {{char}} 和 {{user}} 的故事写摘要。
+        l1: `你是故事记录员，负责替 {{char}} 和 {{user}} 的故事做记录。
 
-请用第三人称、简体中文，把下面这一段对话写成约 {{length}} 字的摘要。只记发生了什么、重要的决定和情绪转折，不要评论，不要加入原文没有的内容。
+请读下面这一段对话，用简体中文、第三人称回报：
+1. time：这一段发生的故事内时间（例如「第三天 晚上」）。没提到就延续上一层；完全无法判断就留空字符串。
+2. location：发生的地点。没提到就延续上一层；地点有移动可以写「A → B」。
+3. characters：这一段出场的人物名字（数组）。
+4. summary：约 {{length}} 字的摘要。只记发生了什么、重要的决定和情绪转折，不要评论，不要加入原文没有的内容。
+5. ops：对照当前的记事清单，找出这段对话里新出现、有变化、或已经结束的人物、物件、约定、待办：
+   - 新增用 add，type 是 character／item／promise／todo。更新或结束已有的记事时，用清单里方括号中的 id。
+   - 人物不会被移除，只用 update 更新状态（例如离开、死亡）。
+   - 物件用掉、遗失、送人时用 complete，result 是 used／lost／gone。
+   - 约定履行用 complete 加 kept；被打破用 complete 加 broken。待办完成用 complete 加 done。
+   - 清单里已经有的不要重复新增。没有变化就让 ops 是空数组。
 
-接着对照当前的记事清单，找出这段对话里新出现、有变化、或已经结束的人物、物件、约定、待办：
-- 人物不会被移除，只更新状态（例如离开、死亡）。
-- 约定被打破时用 "broken"，不要当成完成。
-- 没有变化就让 ops 是空数组。
+上一层：{{previous}}
 
 当前的记事清单：
 {{notes}}
@@ -98,12 +118,19 @@ ${L1_JSON_SPEC}`,
     en: {
         l1: `You are the story's record keeper for {{char}} and {{user}}.
 
-Summarize the exchange below in English, in the third person, in about {{length}} words. Record only what happened, key decisions and emotional turns. Don't comment and don't add anything that isn't in the text.
+Read the exchange below and report, in English and in the third person:
+1. time: when this happens in the story (e.g. "day three, evening"). If not mentioned, carry over from the previous floor; if impossible to tell, use an empty string.
+2. location: where it happens. If not mentioned, carry over from the previous floor; for a change of place write "A → B".
+3. characters: names of the characters who appear (array).
+4. summary: about {{length}} words. Record only what happened, key decisions and emotional turns. Don't comment and don't add anything that isn't in the text.
+5. ops: compare with the current notes and find characters, items, promises and to-dos that are new, changed or finished:
+   - Use add with type character / item / promise / todo for new ones. To update or finish an existing note, use the id in square brackets from the list.
+   - Characters are never removed; only use update to change their status (e.g. left, died).
+   - When an item is used up, lost or given away, use complete with result used / lost / gone.
+   - A kept promise is complete + kept; a broken one is complete + broken. A finished to-do is complete + done.
+   - Don't add anything that is already in the list. If nothing changed, leave ops as an empty array.
 
-Then compare it with the current notes and find characters, items, promises and to-dos that are new, changed or finished:
-- Characters are never removed; only update their status (e.g. left, died).
-- A broken promise uses "broken"; don't treat it as done.
-- If nothing changed, leave ops as an empty array.
+Previous floor: {{previous}}
 
 Current notes:
 {{notes}}

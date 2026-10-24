@@ -13,6 +13,7 @@ import { getTemplate } from './prompts.js';
 import { ApiError } from './api/custom.js';
 import { countTokens, generateText } from './llm.js';
 import { errorText } from './errors.js';
+import { formatNotesForPrompt, invalidateNotes, normalizeModelOps, replay } from './notes.js';
 import {
     chatKey, floorSource, floorStatus, getChat, getEntry, isAiMessage, lastAiIndex, saveChatSoon, setEntry,
 } from './chat.js';
@@ -31,6 +32,7 @@ export function onSummaryChange(fn) {
 }
 
 function notify(index) {
+    invalidateNotes();
     for (const fn of listeners) {
         try { fn(index); } catch (e) { console.error(LOG_PREFIX, e); }
     }
@@ -109,10 +111,25 @@ function lengthUnits(content, tokens, targetTokens) {
     return Math.max(10, Math.round((targetTokens * perToken) / 10) * 10);
 }
 
+/** 往前找最近一個有時間或地點的已摘要樓層，讓模型延續。 */
+function previousSceneText(index) {
+    const chat = getChat();
+    for (let i = index - 1; i >= 0; i--) {
+        if (!isAiMessage(chat[i])) continue;
+        const e = getEntry(i);
+        if (e?.status === 'ok' && (e.time || e.location)) {
+            return t('prompt.previous', { time: e.time || '—', location: e.location || '—' });
+        }
+    }
+    return t('prompt.noPrevious');
+}
+
 export async function buildL1Prompt(index) {
     const s = getSettings();
     const c = ctx();
     const src = floorSource(index);
+    // 給模型看「這一層之前」的記事；重做舊樓層時不會把之後的變化算進來。
+    const notesBefore = replay({ upTo: index }).notes;
     const parts = [];
     if (s.summary.includeUser) {
         for (const u of src.users) parts.push(`${u.name ?? c?.name1 ?? 'User'}: ${u.mes}`);
@@ -128,10 +145,11 @@ export async function buildL1Prompt(index) {
         user: c?.name1 ?? '',
         length: lengthUnits(content, tokens, targetTokens),
         content,
-        notes: t('prompt.noNotes'),
+        notes: formatNotesForPrompt(notesBefore),
+        previous: previousSceneText(index),
     });
-    // 摘要本身 + 記事 JSON 的空間。
-    return { prompt, hash: src.hash, maxTokens: targetTokens * 2 + 400 };
+    // 摘要本身＋時間、地點、人物＋記事 JSON 的空間。
+    return { prompt, hash: src.hash, notesBefore, maxTokens: targetTokens * 2 + 600 };
 }
 
 // ===== 解析結果 =====
@@ -146,13 +164,26 @@ export function parseL1(raw) {
         try {
             const obj = JSON.parse(cleaned.slice(start, end + 1));
             if (typeof obj?.summary === 'string' && obj.summary.trim()) {
-                return { summary: obj.summary.trim(), ops: Array.isArray(obj.ops) ? obj.ops : [] };
+                return {
+                    ...cleanScene(obj),
+                    summary: obj.summary.trim(),
+                    ops: Array.isArray(obj.ops) ? obj.ops : [],
+                };
             }
         } catch (e) { /* 往下判斷 */ }
     }
     // 模型沒照 JSON 格式，但給了一段純文字：直接當摘要用。
-    if (start === -1) return { summary: cleaned, ops: [] };
+    if (start === -1) return { time: '', location: '', characters: [], summary: cleaned, ops: [] };
     throw new ApiError('parse', text.slice(0, 120));
+}
+
+/** 時間、地點、出場人物：整理成固定格式。 */
+export function cleanScene(obj) {
+    const str = (v) => String(v ?? '').trim().slice(0, 100);
+    let chars = obj?.characters;
+    if (typeof chars === 'string') chars = chars.split(/[,，、;；]/);
+    chars = Array.isArray(chars) ? [...new Set(chars.map(str).filter(Boolean))].slice(0, 12) : [];
+    return { time: str(obj?.time), location: str(obj?.location), characters: chars };
 }
 
 // ===== 摘要一層 =====
@@ -167,19 +198,26 @@ async function summarizeFloor(index) {
         const built = await buildL1Prompt(index);
         hash = built.hash;
         const raw = await generateText(built.prompt, { maxTokens: built.maxTokens });
-        const { summary, ops } = parseL1(raw);
+        const parsed = parseL1(raw);
         if (!stillHere()) return;
+        // 對照這一層之前的記事整理變化：配上 id、去掉重複新增和找不到的。
+        const prevOps = getEntry(index)?.ops;
+        const ops = normalizeModelOps(parsed.ops, built.notesBefore, prevOps);
         // 摘要途中原文被改的話，hash 對不上，會自動顯示成「過期」。
-        setEntry(index, { v: 1, status: 'ok', summary, ops, hash, at: Date.now() });
+        setEntry(index, {
+            v: 2, status: 'ok', time: parsed.time, location: parsed.location, characters: parsed.characters,
+            summary: parsed.summary, ops, hash, at: Date.now(),
+        });
     } catch (e) {
         console.warn(LOG_PREFIX, `第 ${index} 層摘要失敗`, e);
         if (!stillHere()) return;
         const message = errorText(e);
         const previous = getEntry(index);
         setEntry(index, {
-            v: 1, status: 'fail', error: message, hash, at: Date.now(),
-            // 保留舊摘要，讓使用者手動寫時可以從它改起。
-            summary: previous?.summary ?? '',
+            v: 2, status: 'fail', error: message, hash, at: Date.now(),
+            // 保留舊內容，讓使用者手動寫時可以從它改起。失敗的樓層不套用記事變化。
+            time: previous?.time ?? '', location: previous?.location ?? '',
+            characters: previous?.characters ?? [], summary: previous?.summary ?? '',
         });
         toast(t('toast.summaryFailed', { n: index, error: message }), 'error');
     }
@@ -191,7 +229,7 @@ async function summarizeFloor(index) {
 export function skipFloor(index) {
     const prev = getEntry(index);
     if (prev?.status === 'skip') return;
-    setEntry(index, { v: 1, status: 'skip', hash: floorSource(index).hash, prev: prev ?? null });
+    setEntry(index, { v: 2, status: 'skip', hash: floorSource(index).hash, prev: prev ?? null });
     saveChatSoon();
     notify(index);
 }
@@ -204,11 +242,16 @@ export function unskipFloor(index) {
     notify(index);
 }
 
-/** 使用者自己寫或修改摘要。 */
-export function writeSummary(index, text) {
-    const summary = String(text ?? '').trim();
+/** 使用者自己寫或修改摘要（時間、地點、人物、摘要）。原本的記事變化保留。 */
+export function writeSummary(index, fields) {
+    const summary = String(fields?.summary ?? '').trim();
     if (!summary) return false;
-    setEntry(index, { v: 1, status: 'ok', summary, ops: [], hash: floorSource(index).hash, at: Date.now(), manual: true });
+    const prev = getEntry(index);
+    const ops = prev?.status === 'ok' && Array.isArray(prev.ops) ? prev.ops : [];
+    setEntry(index, {
+        v: 2, status: 'ok', ...cleanScene(fields), summary, ops,
+        hash: floorSource(index).hash, at: Date.now(), manual: true,
+    });
     saveChatSoon();
     notify(index);
     return true;

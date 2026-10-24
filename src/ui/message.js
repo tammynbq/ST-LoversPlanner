@@ -5,6 +5,7 @@ import { getSettings } from '../settings.js';
 import { t } from '../i18n.js';
 import { getChat, getEntry, isAiMessage, lastAiIndex } from '../chat.js';
 import { enqueue, floorState, isActive, onSummaryChange, skipFloor, unskipFloor, writeSummary } from '../summarize.js';
+import { describeOp, getNotes, onNotesChange, setFloorOpUndone } from '../notes.js';
 
 const expanded = new Set(); // 展開中的樓層
 const editing = new Set(); // 正在手動編輯的樓層
@@ -72,6 +73,50 @@ export function runAction(index, act) {
     }
 }
 
+/** 時間、地點、出場人物那一行。沒有就回傳空字串。 */
+export function sceneHtml(entry) {
+    if (!entry) return '';
+    const items = [
+        ['time', 'fa-regular fa-clock', entry.time],
+        ['location', 'fa-solid fa-location-dot', entry.location],
+        ['characters', 'fa-solid fa-user-group', (entry.characters ?? []).join('、')],
+    ].filter(([, , v]) => v);
+    if (!items.length) return '';
+    return `<div class="lp-scene">${items.map(([k, icon, v]) =>
+        `<span class="lp-scene-item"><span class="${icon}" aria-hidden="true"></span><span class="lp-sr">${esc(t(`meta.${k}`))}：</span>${esc(v)}</span>`).join('')}</div>`;
+}
+
+/** 這一層造成的記事變化，每條可以撤銷／恢復。 */
+export function changesHtml(index, { actions = true } = {}) {
+    const { notes, perFloor } = getNotes();
+    const list = perFloor.get(index) ?? [];
+    if (!list.length) return '';
+    const rows = list.map(({ op, k, valid }) => {
+        const undone = Boolean(op.undone);
+        const label = !undone && !valid ? `${describeOp(op, notes)} ${t('changes.invalid')}` : describeOp(op, notes);
+        const btn = !actions ? '' : undone
+            ? `<button type="button" class="menu_button lp-btn lp-mini" data-lp-act="redo-op" data-k="${k}">${esc(t('changes.redo'))}</button>`
+            : (valid ? `<button type="button" class="menu_button lp-btn lp-mini" data-lp-act="undo-op" data-k="${k}">${esc(t('changes.undo'))}</button>` : '');
+        return `<li class="lp-change${undone ? ' lp-undone' : ''}${!undone && !valid ? ' lp-invalid' : ''}"><span>${esc(label)}</span>${btn}</li>`;
+    }).join('');
+    return `<div class="lp-changes"><div class="lp-changes-title">${esc(t('changes.title'))}</div><ul>${rows}</ul></div>`;
+}
+
+function editorHtml(entry) {
+    const v = (x) => esc(x ?? '');
+    return `
+      <div class="lp-editor-grid">
+        <label class="lp-field"><span class="lp-label">${esc(t('meta.time'))}</span><input type="text" class="text_pole" data-field="time" value="${v(entry?.time)}"></label>
+        <label class="lp-field"><span class="lp-label">${esc(t('meta.location'))}</span><input type="text" class="text_pole" data-field="location" value="${v(entry?.location)}"></label>
+      </div>
+      <label class="lp-field"><span class="lp-label">${esc(t('meta.characters'))}</span><input type="text" class="text_pole" data-field="characters" value="${v((entry?.characters ?? []).join('、'))}" placeholder="${esc(t('meta.charactersHint'))}"></label>
+      <label class="lp-field"><span class="lp-label">${esc(t('meta.summary'))}</span><textarea class="text_pole lp-sum-editor" data-field="summary" placeholder="${esc(t('sum.editPlaceholder'))}">${v(entry?.summary)}</textarea></label>
+      <div class="lp-sum-actions">
+        <button type="button" class="menu_button lp-btn lp-primary" data-lp-act="save">${esc(t('act.save'))}</button>
+        <button type="button" class="menu_button lp-btn" data-lp-act="cancel">${esc(t('act.cancel'))}</button>
+      </div>`;
+}
+
 function blockHtml(index) {
     const state = floorState(index);
     const entry = getEntry(index);
@@ -82,18 +127,15 @@ function blockHtml(index) {
     let body = '';
     if (open) {
         if (editing.has(index)) {
-            body = `
-              <textarea class="text_pole lp-sum-editor" aria-label="${esc(t('act.edit'))}" placeholder="${esc(t('sum.editPlaceholder'))}">${esc(summary)}</textarea>
-              <div class="lp-sum-actions">
-                <button type="button" class="menu_button lp-btn lp-primary" data-lp-act="save">${esc(t('act.save'))}</button>
-                <button type="button" class="menu_button lp-btn" data-lp-act="cancel">${esc(t('act.cancel'))}</button>
-              </div>`;
+            body = editorHtml(state === 'skip' ? null : entry);
         } else {
             const hint = summary && (state === 'stale' || state === 'fail') ? `<div class="lp-sum-hint">${esc(hintFor(index, state))}</div>` : '';
+            const scene = state === 'skip' ? '' : sceneHtml(entry);
             const text = summary ? `<div class="lp-sum-text">${esc(summary)}</div>` : `<div class="lp-sum-hint">${esc(hintFor(index, state))}</div>`;
+            const changes = state === 'ok' || state === 'stale' ? changesHtml(index) : '';
             const actions = actionsFor(state).map((a) =>
                 `<button type="button" class="menu_button lp-btn${['summarize', 'redo', 'retry'].includes(a) ? ' lp-primary' : ''}" data-lp-act="${a}">${esc(t(`act.${a}`))}</button>`).join('');
-            body = `${hint}${text}${actions ? `<div class="lp-sum-actions">${actions}</div>` : ''}`;
+            body = `${hint}${scene}${text}${changes}${actions ? `<div class="lp-sum-actions">${actions}</div>` : ''}`;
         }
     }
 
@@ -164,9 +206,19 @@ function onChatClick(e) {
             expanded.add(index);
         }
     } else if (act === 'save') {
-        const text = block.querySelector('.lp-sum-editor')?.value ?? '';
-        if (!writeSummary(index, text)) return;
+        const field = (name) => block.querySelector(`[data-field="${name}"]`)?.value ?? '';
+        const ok = writeSummary(index, {
+            time: field('time'), location: field('location'), characters: field('characters'), summary: field('summary'),
+        });
+        if (!ok) {
+            block.querySelector('[data-field="summary"]')?.focus();
+            return;
+        }
         editing.delete(index);
+    } else if (act === 'undo-op' || act === 'redo-op') {
+        // 會連帶影響其他樓層和大視窗，交給 onNotesChange 重畫。
+        setFloorOpUndone(index, Number(btn.dataset.k), act === 'undo-op');
+        return;
     } else if (act === 'cancel') {
         editing.delete(index);
     } else if (runAction(index, act)) {
@@ -183,10 +235,19 @@ export function initMessageBlocks() {
     // 用 document 委派：#chat 在酒館裡會一直存在，但保險起見不直接綁它。
     document.addEventListener('click', onChatClick, true);
 
-    onSummaryChange((index) => {
-        if (index === null) renderAllBlocks();
-        else renderBlock(index);
-    });
+    // 一層的摘要或記事變了，其他樓層的「記事變化」也可能跟著變（例如引用的記事不見了），
+    // 所以全部重畫；同一輪裡的多次變化合併成一次。
+    let pending = false;
+    const renderSoon = () => {
+        if (pending) return;
+        pending = true;
+        queueMicrotask(() => {
+            pending = false;
+            renderAllBlocks();
+        });
+    };
+    onSummaryChange(renderSoon);
+    onNotesChange(renderSoon);
 
     const c = ctx();
     if (!c?.eventSource || !c.eventTypes) return;

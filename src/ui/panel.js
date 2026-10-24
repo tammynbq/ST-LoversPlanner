@@ -11,7 +11,11 @@ import { aiIndices, getEntry } from '../chat.js';
 import {
     cancelQueue, enqueue, floorState, isActive, onSummaryChange, pendingCount, unsummarizedIndices,
 } from '../summarize.js';
-import { actionsFor, hintFor, revealFloor, runAction, STATUS_ICONS } from './message.js';
+import { actionsFor, hintFor, revealFloor, runAction, sceneHtml, STATUS_ICONS } from './message.js';
+import {
+    addNoteManual, closedNotes, completeNoteManual, deleteNoteManual, NOTE_FIELDS, NOTE_TYPES, noteTitle,
+    notesOfType, onNotesChange, reopenNoteManual, resultLabel, typeLabel, updateNoteManual,
+} from '../notes.js';
 import {
     CHAR_SCOPE_VALUES, CHAT_SCOPE_VALUES, characterName, getCharacterScope, getChatScope, SCOPE_KINDS,
     setCharacterScope, setChatScope,
@@ -44,6 +48,11 @@ const RANGE_PAIRS = [
 const view = {
     tab: 'summary',
     openSections: new Set(['general']),
+    notes: {
+        editing: null, // 正在編輯的記事 id
+        adding: null, // 正在新增的類型
+        confirmClear: false,
+    },
     sum: {
         filter: 'all',
         newest: true,
@@ -99,6 +108,9 @@ export function closePanel() {
     view.custom.draft = null;
     view.custom.status = null;
     view.custom.showKey = false;
+    view.notes.editing = null;
+    view.notes.adding = null;
+    view.notes.confirmClear = false;
     try { lastFocus?.focus?.(); } catch (e) { /* 元素可能已經不在 */ }
 }
 
@@ -108,6 +120,12 @@ export function refreshPanel() {
 }
 
 function onKeydown(e) {
+    // 記事表單裡按 Enter 直接儲存。
+    if (e.key === 'Enter' && e.target?.dataset?.noteField !== undefined && !e.isComposing) {
+        e.preventDefault();
+        saveNoteForm(e.target.closest('[data-note-form]'));
+        return;
+    }
     if (e.key === 'Escape') {
         e.stopPropagation();
         closePanel();
@@ -199,15 +217,11 @@ function renderBanner() {
 function renderTab() {
     switch (view.tab) {
         case 'summary': return renderSummaryTab();
-        case 'notes': return renderWip('wip.notes');
-        case 'done': return renderWip('wip.done');
+        case 'notes': return renderNotesTab();
+        case 'done': return renderDoneTab();
         case 'settings': return renderSettings();
         default: return '';
     }
-}
-
-function renderWip(key) {
-    return `<div class="lp-wip">${esc(t(key))}</div>`;
 }
 
 // ===== 摘要分頁 =====
@@ -234,6 +248,7 @@ function summaryRow(index, state) {
         <div class="lp-floor-no">#${index}</div>
         <div class="lp-floor-main">
           <div>${badge(state)}</div>
+          ${state === 'skip' ? '' : sceneHtml(entry)}
           ${summary ? `<div class="lp-sum-text">${esc(summary)}</div>` : ''}
           ${showHint ? `<div class="lp-sum-hint">${esc(hint)}</div>` : ''}
           <div class="lp-sum-actions">${actions}</div>
@@ -295,11 +310,153 @@ function renderSummaryTab() {
 }
 
 let summaryRefreshTimer = null;
-onSummaryChange(() => {
-    if (!isPanelOpen() || view.tab !== 'summary') return;
+function scheduleRefresh() {
+    if (!isPanelOpen() || !['summary', 'notes', 'done'].includes(view.tab)) return;
+    // 正在填記事表單時不重畫，免得打到一半的字不見。
+    if (view.notes.editing || view.notes.adding) return;
     clearTimeout(summaryRefreshTimer);
     summaryRefreshTimer = setTimeout(render, 80);
-});
+}
+onSummaryChange(scheduleRefresh);
+onNotesChange(scheduleRefresh);
+
+// ===== 記事分頁 =====
+
+const SECTION_HINT = { character: 'notes.characterHint', promise: 'notes.promiseHint' };
+const KIND_KEY = { character: 'characters', item: 'items', promise: 'promises', todo: 'todos' };
+
+function floorLink(index, key) {
+    return `<button type="button" class="lp-link" data-action="note-jump" data-index="${index}">${esc(t(key, { n: index }))}</button>`;
+}
+
+function noteTrace(note) {
+    const parts = [];
+    parts.push(note.createdFloor === null ? esc(t('notes.manualAdd')) : floorLink(note.createdFloor, 'notes.created'));
+    if (note.updatedFloor !== null && note.updatedFloor !== note.createdFloor) parts.push(floorLink(note.updatedFloor, 'notes.updated'));
+    if (note.state !== 'active') {
+        parts.push(note.closedFloor === null ? esc(t('notes.closedManual')) : floorLink(note.closedFloor, 'notes.closed'));
+    }
+    return `<div class="lp-note-trace">${parts.join(' · ')}</div>`;
+}
+
+function noteForm(type, data, { id = null } = {}) {
+    const fields = NOTE_FIELDS[type].map((f, i) => `
+      <label class="lp-field"><span class="lp-label">${esc(t(`field.${type}.${f}`))}</span>
+        <input type="text" class="text_pole" data-note-field="${f}" value="${esc(data?.[f] ?? '')}"${i === 0 ? ' data-autofocus' : ''}></label>`).join('');
+    return `
+      <div class="lp-note-card lp-note-form" data-note-form="${id ?? ''}" data-type="${type}">
+        ${fields}
+        <div class="lp-sum-actions">
+          <button type="button" class="menu_button lp-btn lp-primary" data-action="note-save">${esc(t('notes.act.save'))}</button>
+          <button type="button" class="menu_button lp-btn" data-action="note-cancel">${esc(t('notes.act.cancel'))}</button>
+        </div>
+      </div>`;
+}
+
+function noteActions(note) {
+    const btn = (act, key, extra = '') =>
+        `<button type="button" class="menu_button lp-btn lp-mini" data-action="${act}" data-id="${note.id}"${extra}>${esc(t(key))}</button>`;
+    const out = [btn('note-edit', 'notes.act.edit')];
+    if (note.type === 'item') out.push(btn('note-complete', 'notes.act.used', ' data-result="used"'));
+    if (note.type === 'todo') out.push(btn('note-complete', 'notes.act.done', ' data-result="done"'));
+    if (note.type === 'promise' && note.state === 'active') {
+        out.push(btn('note-complete', 'notes.act.kept', ' data-result="kept"'));
+        out.push(btn('note-complete', 'notes.act.broken', ' data-result="broken"'));
+    }
+    if (note.type === 'promise' && note.state === 'broken') out.push(btn('note-reopen', 'notes.act.reopen'));
+    return `<div class="lp-sum-actions">${out.join('')}</div>`;
+}
+
+function noteCard(note) {
+    if (view.notes.editing === note.id) return noteForm(note.type, note.data, { id: note.id });
+    const titleField = NOTE_FIELDS[note.type][0];
+    const lines = NOTE_FIELDS[note.type]
+        .filter((f) => f !== titleField && note.data[f])
+        .map((f) => `<div class="lp-note-line"><span class="lp-label">${esc(t(`field.${note.type}.${f}`))}</span> ${esc(note.data[f])}</div>`)
+        .join('');
+    const broken = note.state === 'broken' ? `<span class="lp-badge lp-st-fail">${esc(resultLabel('broken'))}</span>` : '';
+    return `
+      <div class="lp-note-card${note.state === 'broken' ? ' lp-note-broken' : ''}">
+        <div class="lp-note-head"><span class="lp-note-title">${esc(noteTitle(note))}</span>${broken}</div>
+        ${lines}
+        ${noteTrace(note)}
+        ${noteActions(note)}
+      </div>`;
+}
+
+function renderNotesTab() {
+    if (!isActive()) return '';
+    const sections = NOTE_TYPES.map((type) => {
+        // 進行中的在前，被打破的約定在後。
+        const list = notesOfType(type).sort((a, b) => (a.state === 'broken') - (b.state === 'broken'));
+        const hint = SECTION_HINT[type] ? `<span class="lp-note">${esc(t(SECTION_HINT[type]))}</span>` : '';
+        const adding = view.notes.adding === type ? noteForm(type, {}) : '';
+        return `
+          <section class="lp-note-section">
+            <div class="lp-row">
+              <span class="lp-scope-title">${esc(t(`kind.${KIND_KEY[type]}`))}</span>
+              <span class="lp-note">${esc(t('notes.count', { n: list.length }))}</span>
+              ${hint}
+              <span class="lp-spacer"></span>
+              <button type="button" class="menu_button lp-btn lp-mini" data-action="note-add" data-type="${type}">${esc(t('notes.add'))}</button>
+            </div>
+            ${adding}
+            ${list.map(noteCard).join('')}
+          </section>`;
+    }).join('');
+    const empty = NOTE_TYPES.every((type) => !notesOfType(type).length) && !view.notes.adding
+        ? `<div class="lp-wip">${esc(t('notes.empty'))}</div>` : '';
+    return `${empty}<div class="lp-notes-grid">${sections}</div>`;
+}
+
+// ===== 已完成分頁 =====
+
+function renderDoneTab() {
+    if (!isActive()) return '';
+    const list = closedNotes();
+    const rows = list.map((note) => `
+      <div class="lp-floor-row">
+        <span class="lp-chip-static">${esc(typeLabel(note.type))}</span>
+        <div class="lp-floor-main">
+          <div><span class="lp-note-title">${esc(noteTitle(note))}</span> <span class="lp-note">（${esc(resultLabel(note.result))}）</span></div>
+          ${noteTrace(note)}
+        </div>
+        <div class="lp-sum-actions lp-done-actions">
+          <button type="button" class="menu_button lp-btn lp-mini" data-action="note-reopen" data-id="${note.id}">${esc(t('done.restore'))}</button>
+          <button type="button" class="menu_button lp-btn lp-mini lp-danger" data-action="note-delete" data-id="${note.id}">${esc(t('done.delete'))}</button>
+        </div>
+      </div>`).join('');
+    let clear = '';
+    if (list.length && view.notes.confirmClear) {
+        clear = `<div class="lp-callout lp-row"><span>${esc(t('done.clearConfirm', { n: list.length }))}</span><span class="lp-spacer"></span>
+          <button type="button" class="menu_button lp-btn lp-danger" data-action="done-clear-yes">${esc(t('done.clearYes'))}</button>
+          <button type="button" class="menu_button lp-btn" data-action="done-clear-no">${esc(t('done.clearNo'))}</button></div>`;
+    } else if (list.length) {
+        clear = `<div class="lp-row"><span class="lp-spacer"></span><button type="button" class="menu_button lp-btn lp-danger" data-action="done-clear-ask">${esc(t('done.clear'))}</button></div>`;
+    }
+    return `
+      <div class="lp-summary">
+        <div class="lp-note">${esc(t('done.intro'))}</div>
+        ${list.length ? `<div class="lp-floor-list">${rows}</div>` : `<div class="lp-wip">${esc(t('done.empty'))}</div>`}
+        ${clear}
+      </div>`;
+}
+
+function saveNoteForm(form) {
+    const data = {};
+    form.querySelectorAll('[data-note-field]').forEach((input) => { data[input.dataset.noteField] = input.value; });
+    const type = form.dataset.type;
+    const id = form.dataset.noteForm;
+    const ok = id ? updateNoteManual(id, data) : addNoteManual(type, data);
+    if (!ok) {
+        toast(t('notes.titleRequired', { field: t(`field.${type}.${NOTE_FIELDS[type][0]}`) }), 'warning');
+        form.querySelector('[data-note-field]')?.focus();
+        return;
+    }
+    view.notes.editing = null;
+    view.notes.adding = null;
+    render();
+}
 
 // ===== 記憶範圍 =====
 
@@ -590,6 +747,9 @@ function onClick(e) {
             return;
         case 'tab':
             view.tab = btn.dataset.tab;
+            view.notes.editing = null;
+            view.notes.adding = null;
+            view.notes.confirmClear = false;
             render();
             panel.querySelector(`[data-tab="${view.tab}"]`)?.focus();
             return;
@@ -660,6 +820,54 @@ function onClick(e) {
             view.sum.confirmBackfill = false;
             // 由舊到新，一層一層排隊。
             unsummarizedIndices().forEach((i) => enqueue(i));
+            render();
+            return;
+        case 'note-add':
+            view.notes.adding = btn.dataset.type;
+            view.notes.editing = null;
+            render();
+            panel.querySelector('[data-autofocus]')?.focus();
+            return;
+        case 'note-edit':
+            view.notes.editing = btn.dataset.id;
+            view.notes.adding = null;
+            render();
+            panel.querySelector('[data-autofocus]')?.focus();
+            return;
+        case 'note-cancel':
+            view.notes.editing = null;
+            view.notes.adding = null;
+            render();
+            return;
+        case 'note-save':
+            saveNoteForm(btn.closest('[data-note-form]'));
+            return;
+        case 'note-complete':
+            completeNoteManual(btn.dataset.id, btn.dataset.result);
+            render();
+            return;
+        case 'note-reopen':
+            reopenNoteManual(btn.dataset.id);
+            render();
+            return;
+        case 'note-delete':
+            deleteNoteManual(btn.dataset.id);
+            render();
+            return;
+        case 'note-jump':
+            onSummaryAction(Number(btn.dataset.index), 'jump');
+            return;
+        case 'done-clear-ask':
+            view.notes.confirmClear = true;
+            render();
+            return;
+        case 'done-clear-no':
+            view.notes.confirmClear = false;
+            render();
+            return;
+        case 'done-clear-yes':
+            closedNotes().forEach((n) => deleteNoteManual(n.id));
+            view.notes.confirmClear = false;
             render();
             return;
     }

@@ -368,3 +368,56 @@
 /* ===== 記憶範圍 ===== */
 .lp-scope-block { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 8px; background: var(--lp-card); }
 .lp-scope-title { font-weight: 600; }
+
+/* ===== 時間、地點、人物 ===== */
+.lp-scene { display: flex; flex-wrap: wrap; gap: 4px 14px; color: var(--lp-muted); font-size: 0.9em; }
+.lp-scene-item { display: inline-flex; align-items: center; gap: 5px; }
+.lp-sr {
+    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+    overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+}
+
+/* ===== 這層的記事變化 ===== */
+.lp-changes { display: flex; flex-direction: column; gap: 4px; }
+.lp-changes-title { color: var(--lp-muted); font-size: 0.85em; }
+.lp-changes ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; }
+.lp-change { display: flex; align-items: center; gap: 8px; justify-content: space-between; }
+.lp-change > span { min-width: 0; overflow-wrap: anywhere; }
+.lp-undone > span { text-decoration: line-through; color: var(--lp-muted); }
+.lp-invalid > span { color: var(--lp-muted); }
+.lp-mini { min-height: 30px !important; padding: 0 10px !important; font-size: 0.8em !important; flex-shrink: 0; }
+
+.lp-editor-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+@media (max-width: 560px) { .lp-editor-grid { grid-template-columns: minmax(0, 1fr); } }
+.lp-sum .text_pole, .lp-note-form .text_pole { margin: 0; width: 100%; box-sizing: border-box; }
+
+/* ===== 記事分頁 ===== */
+.lp-notes-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: start; }
+@media (max-width: 720px) { .lp-notes-grid { grid-template-columns: minmax(0, 1fr); } }
+.lp-note-section { display: flex; flex-direction: column; gap: 8px; }
+.lp-note-card {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 10px 12px;
+    border: 1px solid var(--lp-border);
+    border-radius: 8px;
+    background: var(--lp-card);
+}
+.lp-note-form { gap: 8px; border-color: var(--lp-accent); }
+.lp-note-broken { border-style: dashed; }
+.lp-note-head { display: flex; align-items: center; gap: 8px; }
+.lp-note-title { font-weight: 600; overflow-wrap: anywhere; }
+.lp-note-line { font-size: 0.9em; overflow-wrap: anywhere; }
+.lp-note-trace { font-size: 0.8em; color: var(--lp-muted); }
+.lp-link {
+    padding: 0;
+    border: none;
+    background: none;
+    color: var(--lp-accent);
+    font: inherit;
+    text-decoration: underline;
+    cursor: pointer;
+}
+.lp-danger { color: var(--lp-error) !important; }
+.lp-done-actions { flex-shrink: 0; align-self: center; }

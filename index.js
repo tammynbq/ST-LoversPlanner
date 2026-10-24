@@ -4,6 +4,7 @@
 import { ctx, LOG_PREFIX } from './src/util.js';
 import { initSettings } from './src/settings.js';
 import { initSummarizer } from './src/summarize.js';
+import { initNotes } from './src/notes.js';
 import { mountSettingsDrawer, mountWandEntry, relabelEntries } from './src/ui/entry.js';
 import { initMessageBlocks, renderAllBlocks } from './src/ui/message.js';
 import { refreshPanel, setPanelHooks } from './src/ui/panel.js';
@@ -26,6 +27,7 @@ async function start() {
     setPanelHooks({ onSettingChanged });
     mountWandEntry();
     mountSettingsDrawer();
+    initNotes();
     initSummarizer();
     initMessageBlocks();
     renderAllBlocks();
