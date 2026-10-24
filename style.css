@@ -421,3 +421,37 @@
 }
 .lp-danger { color: var(--lp-error) !important; }
 .lp-done-actions { flex-shrink: 0; align-self: center; }
+
+/* ===== 失敗／過期的強制彈窗 ===== */
+.lp-dialog {
+    width: min(560px, 100%);
+    max-height: min(640px, 100%);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    box-sizing: border-box;
+    color: var(--lp-text);
+    background: var(--lp-bg);
+    border: 1px solid var(--lp-border);
+    border-radius: 10px;
+    box-shadow: 0 12px 40px var(--SmartThemeShadowColor, rgba(0, 0, 0, 0.55));
+    font-size: var(--mainFontSize, 15px);
+}
+.lp-dialog-head { display: flex; flex-direction: column; gap: 4px; padding: 16px 18px 10px; border-bottom: 1px solid var(--lp-border); }
+.lp-dialog-body { flex: 1; overflow: auto; display: flex; flex-direction: column; gap: 8px; padding: 12px 18px; }
+.lp-dialog-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 18px 14px; border-top: 1px solid var(--lp-border); }
+@media (max-width: 560px) {
+    .lp-attention { padding: 12px; }
+}
+
+/* ===== 被隱藏的樓層 ===== */
+.lp-hidden-tag {
+    flex-shrink: 0;
+    padding: 1px 8px;
+    border-radius: 999px;
+    border: 1px dashed color-mix(in srgb, var(--lp-text) 35%, transparent);
+    color: var(--lp-muted);
+    font-size: 0.75em;
+    white-space: nowrap;
+}
+.mes.lp-hidden-user .mes_text { opacity: 0.6; }

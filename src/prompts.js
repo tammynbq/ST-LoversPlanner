@@ -43,7 +43,7 @@ const DEFAULTS = {
 5. ops：對照目前的記事清單，只記之後劇情還會用到的變化，寧缺勿濫：
    - 新增用 add，type 是 character／item／promise／todo。更新或結束已有的記事時，用清單裡方括號中的 id。
    - character：包括 {{char}} 和 {{user}} 在內的重要人物。記下之後會用到的資訊：關係、狀態、喜歡（likes）、不喜歡（dislikes）、習慣或重要經歷（note）。有新發現時用 update 補上，不要每層重複寫一樣的內容。人物不會被移除，只用 update 更新狀態（例如離開、死亡）。
-   - item：只記有劇情意義的物件，一件東西一條；同一種東西的數量寫在同一條裡（例如「下品靈石 ×10」）。用掉、遺失、送人時用 complete，result 是 used／lost／gone。
+   - item：只記 {{char}} 和 {{user}} 的所有物，其他人的東西不用記。一件東西一條；同一種東西的數量寫在同一條裡（例如「下品靈石 ×10」）。得到、交給對方時用 update 更新 holder；用掉、遺失、送給別人時用 complete，result 是 used／lost／gone。
    - promise 是和別人的約定或承諾；todo 是主角自己打算做的事。同一件事不要同時記成兩種。
    - 約定履行用 complete 加 kept；被打破用 complete 加 broken。待辦完成用 complete 加 done。
    - 清單裡已經有的不要重複新增。沒有值得記的變化就讓 ops 是空陣列。
@@ -90,7 +90,7 @@ ${L1_JSON_SPEC}`,
 5. ops：对照当前的记事清单，只记之后剧情还会用到的变化，宁缺毋滥：
    - 新增用 add，type 是 character／item／promise／todo。更新或结束已有的记事时，用清单里方括号中的 id。
    - character：包括 {{char}} 和 {{user}} 在内的重要人物。记下之后会用到的信息：关系、状态、喜欢（likes）、不喜欢（dislikes）、习惯或重要经历（note）。有新发现时用 update 补上，不要每层重复写一样的内容。人物不会被移除，只用 update 更新状态（例如离开、死亡）。
-   - item：只记有剧情意义的物件，一件东西一条；同一种东西的数量写在同一条里（例如「下品灵石 ×10」）。用掉、遗失、送人时用 complete，result 是 used／lost／gone。
+   - item：只记 {{char}} 和 {{user}} 的所有物，其他人的东西不用记。一件东西一条；同一种东西的数量写在同一条里（例如「下品灵石 ×10」）。得到、交给对方时用 update 更新 holder；用掉、遗失、送给别人时用 complete，result 是 used／lost／gone。
    - promise 是和别人的约定或承诺；todo 是主角自己打算做的事。同一件事不要同时记成两种。
    - 约定履行用 complete 加 kept；被打破用 complete 加 broken。待办完成用 complete 加 done。
    - 清单里已经有的不要重复新增。没有值得记的变化就让 ops 是空数组。
@@ -137,7 +137,7 @@ Read the exchange below and report, in English and in the third person:
 5. ops: compare with the current notes and record only changes the story will need later. Less is more:
    - Use add with type character / item / promise / todo for new ones. To update or finish an existing note, use the id in square brackets from the list.
    - character: important characters, including {{char}} and {{user}}. Record what the story will need later: relationship, status, likes, dislikes, and habits or key experiences (note). Use update to add new findings; don't repeat the same details every floor. Characters are never removed; only use update to change their status (e.g. left, died).
-   - item: only items that matter to the plot, one entry per item; put the quantity of the same kind in one entry (e.g. "spirit stone ×10"). When used up, lost or given away, use complete with result used / lost / gone.
+   - item: only things owned by {{char}} or {{user}}; other people's belongings are not recorded. One entry per item; put the quantity of the same kind in one entry (e.g. "spirit stone ×10"). When it changes hands between them, use update to change holder; when used up, lost or given to someone else, use complete with result used / lost / gone.
    - promise is a commitment made with someone; todo is something a lead plans to do. Never record the same thing as both.
    - A kept promise is complete + kept; a broken one is complete + broken. A finished to-do is complete + done.
    - Don't add anything that is already in the list. If nothing worth recording changed, leave ops as an empty array.

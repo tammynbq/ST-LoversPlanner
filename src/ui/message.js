@@ -6,6 +6,7 @@ import { t } from '../i18n.js';
 import { getChat, getEntry, isAiMessage, lastAiIndex } from '../chat.js';
 import { enqueue, floorState, isActive, onSummaryChange, skipFloor, unskipFloor, writeSummary } from '../summarize.js';
 import { describeOp, getNotes, onNotesChange, setFloorOpUndone } from '../notes.js';
+import { computeHidden } from '../hide.js';
 
 const expanded = new Set(); // 展開中的樓層
 const editing = new Set(); // 正在手動編輯的樓層
@@ -117,6 +118,12 @@ function editorHtml(entry) {
       </div>`;
 }
 
+/** 目前會被隱藏的樓層（標示用）。renderAllBlocks 時算一次重複用。 */
+let hiddenCache = null;
+function hiddenNow() {
+    return hiddenCache ?? computeHidden().hidden;
+}
+
 function blockHtml(index) {
     const state = floorState(index);
     const entry = getEntry(index);
@@ -144,6 +151,7 @@ function blockHtml(index) {
         <span class="lp-sum-chev" aria-hidden="true">${open ? '▾' : '▸'}</span>
         <span class="lp-badge lp-st-${state}"><span class="${STATUS_ICONS[state]}" aria-hidden="true"></span>${esc(t(`st.${state}`))}</span>
         <span class="lp-sum-preview">${open ? '' : esc(preview)}</span>
+        ${getSettings().hide.markHidden && hiddenNow().has(index) ? `<span class="lp-hidden-tag">${esc(t('mes.hidden'))}</span>` : ''}
       </button>
       ${open ? `<div class="lp-sum-body">${body}</div>` : ''}`;
 }
@@ -151,6 +159,11 @@ function blockHtml(index) {
 function renderMes(el) {
     const index = Number(el.getAttribute('mesid'));
     const msg = getChat()[index];
+    // 被隱藏的使用者發言淡淡標示一下（AI 樓層的標示在摘要區塊裡）。
+    const markUser = isActive() && getSettings().hide.markHidden && msg?.is_user && hiddenNow().has(index);
+    el.classList.toggle('lp-hidden-user', Boolean(markUser));
+    if (markUser) el.setAttribute('title', t('mes.hiddenUser'));
+    else if (el.getAttribute('title') === t('mes.hiddenUser')) el.removeAttribute('title');
     let block = el.querySelector('.lp-sum');
     if (!isActive() || !Number.isInteger(index) || !isAiMessage(msg)) {
         block?.remove();
@@ -175,7 +188,12 @@ export function renderBlock(index) {
 }
 
 export function renderAllBlocks() {
-    document.querySelectorAll('#chat .mes').forEach(renderMes);
+    hiddenCache = isActive() ? computeHidden().hidden : new Set();
+    try {
+        document.querySelectorAll('#chat .mes').forEach(renderMes);
+    } finally {
+        hiddenCache = null;
+    }
 }
 
 /** 從大視窗「跳到該樓」：捲過去並展開摘要（edit=true 時直接進入編輯）。回傳 false 表示那層還沒載入到畫面上。 */

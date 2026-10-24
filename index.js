@@ -5,6 +5,8 @@ import { ctx, LOG_PREFIX } from './src/util.js';
 import { initSettings } from './src/settings.js';
 import { initSummarizer } from './src/summarize.js';
 import { initNotes } from './src/notes.js';
+import { clearInjection, initHiding } from './src/hide.js';
+import { initAttention } from './src/ui/attention.js';
 import { mountSettingsDrawer, mountWandEntry, relabelEntries } from './src/ui/entry.js';
 import { initMessageBlocks, renderAllBlocks } from './src/ui/message.js';
 import { refreshPanel, setPanelHooks } from './src/ui/panel.js';
@@ -12,7 +14,8 @@ import { refreshPanel, setPanelHooks } from './src/ui/panel.js';
 function onSettingChanged(path) {
     if (path === 'language') relabelEntries();
     // 這些設定會改變聊天畫面上摘要區塊的樣子或提示。
-    if (['language', 'enabled', 'summary.mode'].includes(path)) renderAllBlocks();
+    if (['language', 'enabled', 'summary.mode', 'hide.markHidden'].includes(path)) renderAllBlocks();
+    if (path === 'enabled') clearInjection();
 }
 
 async function start() {
@@ -29,12 +32,16 @@ async function start() {
     mountSettingsDrawer();
     initNotes();
     initSummarizer();
+    initHiding();
+    initAttention();
     initMessageBlocks();
     renderAllBlocks();
 
     const c = ctx();
     if (c?.eventSource && c.eventTypes) {
         c.eventSource.on(c.eventTypes.CHAT_CHANGED, refreshPanel);
+        // 換聊天時清掉上一個聊天的注入；下一次生成時攔截器會重新算。
+        c.eventSource.on(c.eventTypes.CHAT_CHANGED, clearInjection);
     }
     console.log(LOG_PREFIX, '已載入');
 }

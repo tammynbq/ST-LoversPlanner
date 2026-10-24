@@ -53,10 +53,20 @@ window.SillyTavern = { getContext: () => ({
   chat: window.__chat, chatMetadata,
   saveChat: async () => { window.__chatSaves++; },
   saveMetadata: async () => {},
+  setExtensionPrompt: (key, value, position, depth, scan, role) => { window.__extPrompts[key] = { value, position, depth, role }; },
   getTokenCountAsync: async (text) => Math.ceil(text.length / 1.5),
   generateRaw: async (opts) => { window.__prompts.push(opts); return window.__generateRaw(opts); },
 }) };
 window.__extSettings = extensionSettings;
+window.__extPrompts = {};
+// 模擬酒館 Generate() 裡呼叫攔截器的那一段：訊息是複本，index 是在「非系統訊息」裡的位置。
+window.__runInterceptor = async (type = 'normal') => {
+  let coreChat = window.__chat.filter((x) => !x.is_system).map((m, index) => ({ ...m, index }));
+  if (type === 'swipe') coreChat.pop();
+  let aborted = false;
+  await globalThis.loversPlannerInterceptor?.(coreChat, 8000, () => { aborted = true; }, type);
+  return { kept: coreChat.map((m) => m.send_date), injection: window.__extPrompts.lovers_planner ?? null, aborted };
+};
 window.__chatMetadata = chatMetadata;
 </script>
 </head><body>

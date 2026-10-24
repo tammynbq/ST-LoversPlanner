@@ -334,8 +334,11 @@ export function describeOp(op, notes) {
     return `✎ ${typeLabel(type)}：${title}${fields ? `（${fields}）` : ''}`;
 }
 
-/** 給模型看的記事清單：只列進行中（含被打破的約定），已完成的不列，省 token。 */
-export function formatNotesForPrompt(notes) {
+/**
+ * 記事清單文字：只列進行中（含被打破的約定），已完成的不列，省 token。
+ * withIds：給摘要模型看時要有 id（它要引用）；注入給角色看時不需要。
+ */
+export function formatNotesForPrompt(notes, { withIds = true } = {}) {
     const lines = [];
     for (const n of notes.values()) {
         if (n.state === 'done') continue;
@@ -343,7 +346,7 @@ export function formatNotesForPrompt(notes) {
             .filter((f) => n.data[f])
             .map((f) => `${t(`field.${n.type}.${f}`)}：${n.data[f]}`);
         const flag = n.state === 'broken' ? `｜${resultLabel('broken')}` : '';
-        lines.push(`[${n.id}] ${typeLabel(n.type)}｜${parts.join('｜')}${flag}`);
+        lines.push(`${withIds ? `[${n.id}] ` : ''}${typeLabel(n.type)}｜${parts.join('｜')}${flag}`);
     }
     return lines.length ? lines.join('\n') : t('prompt.noNotes');
 }

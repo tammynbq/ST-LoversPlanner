@@ -7,6 +7,7 @@ import { currentLocale, detectHostLocale, LOCALE_NAMES, LOCALES, t } from '../i1
 import { getTemplate, isTemplateModified, resetTemplate, setTemplate, TEMPLATE_KEYS, TEMPLATE_VARS } from '../prompts.js';
 import { listModels, normalizeBaseUrl, testConnection } from '../api/custom.js';
 import { errorText } from '../errors.js';
+import { getLastStats } from '../hide.js';
 import { aiIndices, getEntry } from '../chat.js';
 import {
     cancelQueue, enqueue, floorState, isActive, onSummaryChange, pendingCount, unsummarizedIndices,
@@ -189,12 +190,19 @@ function renderHeader() {
       <div class="lp-title-icon fa-solid fa-book-open" aria-hidden="true"></div>
       <div class="lp-title-text">
         <div class="lp-title">${esc(t('app.name'))}${subtitle ? ` <span class="lp-subtitle">· ${esc(subtitle)}</span>` : ''}</div>
-        <div class="lp-stats">${esc(t('panel.statsNone'))}</div>
+        <div class="lp-stats">${esc(statsText())}</div>
       </div>
       <button type="button" class="lp-icon-btn" data-action="close" aria-label="${esc(t('panel.close'))}" title="${esc(t('panel.close'))}">
         <span class="fa-solid fa-xmark" aria-hidden="true"></span>
       </button>
     </div>`;
+}
+
+function statsText() {
+    const st = getLastStats();
+    if (!st) return t('panel.statsNone');
+    const main = t('panel.stats', { floors: st.hiddenFloors, raw: st.hiddenTokens.toLocaleString(), injected: st.injectedTokens.toLocaleString() });
+    return st.unsummarized ? `${main}｜${t('panel.statsPending', { n: st.unsummarized })}` : main;
 }
 
 function renderTabs() {
@@ -573,7 +581,7 @@ function renderSettings() {
     const inject = `
       <div class="lp-row">
         <label class="lp-label" for="lp-pos">${esc(t('set.inject.position'))}</label>
-        ${select('inject.position', 'lp-pos', ['in_chat', 'in_prompt', 'before_prompt'].map((p) => [p, t(`set.inject.pos.${p}`)]), true)}
+        ${select('inject.position', 'lp-pos', ['before_recent', 'in_chat', 'in_prompt', 'before_prompt'].map((p) => [p, t(`set.inject.pos.${p}`)]), true)}
         ${s.inject.position === 'in_chat' ? `<span class="lp-label">${esc(t('set.inject.depth'))}</span>${numberInput('inject.depth', t('set.inject.depth'))}` : ''}
       </div>
       <div class="lp-note">${esc(t('set.inject.note'))}</div>`;

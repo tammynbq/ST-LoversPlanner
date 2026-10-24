@@ -37,7 +37,8 @@ export const DEFAULTS = Object.freeze({
         todos: 'none',
     },
     inject: {
-        position: 'in_chat', // 'in_chat' | 'in_prompt' | 'before_prompt'
+        // 'before_recent' 放在保留原文的最新幾層前面（推薦）| 'in_chat' 聊天中依深度 | 'in_prompt' | 'before_prompt'
+        position: 'before_recent',
         depth: 4,
     },
     // null = 使用目前語言的預設模板；字串 = 使用者改過的內容。
@@ -45,7 +46,7 @@ export const DEFAULTS = Object.freeze({
     // 每張角色卡自己的資料，key 是角色卡頭像檔名：{ [avatar]: { scope } }
     characters: {},
     // 設定格式的版本，用來做一次性的轉換。
-    settingsVersion: 2,
+    settingsVersion: 3,
 });
 
 function isPlainObject(v) {
@@ -88,6 +89,10 @@ export function initSettings() {
         if (sum.ratioMin === 5 && sum.ratioMax === 10 && sum.maxTokens === 300) {
             Object.assign(sum, { ratioMin: DEFAULTS.summary.ratioMin, ratioMax: DEFAULTS.summary.ratioMax, maxTokens: DEFAULTS.summary.maxTokens });
         }
+    }
+    // v2 → v3：新增「放在最新原文前面」並設為預設。還是舊預設（聊天中、深度 4）的才換。
+    if (saved && !(saved.settingsVersion >= 3)) {
+        if (s.inject.position === 'in_chat' && s.inject.depth === 4) s.inject.position = 'before_recent';
     }
     s.settingsVersion = DEFAULTS.settingsVersion;
     // 舊版的 'auto' 就是現在的 'before'。
