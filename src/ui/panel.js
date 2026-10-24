@@ -5,11 +5,21 @@ import { ctx, escapeHtml as esc, hasCharacterChat, isGroupChat, isTauriTavern, L
 import { getPath, getSettings, saveSettings, setPath } from '../settings.js';
 import { currentLocale, detectHostLocale, LOCALE_NAMES, LOCALES, t } from '../i18n.js';
 import { getTemplate, isTemplateModified, resetTemplate, setTemplate, TEMPLATE_KEYS, TEMPLATE_VARS } from '../prompts.js';
-import { ApiError, listModels, normalizeBaseUrl, testConnection } from '../api/custom.js';
+import { listModels, normalizeBaseUrl, testConnection } from '../api/custom.js';
+import { errorText } from '../errors.js';
+import { aiIndices, getEntry } from '../chat.js';
+import {
+    cancelQueue, enqueue, floorState, isActive, onSummaryChange, pendingCount, unsummarizedIndices,
+} from '../summarize.js';
+import { actionsFor, hintFor, revealFloor, runAction, STATUS_ICONS } from './message.js';
+import {
+    CHAR_SCOPE_VALUES, CHAT_SCOPE_VALUES, characterName, getCharacterScope, getChatScope, SCOPE_KINDS,
+    setCharacterScope, setChatScope,
+} from '../scope.js';
 
 const TABS = ['summary', 'notes', 'done', 'settings'];
-const SCOPE_KINDS = ['summary', 'characters', 'items', 'promises', 'todos'];
-const SCOPE_VALUES = ['none', 'copy', 'share'];
+const SUMMARY_FILTERS = ['all', 'none', 'fail', 'stale', 'skip'];
+const SUMMARY_PAGE = 100;
 
 /** 數字欄位的範圍。 */
 const NUMBER_LIMITS = {
@@ -34,6 +44,12 @@ const RANGE_PAIRS = [
 const view = {
     tab: 'summary',
     openSections: new Set(['general']),
+    sum: {
+        filter: 'all',
+        newest: true,
+        limit: SUMMARY_PAGE,
+        confirmBackfill: false,
+    },
     tpl: 'l1',
     confirmReset: false,
     resetDone: false,
@@ -182,7 +198,7 @@ function renderBanner() {
 
 function renderTab() {
     switch (view.tab) {
-        case 'summary': return renderWip('wip.summary');
+        case 'summary': return renderSummaryTab();
         case 'notes': return renderWip('wip.notes');
         case 'done': return renderWip('wip.done');
         case 'settings': return renderSettings();
@@ -192,6 +208,127 @@ function renderTab() {
 
 function renderWip(key) {
     return `<div class="lp-wip">${esc(t(key))}</div>`;
+}
+
+// ===== 摘要分頁 =====
+
+function matchesFilter(state, filter) {
+    if (filter === 'all') return true;
+    if (filter === 'none') return state === 'none' || state === 'queued' || state === 'busy';
+    return state === filter;
+}
+
+function badge(state) {
+    return `<span class="lp-badge lp-st-${state}"><span class="${STATUS_ICONS[state]}" aria-hidden="true"></span>${esc(t(`st.${state}`))}</span>`;
+}
+
+function summaryRow(index, state) {
+    const entry = getEntry(index);
+    const summary = state === 'skip' ? '' : (entry?.summary ?? '');
+    const hint = hintFor(index, state);
+    const showHint = hint && (!summary || state === 'stale' || state === 'fail');
+    const actions = [...actionsFor(state), 'jump'].map((a) =>
+        `<button type="button" class="menu_button lp-btn${['summarize', 'redo', 'retry'].includes(a) ? ' lp-primary' : ''}" data-action="sum-act" data-act="${a}" data-index="${index}">${esc(t(`act.${a}`))}</button>`).join('');
+    return `
+      <div class="lp-floor-row">
+        <div class="lp-floor-no">#${index}</div>
+        <div class="lp-floor-main">
+          <div>${badge(state)}</div>
+          ${summary ? `<div class="lp-sum-text">${esc(summary)}</div>` : ''}
+          ${showHint ? `<div class="lp-sum-hint">${esc(hint)}</div>` : ''}
+          <div class="lp-sum-actions">${actions}</div>
+        </div>
+      </div>`;
+}
+
+function renderSummaryTab() {
+    // 停用、群組聊天、沒開聊天時，上方的提示已經說明了。
+    if (!isActive()) return '';
+    const all = aiIndices();
+    if (!all.length) return `<div class="lp-wip">${esc(t('sum.empty'))}</div>`;
+
+    const states = new Map(all.map((i) => [i, floorState(i)]));
+    const chips = SUMMARY_FILTERS.map((f) => {
+        const n = all.filter((i) => matchesFilter(states.get(i), f)).length;
+        const on = view.sum.filter === f;
+        return `<button type="button" class="lp-chip${on ? ' lp-on' : ''}" data-action="sum-filter" data-filter="${f}" aria-pressed="${on}">${esc(t(`sum.filter.${f}`))} ${n}</button>`;
+    }).join('');
+
+    let list = all.filter((i) => matchesFilter(states.get(i), view.sum.filter));
+    if (view.sum.newest) list = list.reverse();
+    const shown = list.slice(0, view.sum.limit);
+
+    const pending = pendingCount();
+    let queueArea = '';
+    if (pending) {
+        queueArea = `<div class="lp-callout lp-row" role="status"><span>${esc(t('sum.progress', { n: pending }))}</span><span class="lp-spacer"></span>
+          <button type="button" class="menu_button lp-btn" data-action="sum-stop">${esc(t('sum.stop'))}</button></div>`;
+    } else {
+        const todo = unsummarizedIndices().length;
+        if (todo && view.sum.confirmBackfill) {
+            queueArea = `<div class="lp-callout lp-row"><span>${esc(t('sum.backfill.confirm', { n: todo }))}</span><span class="lp-spacer"></span>
+              <button type="button" class="menu_button lp-btn lp-primary" data-action="backfill-yes">${esc(t('sum.backfill.yes'))}</button>
+              <button type="button" class="menu_button lp-btn" data-action="backfill-no">${esc(t('sum.backfill.no'))}</button></div>`;
+        } else if (todo) {
+            queueArea = `<div class="lp-row"><button type="button" class="menu_button lp-btn" data-action="backfill-ask">${esc(t('sum.backfill', { n: todo }))}</button></div>`;
+        }
+    }
+
+    const rows = shown.length
+        ? shown.map((i) => summaryRow(i, states.get(i))).join('')
+        : `<div class="lp-wip">${esc(t('sum.emptyFilter'))}</div>`;
+    const more = list.length > shown.length
+        ? `<button type="button" class="menu_button lp-btn lp-more" data-action="sum-more">${esc(t('sum.more', { n: list.length - shown.length }))}</button>`
+        : '';
+
+    return `
+      <div class="lp-summary">
+        <div class="lp-row">
+          <div class="lp-chips">${chips}</div>
+          <span class="lp-spacer"></span>
+          <button type="button" class="menu_button lp-btn" data-action="sum-sort">${esc(t(view.sum.newest ? 'sum.sort.newest' : 'sum.sort.oldest'))}</button>
+        </div>
+        ${queueArea}
+        <div class="lp-floor-list">${rows}</div>
+        ${more}
+      </div>`;
+}
+
+let summaryRefreshTimer = null;
+onSummaryChange(() => {
+    if (!isPanelOpen() || view.tab !== 'summary') return;
+    clearTimeout(summaryRefreshTimer);
+    summaryRefreshTimer = setTimeout(render, 80);
+});
+
+// ===== 記憶範圍 =====
+
+function scopeTable(which, values, current) {
+    const head = `<span></span>${values.map((v) => `<span class="lp-label">${esc(t(`scope.${v}`))}</span>`).join('')}`;
+    const rows = SCOPE_KINDS.map((kind) => {
+        const cells = values.map((v) => {
+            const aria = `${t(`kind.${kind}`)}: ${t(`scope.${v}`)}`;
+            return `<label class="lp-radio-cell"><input type="radio" name="lp-scope-${which}-${kind}" data-scope="${which}" data-kind="${kind}" value="${v}"${current[kind] === v ? ' checked' : ''} aria-label="${esc(aria)}"></label>`;
+        }).join('');
+        return `<span class="lp-scope-kind">${esc(t(`kind.${kind}`))}</span>${cells}`;
+    }).join('');
+    return `<div class="lp-scope-grid">${head}${rows}</div>`;
+}
+
+function renderScope() {
+    if (!hasCharacterChat() || isGroupChat()) return `<div class="lp-note">${esc(t('set.scope.noChat'))}</div>`;
+    return `
+      <div class="lp-scope-block">
+        <div class="lp-scope-title">${esc(t('set.scope.char'))}</div>
+        <div class="lp-note">${esc(t('set.scope.char.note', { name: characterName() }))}</div>
+        ${scopeTable('char', CHAR_SCOPE_VALUES, getCharacterScope())}
+      </div>
+      <div class="lp-scope-block">
+        <div class="lp-scope-title">${esc(t('set.scope.chat'))}</div>
+        <div class="lp-note">${esc(t('set.scope.chat.note'))}</div>
+        ${scopeTable('chat', CHAT_SCOPE_VALUES, getChatScope())}
+      </div>
+      <div class="lp-note">${esc(t('set.scope.later'))}</div>`;
 }
 
 // ===== 設定頁 =====
@@ -274,18 +411,7 @@ function renderSettings() {
       ${checkbox('hide.markHidden', t('set.hide.mark'))}
       <div class="lp-note">${esc(t('set.hide.note'))}</div>`;
 
-    const scopeHead = `<span></span>${SCOPE_VALUES.map((v) => `<span class="lp-label">${esc(t(`scope.${v}`))}</span>`).join('')}`;
-    const scopeRows = SCOPE_KINDS.map((kind) => {
-        const cells = SCOPE_VALUES.map((v) => {
-            const on = s.scope[kind] === v;
-            const aria = `${t(`kind.${kind}`)}: ${t(`scope.${v}`)}`;
-            return `<label class="lp-radio-cell"><input type="radio" name="lp-scope-${kind}" data-path="scope.${kind}" value="${v}"${on ? ' checked' : ''} aria-label="${esc(aria)}"></label>`;
-        }).join('');
-        return `<span class="lp-scope-kind">${esc(t(`kind.${kind}`))}</span>${cells}`;
-    }).join('');
-    const scope = `
-      <div class="lp-note">${esc(t('set.scope.desc'))}</div>
-      <div class="lp-scroll-x"><div class="lp-scope-grid">${scopeHead}${scopeRows}</div></div>`;
+    const scope = renderScope();
 
     const inject = `
       <div class="lp-row">
@@ -379,17 +505,6 @@ function renderCustom() {
       </div>`;
 }
 
-function apiErrorText(e) {
-    if (!(e instanceof ApiError)) return t('err.http', { detail: e?.message ?? String(e) });
-    if (e.code === 'http') {
-        if (e.status === 401) return t('err.401');
-        if (e.status === 404) return t('err.404');
-        const detail = [e.status ? `HTTP ${e.status}` : '', e.detail].filter(Boolean).join(' · ');
-        return t('err.http', { detail });
-    }
-    return t(`err.${e.code}`, { detail: e.detail });
-}
-
 /** 跑一個連線動作：期間按鈕變灰、顯示「連接中」，結束後顯示結果。 */
 async function runCustom(task) {
     const c = view.custom;
@@ -400,7 +515,7 @@ async function runCustom(task) {
         c.status = { type: 'ok', text: await task() };
     } catch (e) {
         console.warn(LOG_PREFIX, '自訂 API 連線失敗', e);
-        c.status = { type: 'error', text: apiErrorText(e) };
+        c.status = { type: 'error', text: errorText(e) };
     } finally {
         c.busy = false;
         if (isPanelOpen()) render();
@@ -513,6 +628,40 @@ function onClick(e) {
         case 'save-custom':
             saveCustom();
             return;
+        case 'sum-filter':
+            view.sum.filter = btn.dataset.filter;
+            view.sum.limit = SUMMARY_PAGE;
+            render();
+            return;
+        case 'sum-sort':
+            view.sum.newest = !view.sum.newest;
+            render();
+            return;
+        case 'sum-more':
+            view.sum.limit += SUMMARY_PAGE;
+            render();
+            return;
+        case 'sum-act':
+            onSummaryAction(Number(btn.dataset.index), btn.dataset.act);
+            return;
+        case 'sum-stop':
+            cancelQueue();
+            render();
+            return;
+        case 'backfill-ask':
+            view.sum.confirmBackfill = true;
+            render();
+            return;
+        case 'backfill-no':
+            view.sum.confirmBackfill = false;
+            render();
+            return;
+        case 'backfill-yes':
+            view.sum.confirmBackfill = false;
+            // 由舊到新，一層一層排隊。
+            unsummarizedIndices().forEach((i) => enqueue(i));
+            render();
+            return;
     }
 }
 
@@ -536,8 +685,25 @@ function fixRanges(changedPath) {
     }
 }
 
+function onSummaryAction(index, act) {
+    if (act === 'jump' || act === 'edit' || act === 'write') {
+        const edit = act !== 'jump';
+        closePanel();
+        if (!revealFloor(index, { edit })) toast(t('sum.notLoaded'), 'info');
+        return;
+    }
+    runAction(index, act);
+    render();
+}
+
 function onChange(e) {
     const el = e.target;
+    if (el.dataset?.scope) {
+        if (!el.checked) return;
+        if (el.dataset.scope === 'char') setCharacterScope(el.dataset.kind, el.value);
+        else setChatScope(el.dataset.kind, el.value);
+        return;
+    }
     const path = el.dataset?.path;
     if (!path) return;
     let value;

@@ -1,6 +1,7 @@
 /* 戀人手帳：第一版只用酒館主題的 CSS 變數，換主題時自動配合。 */
 
-.lp-overlay {
+.lp-overlay,
+.lp-sum {
     --lp-text: var(--SmartThemeBodyColor, #dcdcd2);
     --lp-muted: var(--SmartThemeEmColor, #9a9a92);
     --lp-accent: var(--SmartThemeQuoteColor, #e18a24);
@@ -11,7 +12,10 @@
     --lp-warn: color-mix(in srgb, #e0a020 60%, var(--lp-text));
     --lp-ok: color-mix(in srgb, #3fae5f 60%, var(--lp-text));
     --lp-error: color-mix(in srgb, #e5534b 65%, var(--lp-text));
+    --lp-info: color-mix(in srgb, #4a90d9 60%, var(--lp-text));
+}
 
+.lp-overlay {
     position: fixed;
     inset: 0;
     z-index: 9990;
@@ -263,3 +267,97 @@
 
 /* ===== 擴充設定面板的入口 ===== */
 .lp-drawer-hint { margin-bottom: 8px; color: var(--SmartThemeEmColor, #9a9a92); font-size: 0.9em; }
+
+/* ===== 狀態標籤（聊天畫面和大視窗共用） ===== */
+.lp-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 1px 8px;
+    border-radius: 999px;
+    border: 1px solid currentColor;
+    font-size: 0.8em;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+.lp-st-none { color: var(--lp-muted); }
+.lp-st-queued, .lp-st-busy { color: var(--lp-info); }
+.lp-st-ok { color: var(--lp-ok); }
+.lp-st-stale { color: var(--lp-warn); }
+.lp-st-fail { color: var(--lp-error); }
+.lp-st-skip { color: var(--lp-muted); }
+
+.lp-sum-text { line-height: 1.7; white-space: pre-wrap; }
+.lp-sum-hint { color: var(--lp-muted); font-size: 0.9em; }
+.lp-sum-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.lp-sum-actions .lp-btn { min-height: 32px; font-size: 0.85em; }
+
+/* ===== 聊天畫面：每條 AI 訊息下面的摘要區塊 ===== */
+.lp-sum {
+    margin-top: 6px;
+    padding-top: 4px;
+    border-top: 1px dashed var(--lp-border);
+    color: var(--lp-text);
+    font-size: 0.9em;
+}
+.lp-sum-head {
+    width: 100%;
+    min-height: 36px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 4px;
+    border: none;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+.lp-sum-head:focus-visible { outline: 2px solid var(--lp-accent); outline-offset: -2px; border-radius: 4px; }
+.lp-sum-chev { width: 12px; color: var(--lp-muted); }
+.lp-sum-preview {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--lp-muted);
+}
+.lp-sum-body {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin: 2px 0 6px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    background: var(--lp-card);
+}
+.lp-sum-editor {
+    width: 100%;
+    min-height: 80px;
+    box-sizing: border-box;
+    padding: 8px 10px;
+    line-height: 1.6;
+    resize: vertical;
+}
+
+/* ===== 大視窗：摘要分頁 ===== */
+.lp-summary { display: flex; flex-direction: column; gap: 12px; }
+.lp-floor-list { display: flex; flex-direction: column; gap: 8px; }
+.lp-floor-row {
+    display: flex;
+    gap: 12px;
+    padding: 10px 14px;
+    border: 1px solid var(--lp-border);
+    border-radius: 8px;
+    background: var(--lp-card);
+}
+.lp-floor-no { width: 44px; flex-shrink: 0; padding-top: 2px; color: var(--lp-muted); font-size: 0.9em; }
+.lp-floor-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.lp-more { align-self: center; }
+.lp-callout.lp-row { gap: 8px; }
+
+/* ===== 記憶範圍 ===== */
+.lp-scope-block { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 8px; background: var(--lp-card); }
+.lp-scope-title { font-weight: 600; }

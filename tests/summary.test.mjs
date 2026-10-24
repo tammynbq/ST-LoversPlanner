@@ -1,0 +1,174 @@
+// 第 2 步：L1 單層摘要。用模擬酒館的假聊天、假事件和假 generateRaw 測試整個流程。
+import { createRequire } from 'node:module';
+import { execSync } from 'node:child_process';
+const require = createRequire(import.meta.url);
+const { chromium } = require(require.resolve('playwright', { paths: [execSync('npm root -g').toString().trim()] }));
+
+const OUT = process.argv[2] ?? '.';
+const URL = `http://127.0.0.1:${process.env.PORT ?? 8765}/tests/harness.html`;
+const results = [];
+const errors = [];
+const check = (name, ok, extra = '') => results.push(`${ok ? 'PASS' : 'FAIL'} ${name}${extra ? ' — ' + extra : ''}`);
+
+const CHAT = [
+  { name: '沈言', is_user: false, mes: '歡迎光臨。今天也下雨呢，要喝點什麼？', extra: {} },
+  { name: '小雨', is_user: true, mes: '一杯熱可可，謝謝。你什麼時候下班？', extra: {} },
+  { name: '沈言', is_user: false, mes: '八點。如果你願意等，我送你回家。', extra: {} },
+  { name: '小雨', is_user: true, mes: '好，我等你。', extra: {} },
+  { name: '沈言', is_user: false, mes: '沈言把外套披在小雨肩上，兩人撐同一把傘走回家。', extra: {}, swipe_id: 0, swipes: ['x'], swipe_info: [{ extra: {} }] },
+];
+
+const browser = await chromium.launch();
+const page = await browser.newPage({ viewport: { width: 1100, height: 900 } });
+page.on('pageerror', (e) => errors.push('pageerror: ' + e.message));
+page.on('console', (m) => { if (m.type() === 'error' && !m.text().includes('favicon')) errors.push('console: ' + m.text()); });
+await page.addInitScript((chat) => { window.__chat = chat; }, CHAT);
+await page.goto(URL);
+await page.waitForFunction(() => document.getElementById('lp_wand_entry'));
+
+const state = (i) => page.evaluate((i) => document.querySelector(`.mes[mesid="${i}"] .lp-badge`)?.className.match(/lp-st-(\w+)/)?.[1] ?? null, i);
+const entry = (i) => page.evaluate((i) => window.__chat[i].extra?.lovers_planner ?? null, i);
+const settle = () => page.waitForTimeout(150);
+// 魔術棒選單點過一次會收起來（和真的酒館一樣），再打開大視窗前先讓它重新出現。
+const openPanel = async () => {
+  await page.evaluate(() => { document.getElementById('extensionsMenu').style.display = ''; });
+  await page.click('#lp_wand_entry');
+};
+
+// 1. 區塊只出現在 AI 訊息下面
+check('blocks on AI messages only', (await page.$$eval('.lp-sum', (b) => b.map((x) => x.dataset.index))).join() === '0,2,4');
+check('initial state none', (await state(4)) === 'none');
+check('latest hint', (await page.textContent('.mes[mesid="4"] .lp-sum-preview')).includes('最新一層'));
+await page.screenshot({ path: `${OUT}/sum-1-initial.png` });
+
+// 2. 使用者送出下一句 → 主 API 生成中先排隊 → 生成結束才摘要上一層
+async function userSends(text) {
+  await page.evaluate(async (text) => {
+    window.__chat.push({ name: '小雨', is_user: true, mes: text, extra: {} });
+    window.__renderChat();
+    const id = window.__chat.length - 1;
+    await window.__emit('user_message_rendered', id);
+    await window.__emit('generation_started', 'normal', {}, false);
+    await window.__emit('message_sent', id);
+  }, text);
+}
+await userSends('謝謝你送我回來。');
+await settle();
+check('queued while main API busy', (await state(4)) === 'queued');
+check('no call during main generation', await page.evaluate(() => window.__prompts.length === 0));
+await page.evaluate(() => window.__emit('generation_ended', 6));
+await page.waitForFunction(() => window.__chat[4].extra?.lovers_planner?.status === 'ok');
+await settle();
+check('summarized after generation ends', (await state(4)) === 'ok');
+const e4 = await entry(4);
+check('summary stored', e4.summary === '摘要#1' && typeof e4.hash === 'string', JSON.stringify(e4));
+check('synced to swipe extra', await page.evaluate(() => window.__chat[4].swipe_info[0].extra.lovers_planner?.summary === '摘要#1'));
+const p = await page.evaluate(() => window.__prompts[0]);
+check('prompt has user + AI text', p.prompt.includes('小雨: 好，我等你。') && p.prompt.includes('沈言: 沈言把外套'));
+check('prompt variables filled', !/\{\{(content|length|notes|char|user)\}\}/.test(p.prompt) && /約 \d+ 字/.test(p.prompt), p.prompt.match(/約 \d+ 字/)?.[0]);
+check('prompt in zh-TW', p.prompt.includes('繁體中文'));
+check('response length passed', p.responseLength > 0, String(p.responseLength));
+await page.waitForTimeout(500);
+check('chat saved', await page.evaluate(() => window.__chatSaves > 0));
+
+// 3. 編輯訊息 → 過期；不會自動重做
+await page.evaluate(async () => { window.__chat[4].mes += '（改過）'; await window.__emit('message_edited', 4); });
+check('edited → stale', (await state(4)) === 'stale');
+
+// 4. 跳過／取消跳過（從區塊操作）
+await page.click('.mes[mesid="2"] .lp-sum-head');
+await page.click('.mes[mesid="2"] [data-lp-act="skip"]');
+check('skip', (await state(2)) === 'skip' && (await entry(2)).status === 'skip');
+await page.click('.mes[mesid="2"] [data-lp-act="unskip"]');
+check('unskip', (await state(2)) === 'none' && (await entry(2)) === null);
+
+// 5. 失敗 → 手動寫
+await page.evaluate(() => { window.__generateRaw = async () => { throw new Error('boom'); }; });
+await page.click('.mes[mesid="2"] [data-lp-act="summarize"]');
+await page.waitForFunction(() => window.__chat[2].extra?.lovers_planner?.status === 'fail');
+await settle();
+check('fail state', (await state(2)) === 'fail');
+check('fail shows error', (await page.textContent('.mes[mesid="2"] .lp-sum')).includes('boom'));
+await page.screenshot({ path: `${OUT}/sum-2-fail.png` });
+await page.click('.mes[mesid="2"] [data-lp-act="write"]');
+await page.fill('.mes[mesid="2"] .lp-sum-editor', '沈言說八點下班，願意送小雨回家。');
+await page.click('.mes[mesid="2"] [data-lp-act="save"]');
+check('manual write → ok', (await state(2)) === 'ok' && (await entry(2)).manual === true);
+
+// 6. 模型沒照 JSON 格式：純文字直接當摘要；包在 ```json 裡也能解析
+await page.evaluate(() => { window.__generateRaw = async () => '沈言招呼小雨，問她要喝什麼。'; });
+await page.click('.mes[mesid="0"] .lp-sum-head');
+await page.click('.mes[mesid="0"] [data-lp-act="summarize"]');
+await page.waitForFunction(() => window.__chat[0].extra?.lovers_planner?.status === 'ok');
+check('plain text reply accepted', (await entry(0)).summary === '沈言招呼小雨，問她要喝什麼。');
+await page.evaluate(() => { window.__generateRaw = async () => '```json\n{"summary":"重做的摘要","ops":[{"op":"add","type":"item","data":{"name":"傘"}}]}\n```'; });
+await page.click('.mes[mesid="4"] .lp-sum-head');
+await page.click('.mes[mesid="4"] [data-lp-act="redo"]');
+await page.waitForFunction(() => window.__chat[4].extra?.lovers_planner?.summary === '重做的摘要');
+await settle();
+check('fenced JSON parsed, ops kept', (await entry(4)).ops?.length === 1 && (await state(4)) === 'ok');
+
+// 7. 手動模式：送出時不自動摘要
+await page.evaluate(() => { window.__extSettings.lovers_planner.summary.mode = 'manual'; });
+const before = await page.evaluate(() => window.__prompts.length);
+await page.evaluate(async () => {
+  window.__chat.push({ name: '沈言', is_user: false, mes: '晚安，小雨。', extra: {} });
+  window.__renderChat();
+  await window.__emit('character_message_rendered', window.__chat.length - 1);
+  await window.__emit('message_received', window.__chat.length - 1);
+});
+await userSends('晚安。');
+await page.evaluate(() => window.__emit('generation_ended', 8));
+await page.waitForTimeout(300);
+check('manual mode: no auto summary', (await page.evaluate(() => window.__prompts.length)) === before && (await state(6)) === 'none');
+await page.evaluate(() => { window.__extSettings.lovers_planner.summary.mode = 'auto'; });
+
+// 8. 自訂 API 沒設定好 → 清楚的錯誤
+await page.evaluate(() => { window.__extSettings.lovers_planner.source = 'custom'; });
+await page.click('.mes[mesid="6"] .lp-sum-head');
+await page.click('.mes[mesid="6"] [data-lp-act="summarize"]');
+await page.waitForFunction(() => window.__chat[6].extra?.lovers_planner?.status === 'fail');
+check('custom not configured error', (await entry(6)).error.includes('自訂 API 還沒設定好'));
+await page.evaluate(() => { window.__extSettings.lovers_planner.source = 'main'; window.__generateRaw = async () => '{"summary":"補上的摘要","ops":[]}'; });
+
+// 9. 大視窗的摘要分頁
+await openPanel();
+const rows = await page.$$eval('.lp-floor-row .lp-floor-no', (els) => els.map((e) => e.textContent));
+check('panel lists AI floors newest first', rows.join() === '#6,#4,#2,#0', rows.join());
+await page.click('[data-action="sum-filter"][data-filter="fail"]');
+check('filter fail', (await page.$$eval('.lp-floor-row .lp-floor-no', (els) => els.map((e) => e.textContent))).join() === '#6');
+await page.click('[data-action="sum-filter"][data-filter="all"]');
+await page.screenshot({ path: `${OUT}/sum-3-panel.png` });
+await page.click('[data-action="sum-act"][data-act="retry"][data-index="6"]');
+await page.waitForFunction(() => window.__chat[6].extra?.lovers_planner?.status === 'ok');
+await page.waitForTimeout(200);
+check('retry from panel', (await page.textContent('.lp-floor-row')).includes('補上的摘要'));
+await page.click('[data-action="sum-act"][data-act="jump"][data-index="2"]');
+check('jump closes panel and expands block', !(await page.isVisible('.lp-overlay')) && (await page.isVisible('.mes[mesid="2"] .lp-sum-body')));
+
+// 10. 補摘要舊樓層
+await page.evaluate(() => { for (const i of [0, 2]) { delete window.__chat[i].extra.lovers_planner; } });
+await openPanel();
+check('backfill button count', (await page.textContent('[data-action="backfill-ask"]')).includes('2 層'));
+await page.click('[data-action="backfill-ask"]');
+await page.click('[data-action="backfill-yes"]');
+await page.waitForFunction(() => window.__chat[0].extra?.lovers_planner?.status === 'ok' && window.__chat[2].extra?.lovers_planner?.status === 'ok');
+await page.waitForTimeout(200);
+check('backfill done', !(await page.isVisible('[data-action="backfill-ask"]')));
+
+// 11. 關掉插件 → 區塊消失
+await page.click('[data-tab="settings"]');
+await page.click('input[data-path="enabled"]');
+check('disabled removes blocks', (await page.$$('.lp-sum')).length === 0);
+await page.click('input[data-path="enabled"]');
+check('re-enabled shows blocks', (await page.$$('.lp-sum')).length === 4);
+
+// 12. 手機版
+await page.keyboard.press('Escape');
+await page.setViewportSize({ width: 390, height: 844 });
+await page.click('.mes[mesid="4"] .lp-sum-head');
+await page.screenshot({ path: `${OUT}/sum-4-mobile.png` });
+
+console.log(results.join('\n'));
+console.log('ERRORS:', errors.length ? errors.join('\n') : 'none');
+await browser.close();

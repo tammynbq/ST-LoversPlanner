@@ -6,23 +6,63 @@
 body{background:#333;color:rgb(220,220,210);font-family:sans-serif;margin:0}
 .text_pole{background:rgba(0,0,0,.3);color:inherit;border:1px solid #555;border-radius:5px;padding:3px 5px}
 .menu_button{background:#333;color:inherit;border:1px solid #555;border-radius:5px;padding:4px 10px;cursor:pointer}
+#chat{max-width:720px;margin:12px auto;display:flex;flex-direction:column;gap:8px}
+.mes{padding:10px 14px;border-radius:8px;background:rgba(60,60,60,.5)}
+.mes .ch_name{font-weight:bold}
 </style>
 <script>
+// 模擬酒館：getContext()、事件、聊天陣列和畫面上的訊息。測試可以用 window.__* 操作。
 window.__events = {};
 window.__saved = 0;
+window.__chatSaves = 0;
+window.__prompts = [];
 const extensionSettings = {};
+const chatMetadata = {};
+window.__chat = window.__chat || [];
+window.__emit = async (name, ...args) => { for (const f of (window.__events[name] || [])) await f(...args); };
+// 預設的假模型：回傳 JSON 摘要。測試可以換掉 window.__generateRaw。
+window.__generateRaw = async ({ prompt }) => JSON.stringify({ summary: `摘要#${window.__prompts.length}`, ops: [] });
+window.__renderChat = () => {
+  const box = document.getElementById('chat');
+  box.innerHTML = '';
+  window.__chat.forEach((m, i) => {
+    const el = document.createElement('div');
+    el.className = 'mes';
+    el.setAttribute('mesid', String(i));
+    el.innerHTML = `<div class="mes_block"><div class="ch_name"></div><div class="mes_text"></div></div>`;
+    el.querySelector('.ch_name').textContent = `#${i} ${m.name}`;
+    el.querySelector('.mes_text').textContent = m.mes;
+    box.appendChild(el);
+  });
+};
+const eventTypes = {
+  CHAT_CHANGED: 'chat_id_changed', MESSAGE_SENT: 'message_sent', MESSAGE_RECEIVED: 'message_received',
+  MESSAGE_EDITED: 'message_edited', MESSAGE_DELETED: 'message_deleted', MESSAGE_UPDATED: 'message_updated',
+  MESSAGE_SWIPED: 'message_swiped', GENERATION_STARTED: 'generation_started', GENERATION_ENDED: 'generation_ended',
+  GENERATION_STOPPED: 'generation_stopped', CHARACTER_MESSAGE_RENDERED: 'character_message_rendered',
+  USER_MESSAGE_RENDERED: 'user_message_rendered', MORE_MESSAGES_LOADED: 'more_messages_loaded',
+};
 window.jQuery = (arg) => { if (typeof arg === 'function') { document.addEventListener('DOMContentLoaded', arg); if (document.readyState !== 'loading') arg(); return; } return { fadeOut(){ arg.style.display='none'; } }; };
 window.SillyTavern = { getContext: () => ({
   extensionSettings, saveSettingsDebounced(){ window.__saved++; },
   eventSource: { on(n, f){ (window.__events[n] ||= []).push(f); } },
-  eventTypes: { CHAT_CHANGED: 'chat_changed' },
+  eventTypes,
   characterId: window.__noChat ? undefined : 0, groupId: window.__group ? 'g1' : null,
-  name2: '沈言', chatId: '雨天的約定', getCurrentLocale: () => window.__locale || 'zh-tw',
+  characters: [{ name: '沈言', avatar: 'shenyan.png' }],
+  name1: '小雨', name2: '沈言', chatId: window.__chatId || '雨天的約定', getCurrentLocale: () => window.__locale || 'zh-tw',
+  chat: window.__chat, chatMetadata,
+  saveChat: async () => { window.__chatSaves++; },
+  saveMetadata: async () => {},
+  getTokenCountAsync: async (text) => Math.ceil(text.length / 1.5),
+  generateRaw: async (opts) => { window.__prompts.push(opts); return window.__generateRaw(opts); },
 }) };
 window.__extSettings = extensionSettings;
+window.__chatMetadata = chatMetadata;
 </script>
 </head><body>
 <div id="extensionsMenu"></div>
 <div id="extensions_settings2"></div>
+<div id="chat"></div>
+<script>window.__renderChat();</script>
 <script type="module" src="../index.js"></script>
 </body></html>

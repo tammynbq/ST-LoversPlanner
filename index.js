@@ -3,11 +3,15 @@
 
 import { ctx, LOG_PREFIX } from './src/util.js';
 import { initSettings } from './src/settings.js';
+import { initSummarizer } from './src/summarize.js';
 import { mountSettingsDrawer, mountWandEntry, relabelEntries } from './src/ui/entry.js';
+import { initMessageBlocks, renderAllBlocks } from './src/ui/message.js';
 import { refreshPanel, setPanelHooks } from './src/ui/panel.js';
 
 function onSettingChanged(path) {
     if (path === 'language') relabelEntries();
+    // 這些設定會改變聊天畫面上摘要區塊的樣子或提示。
+    if (['language', 'enabled', 'summary.mode'].includes(path)) renderAllBlocks();
 }
 
 async function start() {
@@ -22,6 +26,9 @@ async function start() {
     setPanelHooks({ onSettingChanged });
     mountWandEntry();
     mountSettingsDrawer();
+    initSummarizer();
+    initMessageBlocks();
+    renderAllBlocks();
 
     const c = ctx();
     if (c?.eventSource && c.eventTypes) {

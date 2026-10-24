@@ -27,7 +27,7 @@ export const DEFAULTS = Object.freeze({
     hide: {
         markHidden: true,
     },
-    // 開同角色的新聊天時的預設選擇：'none' | 'copy' | 'share'
+    // 角色還沒有自己的「共同設定」時用的初始值：'none' | 'copy' | 'share'（見 scope.js）
     scope: {
         summary: 'copy',
         characters: 'share',
@@ -41,6 +41,8 @@ export const DEFAULTS = Object.freeze({
     },
     // null = 使用目前語言的預設模板；字串 = 使用者改過的內容。
     prompts: { l1: null, l2: null, l3: null, recap: null },
+    // 每張角色卡自己的資料，key 是角色卡頭像檔名：{ [avatar]: { scope } }
+    characters: {},
 });
 
 function isPlainObject(v) {
@@ -52,7 +54,10 @@ function mergeDefaults(defaults, saved) {
     const out = {};
     for (const [key, def] of Object.entries(defaults)) {
         const val = isPlainObject(saved) ? saved[key] : undefined;
-        if (isPlainObject(def)) {
+        if (isPlainObject(def) && Object.keys(def).length === 0) {
+            // 空物件的預設值代表「任意 key 的對照表」，整個保留。
+            out[key] = isPlainObject(val) ? val : {};
+        } else if (isPlainObject(def)) {
             out[key] = mergeDefaults(def, val);
         } else if (val === undefined || (def !== null && val !== null && typeof val !== typeof def)) {
             out[key] = def;

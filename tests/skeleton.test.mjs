@@ -60,8 +60,10 @@ await page.press('input[data-path="summary.minTokens"]', 'Tab');
 check('clamp', await page.evaluate(() => window.__extSettings.lovers_planner.summary.minTokens === 4000));
 
 // 記憶範圍
-await page.click('input[name="lp-scope-todos"][value="share"]');
-check('scope saved', await page.evaluate(() => window.__extSettings.lovers_planner.scope.todos === 'share'));
+await page.click('input[data-scope="char"][data-kind="todos"][value="share"]');
+check('character scope saved', await page.evaluate(() => window.__extSettings.lovers_planner.characters['shenyan.png'].scope.todos === 'share'));
+await page.click('input[data-scope="chat"][data-kind="items"][value="own"]');
+check('chat scope saved', await page.evaluate(() => window.__chatMetadata.lovers_planner.scope.items === 'own' && window.__chatMetadata.lovers_planner.scope.todos === 'inherit'));
 
 // 提示詞模板：改 → 已修改 → 恢復預設（要確認）
 check('reset disabled when default', await page.isDisabled('[data-action="reset-ask"]'));
