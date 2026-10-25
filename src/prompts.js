@@ -6,7 +6,7 @@
 import { currentLocale } from './i18n.js';
 import { getSettings, saveSettings } from './settings.js';
 
-export const TEMPLATE_KEYS = ['l1', 'l2', 'l3', 'recap', 'catchup'];
+export const TEMPLATE_KEYS = ['l1', 'l2', 'l3', 'recap', 'catchup', 'audit'];
 
 export const TEMPLATE_VARS = {
     l1: ['{{char}}', '{{user}}', '{{length}}', '{{content}}', '{{rules}}', '{{previous}}', '{{notes}}', '{{format}}'],
@@ -14,6 +14,7 @@ export const TEMPLATE_VARS = {
     l3: ['{{chapters}}', '{{length}}'],
     recap: ['{{recap}}', '{{length}}'],
     catchup: ['{{char}}', '{{user}}', '{{length}}', '{{content}}', '{{rules}}', '{{previous}}', '{{notes}}', '{{format}}'],
+    audit: ['{{char}}', '{{user}}', '{{content}}', '{{summary}}'],
 };
 
 
@@ -64,6 +65,20 @@ const DEFAULTS = {
 
 只輸出下面格式的 JSON，不要輸出其他文字：
 {{format}}`,
+        audit: `你是審稿員。下面是 {{char}} 和 {{user}} 故事裡的一段原文，以及別人替它寫的摘要。請對照原文檢查摘要：
+- 有沒有寫錯（和原文矛盾、張冠李戴、把人物搞錯）
+- 有沒有漏掉之後劇情會用到的重要事件或關係變化
+- 時間、地點、出場人物對不對
+措辭不同、比較簡略都沒關係，只挑真正的錯誤和重要遺漏。
+
+原文：
+{{content}}
+
+摘要：
+{{summary}}
+
+只輸出下面格式的 JSON，不要輸出其他文字。沒有問題時 problems 是空陣列。problems 用繁體中文，每條一句話：
+{ "ok": true, "problems": ["…"] }`,
     },
     'zh-CN': {
         l1: `你是故事记录员，负责替 {{char}} 和 {{user}} 的故事做记录。
@@ -111,6 +126,20 @@ const DEFAULTS = {
 
 只输出下面格式的 JSON，不要输出其他文字：
 {{format}}`,
+        audit: `你是审稿员。下面是 {{char}} 和 {{user}} 故事里的一段原文，以及别人替它写的摘要。请对照原文检查摘要：
+- 有没有写错（和原文矛盾、张冠李戴、把人物搞错）
+- 有没有漏掉之后剧情会用到的重要事件或关系变化
+- 时间、地点、出场人物对不对
+措辞不同、比较简略都没关系，只挑真正的错误和重要遗漏。
+
+原文：
+{{content}}
+
+摘要：
+{{summary}}
+
+只输出下面格式的 JSON，不要输出其他文字。没有问题时 problems 是空数组。problems 用简体中文，每条一句话：
+{ "ok": true, "problems": ["…"] }`,
     },
     en: {
         l1: `You are the story's record keeper for {{char}} and {{user}}.
@@ -158,6 +187,20 @@ The conversation:
 
 Output only JSON in the format below, nothing else:
 {{format}}`,
+        audit: `You are a proofreader. Below is a passage from the story of {{char}} and {{user}}, and a summary someone wrote for it. Check the summary against the passage:
+- Is anything wrong (contradicts the passage, mixes people up, attributes actions to the wrong character)?
+- Is an important event or change in the relationship missing that the story will need later?
+- Are the time, place and characters present correct?
+Different wording or brevity is fine; only report real errors and important omissions.
+
+Passage:
+{{content}}
+
+Summary:
+{{summary}}
+
+Output only JSON in the format below, nothing else. Leave problems empty if there are none. Write problems in English, one sentence each:
+{ "ok": true, "problems": ["…"] }`,
     },
 };
 

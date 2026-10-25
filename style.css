@@ -610,3 +610,18 @@
 .lp-catchup { display: flex; flex-direction: column; gap: 0.5em; padding: 0.7em 0.8em; margin-bottom: 0.6em; }
 .lp-catchup .lp-row { gap: 0.4em; flex-wrap: wrap; align-items: center; }
 .lp-catchup .lp-callout { margin: 0; }
+
+/* ===== 🩺 檢查 ===== */
+.lp-check-btn { position: relative; }
+.lp-count { position: absolute; top: -2px; right: -4px; min-width: 1.3em; padding: 0 0.3em; border-radius: 999px; font-size: 0.7em; line-height: 1.3em; text-align: center; background: var(--lp-error); color: #fff; }
+.lp-checkup { display: flex; flex-direction: column; gap: 0.5em; }
+.lp-checkup-group { margin-top: 0.6em; font-weight: 600; }
+.lp-check-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.35em; }
+.lp-check-row { display: flex; gap: 0.6em; align-items: flex-start; padding: 0.45em 0.6em; border: 1px solid var(--lp-border); border-radius: 8px; }
+.lp-check-row > .fa-solid { margin-top: 0.2em; flex: none; }
+.lp-check-main { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.lp-check-btns { display: flex; gap: 0.3em; flex-wrap: wrap; justify-content: flex-end; flex: none; max-width: 45%; }
+.lp-sev-error > .fa-solid { color: var(--lp-error); }
+.lp-sev-warn > .fa-solid { color: var(--lp-warn); }
+.lp-sev-info > .fa-solid { color: var(--lp-info); }
+.lp-check-audit { display: flex; flex-direction: column; gap: 0.4em; padding: 0.7em 0.8em; margin-top: 0.6em; }

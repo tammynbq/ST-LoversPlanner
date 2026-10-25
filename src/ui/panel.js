@@ -11,6 +11,9 @@ import { warmVectors } from '../recall.js';
 import { cleanForSummary } from '../filter.js';
 import { getLoadedVersion } from '../update.js';
 import {
+    auditFloors, auditIssues, auditProgress, auditResults, fixAll, fixIssue, issueCount, pickAuditFloors, runChecks,
+} from '../check.js';
+import {
     abandonCatchup, fineFromFor, getCatchup, pauseCatchup, planCatchup, remaining, resumeCatchup, startCatchup,
 } from '../catchup.js';
 import {
@@ -108,6 +111,8 @@ const view = {
         busy: false,
         status: null, // { type: 'ok' | 'error' | 'saved', text }
     },
+    // 🩺 檢查：開著時取代分頁內容。list 是最近一次的結果（按修正時用 id 找回來）。
+    check: { open: false, list: [], auditN: 5, message: null },
     // 補建舊樓層的設定卡片。
     catchup: { open: false, from: null, to: null, fine: 30, block: null },
     // 從其他聊天匯入：選哪個聊天、帶哪些。
@@ -254,6 +259,7 @@ function renderHeader() {
         <div class="lp-title">${esc(t('app.name'))}${subtitle ? ` <span class="lp-subtitle">· ${esc(subtitle)}</span>` : ''}</div>
         <div class="lp-stats">${esc(statsText())}</div>
       </div>
+      ${checkButton()}
       <button type="button" class="lp-icon-btn${view.global.open ? ' lp-on' : ''}" data-action="global-toggle" aria-pressed="${view.global.open}" aria-label="${esc(t('search.global'))}" title="${esc(t('search.global'))}">
         <span class="fa-solid fa-magnifying-glass" aria-hidden="true"></span>
       </button>
@@ -261,6 +267,16 @@ function renderHeader() {
         <span class="fa-solid fa-xmark" aria-hidden="true"></span>
       </button>
     </div>`;
+}
+
+function checkButton() {
+    if (!isActive()) return '';
+    let n = 0;
+    try { n = issueCount([...runChecks(), ...auditIssues()]); } catch (e) { console.warn(LOG_PREFIX, '檢查失敗', e); }
+    const label = n ? t('check.buttonN', { n }) : t('check.button');
+    return `<button type="button" class="lp-icon-btn lp-check-btn${view.check.open ? ' lp-on' : ''}" data-action="check-toggle" aria-pressed="${view.check.open}" aria-label="${esc(label)}" title="${esc(label)}">
+        <span class="fa-solid fa-stethoscope" aria-hidden="true"></span>${n ? `<span class="lp-count" data-role="check-count">${n > 99 ? '99+' : n}</span>` : ''}
+      </button>`;
 }
 
 function statsText() {
@@ -298,6 +314,7 @@ function renderBanner() {
 }
 
 function renderTab() {
+    if (view.check.open) return renderCheck();
     if (view.global.open) return renderGlobalSearch();
     switch (view.tab) {
         case 'summary': return renderSummaryTab();
@@ -456,6 +473,85 @@ function renderSummaryTab() {
         ${queueArea}
         <div class="lp-floor-list">${rows}</div>
         ${more}
+      </div>`;
+}
+
+// ===== 🩺 檢查 =====
+
+const CHECK_GROUPS = {
+    gen: ['none', 'fail', 'stale', 'repaired', 'chapter-stale', 'chapter-fail', 'volume-stale', 'volume-fail', 'compressDue', 'catchupPaused', 'recapFail'],
+    odd: ['empty', 'long', 'dup', 'noTime', 'noLocation'],
+    notes: ['dupNote', 'zeroItem'],
+    audit: ['audit', 'auditError'],
+};
+const FIX_LABEL = {
+    none: 'check.fix.catchup', fail: 'check.fix.redo', stale: 'check.fix.redo', repaired: 'check.fix.redo', empty: 'check.fix.redo',
+    long: 'check.fix.redo', dup: 'check.fix.redo', audit: 'check.fix.redo', auditError: null,
+    'chapter-stale': 'check.fix.redo', 'chapter-fail': 'check.fix.redo', 'volume-stale': 'check.fix.redo', 'volume-fail': 'check.fix.redo',
+    compressDue: 'check.fix.compress', catchupPaused: 'check.fix.resume', recapFail: 'check.fix.condense',
+    dupNote: 'check.fix.merge', zeroItem: 'check.fix.used', noTime: null, noLocation: null,
+};
+const SEVERITY_ICON = { error: 'fa-solid fa-circle-xmark', warn: 'fa-solid fa-triangle-exclamation', info: 'fa-solid fa-circle-info' };
+
+function checkRow(x) {
+    const vars = { ...x, floor: x.floor ?? '', type: x.type ? typeLabel(x.type) : '', text: x.text ?? '' };
+    const fixKey = FIX_LABEL[x.kind];
+    const btns = [];
+    if (fixKey) btns.push(`<button type="button" class="menu_button lp-btn lp-mini${x.autoFix ? ' lp-primary' : ''}" data-action="check-fix" data-id="${esc(x.id)}">${esc(t(fixKey))}</button>`);
+    if (Number.isInteger(x.floor)) btns.push(`<button type="button" class="menu_button lp-btn lp-mini" data-action="check-jump" data-index="${x.floor}">${esc(t('act.jump'))}</button>`);
+    let detail = '';
+    if (x.problems?.length) detail = `<ul class="lp-recall-list">${x.problems.map((p) => `<li>${esc(p)}</li>`).join('')}</ul>`;
+    if (Array.isArray(x.floors) && x.kind !== 'none') {
+        const links = x.floors.slice(0, 12).map((i) => `<button type="button" class="lp-link" data-action="check-jump" data-index="${i}">#${i}</button>`).join(' ');
+        detail = `<div class="lp-note">${links}${x.floors.length > 12 ? ` ${esc(t('check.more', { n: x.floors.length - 12 }))}` : ''}</div>`;
+    }
+    return `<li class="lp-check-row lp-sev-${x.severity}" data-check="${esc(x.id)}">
+        <span class="${SEVERITY_ICON[x.severity]}" aria-hidden="true"></span>
+        <div class="lp-check-main"><div>${esc(t(`check.kind.${x.kind}`, vars))}</div>${detail}</div>
+        <div class="lp-check-btns">${btns.join('')}</div>
+      </li>`;
+}
+
+function renderCheck() {
+    const head = `<div class="lp-global-head"><span class="lp-scope-title">🩺 ${esc(t('check.title'))}</span><span class="lp-spacer"></span>
+      <button type="button" class="menu_button lp-btn" data-action="check-refresh">${esc(t('check.refresh'))}</button>
+      <button type="button" class="menu_button lp-btn" data-action="check-toggle">${esc(t('panel.close'))}</button></div>`;
+    if (!isActive()) return head;
+    const list = [...runChecks(), ...auditIssues()];
+    view.check.list = list;
+    const count = (sev) => list.filter((x) => x.severity === sev).length;
+    const auto = list.filter((x) => x.autoFix).length;
+    const pending = pendingCount();
+    const summary = list.length
+        ? t('check.found', { error: count('error'), warn: count('warn'), info: count('info') })
+        : t('check.allGood');
+    const groups = Object.entries(CHECK_GROUPS).map(([g, kinds]) => {
+        const items = list.filter((x) => kinds.includes(x.kind));
+        if (!items.length) return '';
+        return `<div class="lp-checkup-group">${esc(t(`check.group.${g}`))}</div><ul class="lp-check-list">${items.map(checkRow).join('')}</ul>`;
+    }).join('');
+
+    const prog = auditProgress();
+    const results = auditResults();
+    const okCount = [...results.values()].filter((r) => r.ok === true).length;
+    const audit = `
+      <div class="lp-card lp-check-audit" data-role="audit">
+        <div class="lp-scope-title">${esc(t('check.audit.title'))}</div>
+        <div class="lp-note">${esc(t('check.audit.desc'))}</div>
+        <div class="lp-row">${inline('check.audit.n', { n: `<input type="number" class="text_pole lp-num" data-role="audit-n" min="1" max="50" step="1" value="${view.check.auditN}" aria-label="${esc(t('check.audit.n.aria'))}">` })}
+          <button type="button" class="menu_button lp-btn" data-action="check-audit"${prog ? ' disabled' : ''}>${esc(t('check.audit.start'))}</button></div>
+        ${prog ? `<div class="lp-note" role="status" data-role="audit-progress">${esc(t('check.audit.progress', { done: prog.done, total: prog.total }))}</div>` : ''}
+        ${results.size ? `<div class="lp-note" data-role="audit-summary">${esc(t('check.audit.summary', { total: results.size, ok: okCount }))}</div>` : ''}
+      </div>`;
+
+    return `${head}
+      <div class="lp-checkup">
+        <div class="lp-row"><span data-role="check-summary">${esc(summary)}</span><span class="lp-spacer"></span>
+          ${auto ? `<button type="button" class="menu_button lp-btn lp-primary" data-action="check-fix-all">${esc(t('check.fixAll', { n: auto }))}</button>` : ''}</div>
+        ${view.check.message ? `<div class="lp-ok-text" role="status">${esc(view.check.message)}</div>` : ''}
+        ${pending ? `<div class="lp-note" role="status">${esc(t('sum.progress', { n: pending }))}</div>` : ''}
+        ${groups}
+        ${audit}
       </div>`;
 }
 
@@ -687,7 +783,7 @@ function renderTree(states) {
 
 let summaryRefreshTimer = null;
 function canAutoRefresh() {
-    if (!isPanelOpen() || !['summary', 'notes', 'done'].includes(view.tab)) return false;
+    if (!isPanelOpen() || !(view.check.open || ['summary', 'notes', 'done'].includes(view.tab))) return false;
     // 正在填表單（記事、章／卷總結）時不重畫，免得打到一半的字不見。
     return !(view.notes.editing || view.notes.adding || view.sum.editing);
 }
@@ -1437,6 +1533,7 @@ function onClick(e) {
             return;
         case 'tab':
             view.tab = btn.dataset.tab;
+            view.check.open = false;
             view.notes.editing = null;
             view.notes.adding = null;
             view.notes.confirmClear = false;
@@ -1558,7 +1655,48 @@ function onClick(e) {
             toggleSection(btn.dataset.key);
             render();
             return;
+        case 'check-toggle':
+            view.check.open = !view.check.open;
+            view.check.message = null;
+            if (view.check.open) view.global.open = false;
+            render();
+            return;
+        case 'check-refresh':
+            view.check.message = null;
+            render();
+            return;
+        case 'check-fix': {
+            const x = view.check.list.find((i) => i.id === btn.dataset.id);
+            if (x?.kind === 'none') {
+                view.check.open = false;
+                view.tab = 'summary';
+                view.catchup = { open: true, from: null, to: null, fine: 30, block: null };
+            } else if (x) {
+                fixIssue(x);
+                view.check.message = t('check.fixedOne');
+            }
+            render();
+            return;
+        }
+        case 'check-fix-all':
+            view.check.message = t('check.fixedAll', { n: fixAll(view.check.list) });
+            render();
+            return;
+        case 'check-jump':
+            onSummaryAction(Number(btn.dataset.index), 'jump');
+            return;
+        case 'check-audit': {
+            const floors = pickAuditFloors(view.check.auditN);
+            if (!floors.length) {
+                view.check.message = t('check.audit.nothing');
+                render();
+                return;
+            }
+            auditFloors(floors, () => { if (isPanelOpen() && view.check.open) render(); });
+            return;
+        }
         case 'global-toggle':
+            view.check.open = false;
             view.global.open = !view.global.open;
             render();
             if (view.global.open) panel.querySelector('[data-search="global"]')?.focus();
@@ -1784,6 +1922,11 @@ function onInput(e) {
         // 打字時稍等一下再重畫，不要每個字都重畫。
         clearTimeout(searchTimer);
         searchTimer = setTimeout(render, 150);
+        return;
+    }
+    if (el.dataset?.role === 'audit-n') {
+        const n = Math.round(Number(el.value));
+        if (Number.isFinite(n)) view.check.auditN = Math.min(50, Math.max(1, n));
         return;
     }
     if (el.dataset?.role === 'filter-test') {
