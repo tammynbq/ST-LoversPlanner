@@ -8,7 +8,7 @@ import { getTemplate, isTemplateModified, resetTemplate, setTemplate, TEMPLATE_K
 import { listModels, normalizeBaseUrl, testConnection } from '../api/custom.js';
 import { testEmbedding } from '../api/embed.js';
 import { warmVectors } from '../recall.js';
-import { cleanForSummary } from '../filter.js';
+import { cleanForSummary, scanTags, setTagMode, tagMode } from '../filter.js';
 import { getLoadedVersion } from '../update.js';
 import {
     auditFloors, auditIssues, auditProgress, auditResults, fixAll, fixIssue, issueCount, pickAuditFloors, runChecks,
@@ -1314,6 +1314,30 @@ function section(id, title, hint, content) {
     </details>`;
 }
 
+/** 最新 2 個 AI 樓層裡用到的標籤，每個選「讀／不讀／只讀」。 */
+function tagScanner() {
+    if (!isActive()) return '';
+    const chat = getChat();
+    const latest = aiIndices().slice(-2).map((i) => chat[i]?.mes ?? '');
+    const tags = scanTags(latest);
+    const body = tags.length
+        ? `<ul class="lp-tag-list">${tags.map((x) => {
+            const { mode, builtin } = tagMode(x.name);
+            const opts = ['read', 'skip', 'only'].map((m) => `<option value="${m}"${m === mode ? ' selected' : ''}>${esc(t(`set.filter.mode.${m}`))}</option>`).join('');
+            return `<li class="lp-tag-row" data-tag-row="${esc(x.name)}">
+                <div class="lp-tag-main"><code>&lt;${esc(x.name)}&gt;</code>${x.count > 1 ? ` <span class="lp-note">×${x.count}</span>` : ''}${builtin ? ` <span class="lp-note">${esc(t(`set.filter.builtin.${builtin}`))}</span>` : ''}
+                  ${x.sample ? `<div class="lp-note lp-tag-sample">${esc(x.sample)}…</div>` : ''}</div>
+                <select class="text_pole lp-select" data-role="tag-mode" data-tag="${esc(x.name)}" aria-label="${esc(t('set.filter.mode.aria', { tag: x.name }))}">${opts}</select>
+              </li>`;
+        }).join('')}</ul>`
+        : `<div class="lp-note">${esc(t('set.filter.scan.none'))}</div>`;
+    return `<div class="lp-card lp-tag-scan" data-role="tag-scan">
+        <div class="lp-scope-title">${esc(t('set.filter.scan.title'))}</div>
+        <div class="lp-note">${esc(t('set.filter.scan.desc'))}</div>
+        ${body}
+      </div>`;
+}
+
 function renderSettings() {
     const s = getSettings();
     const hostName = LOCALE_NAMES[detectHostLocale()];
@@ -1352,6 +1376,7 @@ function renderSettings() {
       ${checkbox('filter.thinking', t('set.filter.thinking'))}
       ${checkbox('filter.status', t('set.filter.status'))}
       ${checkbox('filter.html', t('set.filter.html'))}
+      ${tagScanner()}
       <label class="lp-field" for="lp-filter-tags"><span class="lp-label">${esc(t('set.filter.tags'))}</span>
         ${textInput('filter.tags', 'lp-filter-tags', t('set.filter.tags.ph'))}</label>
       <label class="lp-field" for="lp-filter-only"><span class="lp-label">${esc(t('set.filter.only'))}</span>
@@ -2014,6 +2039,11 @@ function onChange(e) {
         if (!el.checked) return;
         if (el.dataset.scope === 'char') changeCharacterScope(el.dataset.kind, el.value);
         else changeChatScope(el.dataset.kind, el.value);
+        render();
+        return;
+    }
+    if (el.dataset?.role === 'tag-mode') {
+        setTagMode(el.dataset.tag, el.value);
         render();
         return;
     }

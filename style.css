@@ -646,3 +646,11 @@
 .lp-cal-day .lp-row { flex-wrap: wrap; gap: 0.4em; align-items: center; }
 .lp-cal-item { display: flex; flex-wrap: wrap; gap: 0.4em; align-items: center; }
 .lp-cal-chip { font-size: 0.9em; }
+
+/* ===== 標籤掃描 ===== */
+.lp-tag-scan { display: flex; flex-direction: column; gap: 0.4em; padding: 0.7em 0.8em; }
+.lp-tag-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.35em; }
+.lp-tag-row { display: flex; gap: 0.6em; align-items: center; justify-content: space-between; padding: 0.35em 0.5em; border: 1px solid var(--lp-border); border-radius: 6px; }
+.lp-tag-main { min-width: 0; flex: 1; overflow-wrap: anywhere; }
+.lp-tag-sample { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lp-tag-row .lp-select { flex: none; width: auto; }

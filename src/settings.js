@@ -22,8 +22,9 @@ export const DEFAULTS = Object.freeze({
         minTokens: 30,
         maxTokens: 150,
     },
-    // 摘要時跳過的內容（只影響送去摘要的文字）。tags：自訂要跳過的標籤；only：只看這些標籤裡的內容。
-    filter: { thinking: true, status: true, html: true, tags: '', only: '' },
+    // 摘要時跳過的內容（只影響送去摘要的文字）。tags：自訂要跳過的標籤；only：只看這些標籤裡的內容；
+    // keep：內建清單裡、但使用者選了「要讀」的標籤。
+    filter: { thinking: true, status: true, html: true, tags: '', only: '', keep: '' },
     compress: {
         auto: true, // 到期就自動壓縮
         l1PerL2: 10,

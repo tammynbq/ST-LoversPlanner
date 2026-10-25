@@ -96,6 +96,45 @@ const saved = await page.evaluate(() => SillyTavern.getContext().extensionSettin
 check('settings saved', saved.only === 'content', JSON.stringify(saved));
 await page.screenshot({ path: `${OUT}/filter-settings.png`, fullPage: true });
 
+// ===== 4. 掃描最新 2 個 AI 樓層的標籤 =====
+// 先讓上面的文字框失去焦點（不然它的 change 事件會在之後把值寫回去）。
+await page.evaluate(() => document.activeElement?.blur());
+await page.evaluate(() => {
+  Object.assign(SillyTavern.getContext().extensionSettings.lovers_planner.filter, { thinking: true, status: true, html: true, tags: '', only: '', keep: '' });
+});
+await page.click('[data-tab="summary"]');
+await page.click('[data-tab="settings"]');
+if (!(await page.$eval('details[data-sec="filter"]', (d) => d.open))) await page.click('details[data-sec="filter"] > summary');
+const names = await page.$$eval('[data-tag-row]', (rows) => rows.map((r) => r.dataset.tagRow));
+check('scanner lists tags', ['thinking', 'content', 'status', 'details', '吐槽'].every((x) => names.includes(x)), names.join());
+check('inline tags not listed', !names.includes('div') && !names.includes('summary'), names.join());
+const mode = (tag) => page.$eval(`[data-role="tag-mode"][data-tag="${tag}"]`, (el) => el.value);
+check('built-in tags start as skip', await mode('thinking') === 'skip' && await mode('status') === 'skip');
+check('other tags start as read', await mode('content') === 'read' && await mode('吐槽') === 'read');
+check('sample shown', (await page.textContent('[data-tag-row="status"]')).includes('好感度'));
+await page.locator('[data-role="tag-scan"]').screenshot({ path: `${OUT}/filter-scan.png` });
+
+await page.selectOption('[data-role="tag-mode"][data-tag="吐槽"]', 'skip');
+let f = await page.evaluate(() => SillyTavern.getContext().extensionSettings.lovers_planner.filter);
+check('skip adds to custom tags', f.tags === '吐槽', JSON.stringify(f));
+check('custom tags field updated', (await page.inputValue('#lp-filter-tags')) === '吐槽');
+await page.selectOption('[data-role="tag-mode"][data-tag="thinking"]', 'read');
+f = await page.evaluate(() => SillyTavern.getContext().extensionSettings.lovers_planner.filter);
+check('read on a built-in tag adds an exception', f.keep === 'thinking' && f.thinking === true, JSON.stringify(f));
+r = await page.evaluate(async (t) => (await import('/src/filter.js')).cleanForSummary(t), AI);
+check('exception honored', r.includes('先想想') && !r.includes('好感度') && !r.includes('作者的話'), r);
+await page.selectOption('[data-role="tag-mode"][data-tag="content"]', 'only');
+f = await page.evaluate(() => SillyTavern.getContext().extensionSettings.lovers_planner.filter);
+check('only sets only list', f.only === 'content');
+r = await page.evaluate(async (t) => (await import('/src/filter.js')).cleanForSummary(t), AI);
+check('only applied', r === '沈言把傘遞給小雨。「別淋濕了。」', r);
+await page.selectOption('[data-role="tag-mode"][data-tag="thinking"]', 'skip');
+f = await page.evaluate(() => SillyTavern.getContext().extensionSettings.lovers_planner.filter);
+check('back to skip removes the exception', f.keep === '' && f.tags === '吐槽', JSON.stringify(f));
+await page.selectOption('[data-role="tag-mode"][data-tag="content"]', 'read');
+f = await page.evaluate(() => SillyTavern.getContext().extensionSettings.lovers_planner.filter);
+check('read clears only', f.only === '');
+
 const missing = await page.evaluate(async () => (await import('/src/i18n.js')).missingKeys());
 check('i18n keys complete', !missing.length, JSON.stringify(missing));
 
