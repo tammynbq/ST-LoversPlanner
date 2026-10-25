@@ -1,6 +1,6 @@
 // 聊天畫面：每條 AI 訊息下面那個可以折疊的摘要區塊。操作按鈕都收在這裡面。
 
-import { ctx, escapeHtml as esc } from '../util.js';
+import { ctx, escapeHtml as esc, toast } from '../util.js';
 import { getSettings, isTracked } from '../settings.js';
 import { t } from '../i18n.js';
 import { getChat, getEntry, isAiMessage, lastAiIndex } from '../chat.js';
@@ -8,6 +8,7 @@ import { enqueue, floorState, isActive, onSummaryChange, skipFloor, unskipFloor,
 import { describeOp, getNotes, onNotesChange, opType, setFloorOpUndone } from '../notes.js';
 import { computeHidden } from '../hide.js';
 import { calendarOn, calTracked } from '../calendar.js';
+import { addMemory, memoriesOn } from '../memories.js';
 
 const expanded = new Set(); // 展開中的樓層
 const editing = new Set(); // 正在手動編輯的樓層
@@ -28,7 +29,7 @@ export function actionsFor(state, index = null) {
     if (state === 'ok' && index !== null && getEntry(index)?.coarse) return [];
     switch (state) {
         case 'none': return ['summarize', 'skip'];
-        case 'ok': return ['edit', 'redo', 'skip'];
+        case 'ok': return memoriesOn() ? ['edit', 'redo', 'skip', 'keep'] : ['edit', 'redo', 'skip'];
         case 'stale': return ['redo', 'edit', 'skip'];
         case 'fail': return ['retry', 'write', 'skip'];
         case 'skip': return ['unskip'];
@@ -73,6 +74,12 @@ export function runAction(index, act) {
         case 'edit':
         case 'write':
             return true;
+        case 'keep': {
+            // 收藏成回憶：先用這一層的摘要，之後可以在回憶錄改。
+            const e = getEntry(index);
+            if (addMemory({ content: e?.summary ?? '', floor: index })) toast(t('mem.kept'), 'success');
+            return false;
+        }
         default:
             return false;
     }

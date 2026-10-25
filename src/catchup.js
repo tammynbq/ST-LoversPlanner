@@ -23,8 +23,9 @@ import {
 } from './summarize.js';
 import { saveChapter, setCoarseRedo } from './compress.js';
 import { estimateTokens } from './hide.js';
-import { cleanForSummary } from './filter.js';
+import { cleanForSummary, extractTheater } from './filter.js';
 import { calendarOn, cleanEvents, normDate } from './calendar.js';
+import { cleanKeepsakes, memoriesOn } from './memories.js';
 
 /** 每次呼叫除了原文之外，提示詞本身（規則、記事清單）大約多少 token。 */
 const PROMPT_OVERHEAD = 700;
@@ -194,7 +195,9 @@ async function buildPrompt(indices) {
         if (s.summary.includeUser) for (const u of src.users) parts.push(`${u.name ?? c?.name1 ?? 'User'}: ${cleanForSummary(u.mes)}`);
         parts.push(`${chat[i].name ?? c?.name2 ?? 'Character'}: ${cleanForSummary(chat[i].mes)}`);
     }
-    const content = parts.join('\n\n');
+    const keep = memoriesOn() && s.memories?.auto;
+    const theater = keep ? indices.map((i) => extractTheater(chat[i].mes)).filter(Boolean).join('\n\n') : '';
+    const content = parts.join('\n\n') + (theater ? `\n\n${t('prompt.theaterLabel')}\n${theater}` : '');
     const tokens = await countTokens(content);
     // 一章大約是單層摘要的三到四成；單層摘要是原文的 3～6%。
     const l1 = (s.summary.ratioMin + s.summary.ratioMax) / 200;
@@ -202,7 +205,7 @@ async function buildPrompt(indices) {
     const target = Math.min(600, Math.max(80, Math.round(tokens * l1 * l2 * 2)));
     const length = lengthUnits(content, tokens, target);
     const notesBefore = replay({ upTo: indices[0] }).notes;
-    const { rules, format } = buildL1Parts({ length, char: c?.name2 ?? '', user: c?.name1 ?? '', chapter: true, previousDate: previousDate(indices[0]) });
+    const { rules, format } = buildL1Parts({ length, char: c?.name2 ?? '', user: c?.name1 ?? '', chapter: true, previousDate: previousDate(indices[0]), theater: Boolean(theater) });
     const prompt = fill(getTemplate('catchup'), {
         char: c?.name2 ?? '',
         user: c?.name1 ?? '',
@@ -241,6 +244,7 @@ export async function runCoarse(indices, existing = null) {
                 summary: '', ops: i === last ? ops : [], hash: floorSource(i).hash, at,
                 // 行事曆：這一段的日期和事件記在最後一層（前面幾層延續上一個日期）。
                 ...(calendarOn() && i === last ? { date: normDate(parsed.date), events: cleanEvents(parsed.events) } : {}),
+                ...(memoriesOn() && getSettings().memories?.auto && i === last ? { keepsakes: cleanKeepsakes(parsed.keepsakes) } : {}),
             });
         }
         saveChapter({

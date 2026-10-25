@@ -654,3 +654,8 @@
 .lp-tag-main { min-width: 0; flex: 1; overflow-wrap: anywhere; }
 .lp-tag-sample { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .lp-tag-row .lp-select { flex: none; width: auto; }
+
+/* ===== 回憶錄 ===== */
+.lp-memories { display: flex; flex-direction: column; gap: 0.5em; }
+.lp-mem-content { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.5; }
+.lp-mem-form { display: flex; flex-direction: column; gap: 0.4em; padding: 0.6em 0.7em; }

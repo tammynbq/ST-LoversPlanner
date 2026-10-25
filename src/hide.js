@@ -16,6 +16,8 @@ import { compressionDue, digestLabel, structure } from './compress.js';
 import { selectRelevant } from './recall.js';
 import { recapLines } from './carry.js';
 import { calendarInjection } from './calendar.js';
+import { markSurfaced, pickReminders, remindersText } from './memories.js';
+import { cleanForSummary } from './filter.js';
 
 /** 保留原文的 AI 樓層數（規格：最新 2 個）。 */
 export const KEEP_AI = 2;
@@ -124,8 +126,10 @@ export function injectionParts(hidden, selection = null) {
     }
     const memories = selection?.memories ?? [];
     const calendar = calendarInjection();
+    const reminders = selection?.reminders ?? [];
     return {
         calendar: { text: calendar },
+        reminders: { count: reminders.length, text: remindersText(reminders) },
         summaries: {
             floors: rows.filter((r) => r.kind === 'floors').length,
             chapters: rows.filter((r) => r.kind === 'chapters').length,
@@ -144,13 +148,14 @@ export function buildInjection(hidden, selection = null) {
     return textOf(injectionParts(hidden, selection));
 }
 
-function textOf({ summaries, memories, notes, calendar }) {
+function textOf({ summaries, memories, notes, calendar, reminders }) {
     const noteText = Object.values(notes).map((n) => n.text).filter(Boolean).join('\n');
-    if (!summaries.text && !memories.text && !noteText && !calendar?.text) return '';
+    if (!summaries.text && !memories.text && !noteText && !calendar?.text && !reminders?.text) return '';
     const parts = [t('inject.intro')];
     if (summaries.text) parts.push(`${t('inject.summaries')}\n${summaries.text}`);
     if (memories.text) parts.push(`${t('inject.memories')}\n${memories.text}`);
     if (noteText) parts.push(`${t('inject.notes')}\n${noteText}`);
+    if (reminders?.text) parts.push(`${t('inject.reminders')}\n${reminders.text}`);
     if (calendar?.text) parts.push(`${t('inject.calendar')}\n${calendar.text}`);
     return parts.join('\n\n');
 }
@@ -328,6 +333,17 @@ export async function interceptor(coreChat, contextSize, abort, type) {
         } catch (e) {
             console.warn(LOG_PREFIX, '挑選相關記事失敗，這次送全部記事', e);
         }
+        // 回憶錄：偶爾讓角色想起過去（背景的 quiet 生成不算）。
+        let reminders = [];
+        if (!NO_HOLD_TYPES.has(type)) {
+            try {
+                const recent = chat.slice(Math.max(0, keepFrom), limit).map((m) => cleanForSummary(m?.mes ?? '')).join('\n');
+                reminders = pickReminders(recent);
+            } catch (e) {
+                console.warn(LOG_PREFIX, '挑回憶失敗', e);
+            }
+        }
+        if (reminders.length) selection = { ...(selection ?? { filtered: false, notes: new Map(), memories: [] }), reminders };
         const text = buildInjection(hidden, selection);
         const s = getSettings();
         let position = PROMPT_TYPE.IN_CHAT;
@@ -360,7 +376,9 @@ export async function interceptor(coreChat, contextSize, abort, type) {
             notesTotal: selection?.total ?? 0,
             memories: selection?.memories.length ?? 0,
             vector: selection?.vector ?? 'off',
+            reminders: reminders.length,
         });
+        markSurfaced(reminders);
         console.debug(LOG_PREFIX, '攔截器完成', lastStats);
     } catch (e) {
         console.error(LOG_PREFIX, '攔截器出錯，這次不隱藏也不注入', e);

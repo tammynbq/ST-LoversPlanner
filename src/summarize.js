@@ -16,8 +16,9 @@ import { errorText } from './errors.js';
 import { formatNotesForPrompt, invalidateNotes, normalizeModelOps, replay } from './notes.js';
 import { buildL1Parts } from './l1rules.js';
 import { parseJsonLenient } from './json.js';
-import { cleanForSummary } from './filter.js';
+import { cleanForSummary, extractTheater } from './filter.js';
 import { calendarOn, cleanEvents, normDate } from './calendar.js';
+import { cleanKeepsakes, memoriesOn } from './memories.js';
 import {
     chatKey, floorSource, floorStatus, getChat, getEntry, isAiMessage, lastAiIndex, saveChatSoon, setEntry,
 } from './chat.js';
@@ -274,13 +275,15 @@ export async function buildL1Prompt(index) {
         for (const u of src.users) parts.push(`${u.name ?? c?.name1 ?? 'User'}: ${cleanForSummary(u.mes)}`);
     }
     parts.push(`${src.ai.name ?? c?.name2 ?? 'Character'}: ${cleanForSummary(src.ai.mes)}`);
-    const content = parts.join('\n\n');
+    // 小劇場（番外）：不算正文，另外附上，讓模型只挑有意義的收進回憶錄。
+    const theater = memoriesOn() && s.memories?.auto ? extractTheater(src.ai.mes) : '';
+    const content = parts.join('\n\n') + (theater ? `\n\n${t('prompt.theaterLabel')}\n${theater}` : '');
 
     const tokens = await countTokens(content);
     const ratio = (s.summary.ratioMin + s.summary.ratioMax) / 200;
     const targetTokens = Math.min(s.summary.maxTokens, Math.max(s.summary.minTokens, Math.round(tokens * ratio)));
     const length = lengthUnits(content, tokens, targetTokens);
-    const { rules, format } = buildL1Parts({ length, char: c?.name2 ?? '', user: c?.name1 ?? '', previousDate: previousDate(index) });
+    const { rules, format } = buildL1Parts({ length, char: c?.name2 ?? '', user: c?.name1 ?? '', previousDate: previousDate(index), theater: Boolean(theater) });
     const prompt = fillTemplate(getTemplate('l1'), {
         char: c?.name2 ?? '',
         user: c?.name1 ?? '',
@@ -314,6 +317,7 @@ export function parseL1(raw) {
             ops: Array.isArray(obj.ops) ? obj.ops : [],
             date: obj.date ?? '',
             events: obj.events ?? [],
+            keepsakes: obj.keepsakes ?? [],
             repaired: parsed.repaired,
         };
     }
@@ -362,6 +366,8 @@ async function summarizeFloor(index) {
             ...(calendarOn()
                 ? { date: normDate(parsed.date) || previousDate(index), events: cleanEvents(parsed.events) }
                 : { date: prev?.date ?? '', events: prev?.events ?? [] }),
+            // 回憶錄：模型挑的值得珍藏的時刻（沒開的話沿用舊的）。
+            keepsakes: memoriesOn() && getSettings().memories?.auto ? cleanKeepsakes(parsed.keepsakes) : (prev?.keepsakes ?? []),
             // 回覆被截斷、是救回來的：摘要或記事可能不完整，畫面上會提醒。
             ...(parsed.repaired ? { repaired: true } : {}),
         });
@@ -406,9 +412,10 @@ export function writeSummary(index, fields) {
     const prev = getEntry(index);
     const ops = prev?.status === 'ok' && Array.isArray(prev.ops) ? prev.ops : [];
     const events = prev?.status === 'ok' && Array.isArray(prev.events) ? prev.events : [];
+    const keepsakes = prev?.status === 'ok' && Array.isArray(prev.keepsakes) ? prev.keepsakes : [];
     const date = fields?.date !== undefined ? normDate(fields.date) : (prev?.date ?? '');
     setEntry(index, {
-        v: 2, status: 'ok', ...cleanScene(fields), summary, ops, events, date,
+        v: 2, status: 'ok', ...cleanScene(fields), summary, ops, events, date, keepsakes,
         hash: floorSource(index).hash, at: Date.now(), manual: true,
     });
     saveChatSoon();

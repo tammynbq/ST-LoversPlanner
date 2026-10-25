@@ -24,7 +24,7 @@ export const DEFAULTS = Object.freeze({
     },
     // 摘要時跳過的內容（只影響送去摘要的文字）。tags：自訂要跳過的標籤；only：只看這些標籤裡的內容；
     // keep：內建清單裡、但使用者選了「要讀」的標籤。
-    filter: { thinking: true, status: true, html: true, tags: '', only: '', keep: '' },
+    filter: { thinking: true, status: true, html: true, tags: '', only: '', keep: '', theater: 'keepsake', theaterTags: '' },
     // 分層壓縮（2026-10-25 依真實聊天紀錄的測試改，見 SPEC 2.3）：
     // L2 每 l1PerL2 層一章（只看比例）；L3 每 l2PerL3 章一卷；L4 以上每 higherPer 個一組，沒有層數上限。
     // capL3／capL4／capL5／capMore：各層的長度上限（tokens），越高層越短，越舊的越粗。
@@ -61,6 +61,10 @@ export const DEFAULTS = Object.freeze({
         inject: true,
         ahead: 7,
     },
+    // 回憶錄：auto＝摘要時讓模型挑值得珍藏的時刻；recall＝偶爾讓角色想起。
+    // everyN：平均每幾回想起一次（隨機）；count：一次最多幾條；minAge：至少多少個 AI 樓層以前的才算回憶；
+    // cooldown：提過的回憶，過幾個 AI 樓層才會再被挑到。
+    memories: { enabled: true, auto: true, recall: true, everyN: 10, count: 2, minAge: 20, cooldown: 30 },
     hide: {
         markHidden: true,
     },

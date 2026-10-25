@@ -10,6 +10,7 @@ import { testEmbedding } from '../api/embed.js';
 import { warmVectors } from '../recall.js';
 import { cleanForSummary, scanTags, setTagMode, tagMode } from '../filter.js';
 import { getLoadedVersion } from '../update.js';
+import { addMemory, editMemory, listMemories, memoriesOn, nextPinned, onMemoriesChange, removeMemory, surfaceNext } from '../memories.js';
 import {
     auditFloors, auditIssues, auditProgress, auditResults, fixAll, fixIssue, issueCount, pickAuditFloors, runChecks,
 } from '../check.js';
@@ -42,7 +43,7 @@ import {
     CHAR_SCOPE_VALUES, CHAT_SCOPE_VALUES, characterName, getCharacterScope, getChatScope, SCOPE_KINDS,
 } from '../scope.js';
 
-const TABS = ['summary', 'characters', 'items', 'notes', 'calendar', 'done', 'settings'];
+const TABS = ['summary', 'characters', 'items', 'notes', 'memories', 'calendar', 'done', 'settings'];
 
 /** 每個分頁放哪些記事類型（記事分頁＝約定＋待辦）。 */
 const TAB_TYPES = { characters: ['character'], items: ['item'], notes: ['promise', 'todo'] };
@@ -53,6 +54,7 @@ function visibleTabs() {
         if (TAB_TYPES[tab]) return TAB_TYPES[tab].some(isTracked);
         if (tab === 'done') return ['item', 'promise', 'todo'].some(isTracked);
         if (tab === 'calendar') return calendarOn();
+        if (tab === 'memories') return memoriesOn();
         return true;
     });
 }
@@ -80,6 +82,10 @@ const NUMBER_LIMITS = {
     'recall.noteTopK': [0, 50],
     'recall.threshold': [0, 100],
     'carry.recapLength': [50, 4000],
+    'memories.everyN': [1, 100],
+    'memories.count': [1, 5],
+    'memories.minAge': [0, 1000],
+    'memories.cooldown': [0, 1000],
     'calendar.periodCycle': [15, 60],
     'calendar.periodLength': [1, 15],
     'calendar.ahead': [0, 60],
@@ -109,7 +115,7 @@ const view = {
         editing: null, // 正在編輯的章／卷 id
     },
     // 各分頁的篩選字串，以及總搜尋。
-    query: { summary: '', characters: '', items: '', notes: '', done: '' },
+    query: { summary: '', characters: '', items: '', notes: '', done: '', memories: '' },
     global: { open: false, query: '' },
     focusKey: null, // 重畫後捲到這個項目（總搜尋點結果時用）
     tpl: 'l1',
@@ -126,6 +132,8 @@ const view = {
     },
     // 🩺 檢查：開著時取代分頁內容。list 是最近一次的結果（按修正時用 id 找回來）。
     check: { open: false, list: [], auditN: 5, message: null },
+    // 回憶錄：正在編輯哪一條、是不是在新增。
+    mem: { editing: null, adding: false },
     // 行事曆：顯示哪個月（YYYY-MM）、選了哪天、新增表單。
     cal: { month: null, selected: null, addType: null },
     // 補建舊樓層的設定卡片。
@@ -304,6 +312,7 @@ function statsText() {
     const extra = [];
     if (st.notesSent !== null && st.notesSent !== undefined) extra.push(t('panel.statsNotes', { n: st.notesSent, total: st.notesTotal }));
     if (st.memories) extra.push(t('panel.statsMemories', { n: st.memories }));
+    if (st.reminders) extra.push(t('panel.statsReminders', { n: st.reminders }));
     if (st.vector === 'error') extra.push(t('panel.statsVectorError'));
     if (st.unsummarized) extra.push(t('panel.statsPending', { n: st.unsummarized }));
     return [main, ...extra].join('｜');
@@ -338,6 +347,7 @@ function renderTab() {
         case 'notes':
             return renderNotesTab(TAB_TYPES[view.tab].filter(isTracked));
         case 'calendar': return renderCalendarTab();
+        case 'memories': return renderMemoriesTab();
         case 'done': return renderDoneTab();
         case 'settings': return renderSettings();
         default: return '';
@@ -489,6 +499,70 @@ function renderSummaryTab() {
         ${queueArea}
         <div class="lp-floor-list">${rows}</div>
         ${more}
+      </div>`;
+}
+
+// ===== 回憶錄 =====
+
+function memoryForm(m = null) {
+    return `
+      <div class="lp-note-card lp-mem-form" data-role="mem-form">
+        <label class="lp-field"><span class="lp-label">${esc(t('mem.title'))}</span>
+          <input type="text" class="text_pole" data-mem="title" value="${esc(m?.title ?? '')}" maxlength="30" placeholder="${esc(t('mem.titlePh'))}"></label>
+        <label class="lp-field"><span class="lp-label">${esc(t('mem.content'))}</span>
+          <textarea class="text_pole lp-sum-editor" data-mem="content" maxlength="200" placeholder="${esc(t('mem.contentPh'))}">${esc(m?.content ?? '')}</textarea></label>
+        <div class="lp-sum-actions">
+          <button type="button" class="menu_button lp-btn lp-primary" data-action="mem-save" data-key="${esc(m?.key ?? '')}">${esc(t('act.save'))}</button>
+          <button type="button" class="menu_button lp-btn" data-action="mem-cancel">${esc(t('act.cancel'))}</button>
+        </div>
+      </div>`;
+}
+
+function memoryCard(m, pinned) {
+    if (view.mem.editing === m.key) return memoryForm(m);
+    const key = `mem:${m.key}`;
+    const open = isExpanded(key);
+    const when = m.date || m.time;
+    const tags = `${m.theater ? `<span class="lp-badge">${esc(t('mem.theater'))}</span>` : ''}${pinned ? `<span class="lp-badge lp-st-ok">${esc(t('mem.nextOn'))}</span>` : ''}`;
+    const head = `
+        <button type="button" class="lp-row-head" data-action="fold" data-key="${esc(key)}" aria-expanded="${open}">
+          <span class="lp-sum-chev" aria-hidden="true">${open ? '▾' : '▸'}</span>
+          <span class="lp-note-title">⭐ ${esc(m.title)}</span>${tags}
+          ${!open && when ? `<span class="lp-row-preview">${esc(when)}</span>` : ''}
+        </button>`;
+    if (!open) return `<div class="lp-note-card lp-folded" data-fold-key="${esc(key)}" data-mem-key="${esc(m.key)}">${head}</div>`;
+    const from = m.floor !== null && m.floor !== undefined
+        ? `<button type="button" class="lp-link" data-action="note-jump" data-index="${m.floor}">${esc(t('mem.from', { n: m.floor }))}</button>` : esc(t('mem.manual'));
+    const last = m.surfaced === null ? t('mem.never') : t('mem.lastSurfaced', { n: m.surfaced });
+    return `
+      <div class="lp-note-card" data-fold-key="${esc(key)}" data-mem-key="${esc(m.key)}">
+        ${head}
+        ${when ? `<div class="lp-note-line"><span class="lp-label">${esc(t('meta.date'))}</span> ${esc(when)}</div>` : ''}
+        <div class="lp-note-line lp-mem-content">${esc(m.content)}</div>
+        <div class="lp-note-trace">${from} · ${esc(last)}</div>
+        <div class="lp-sum-actions">
+          <button type="button" class="menu_button lp-btn lp-mini" data-action="mem-edit" data-key="${esc(m.key)}">${esc(t('act.edit'))}</button>
+          <button type="button" class="menu_button lp-btn lp-mini" data-action="mem-next" data-key="${esc(m.key)}" aria-pressed="${pinned}">${esc(t(pinned ? 'mem.nextOff' : 'mem.next'))}</button>
+          <button type="button" class="menu_button lp-btn lp-mini lp-danger" data-action="mem-delete" data-key="${esc(m.key)}">${esc(t('mem.delete'))}</button>
+        </div>
+      </div>`;
+}
+
+function renderMemoriesTab() {
+    if (!isActive()) return '';
+    const s = getSettings().memories;
+    const list = listMemories();
+    const pinned = nextPinned();
+    const query = view.query.memories ?? '';
+    const shown = list.filter((m) => matches(`${m.title} ${m.content} ${m.date ?? ''} ${m.time ?? ''}`, query)).reverse();
+    const status = s.recall ? t('mem.status', { n: list.length, every: s.everyN, count: s.count }) : t('mem.statusOff', { n: list.length });
+    return `
+      <div class="lp-memories">
+        <div class="lp-note" data-role="mem-status">${esc(status)}</div>
+        ${searchBox('memories')}
+        <div class="lp-row">${view.mem.adding ? '' : `<button type="button" class="menu_button lp-btn" data-action="mem-add">${esc(t('mem.add'))}</button>`}</div>
+        ${view.mem.adding ? memoryForm() : ''}
+        ${shown.length ? shown.map((m) => memoryCard(m, m.key === pinned)).join('') : `<div class="lp-wip">${esc(t(list.length ? 'search.none' : 'mem.empty'))}</div>`}
       </div>`;
 }
 
@@ -890,9 +964,9 @@ function renderTree(states) {
 
 let summaryRefreshTimer = null;
 function canAutoRefresh() {
-    if (!isPanelOpen() || !(view.check.open || ['summary', 'notes', 'done', 'calendar'].includes(view.tab))) return false;
-    // 正在填表單（記事、章／卷總結）時不重畫，免得打到一半的字不見。
-    return !(view.notes.editing || view.notes.adding || view.sum.editing);
+    if (!isPanelOpen() || !(view.check.open || ['summary', 'notes', 'done', 'calendar', 'memories'].includes(view.tab))) return false;
+    // 正在填表單（記事、章／卷總結、回憶）時不重畫，免得打到一半的字不見。
+    return !(view.notes.editing || view.notes.adding || view.sum.editing || view.mem.editing || view.mem.adding);
 }
 
 function scheduleRefresh() {
@@ -905,6 +979,7 @@ onSummaryChange(scheduleRefresh);
 onNotesChange(scheduleRefresh);
 onCarryChange(scheduleRefresh);
 onCalendarChange(scheduleRefresh);
+onMemoriesChange(scheduleRefresh);
 // 每次送出後更新標題列的統計（不整頁重畫）。
 onStatsChange(() => {
     const el = isPanelOpen() ? panel.querySelector('.lp-stats') : null;
@@ -1386,6 +1461,10 @@ function renderSettings() {
       ${checkbox('filter.thinking', t('set.filter.thinking'))}
       ${checkbox('filter.status', t('set.filter.status'))}
       ${checkbox('filter.html', t('set.filter.html'))}
+      <div class="lp-row">
+        <label class="lp-label" for="lp-theater">${esc(t('set.filter.theater'))}</label>
+        ${select('filter.theater', 'lp-theater', ['keepsake', 'story', 'skip'].map((x) => [x, t(`set.filter.theater.${x}`)]), true)}
+      </div>
       ${tagScanner()}
       <label class="lp-field" for="lp-filter-tags"><span class="lp-label">${esc(t('set.filter.tags'))}</span>
         ${textInput('filter.tags', 'lp-filter-tags', t('set.filter.tags.ph'))}</label>
@@ -1418,6 +1497,18 @@ function renderSettings() {
         <div class="lp-note">${esc(t('set.cal.period.note'))}</div>` : ''}
         ${checkbox('calendar.inject', t('set.cal.inject'), true)}
         ${c.inject ? `<div class="lp-row">${inline('set.cal.ahead', { n: numberInput('calendar.ahead', t('set.cal.ahead.aria')) })}</div>` : ''}` : ''}`;
+
+    const m = s.memories;
+    const memories = `
+      ${checkbox('memories.enabled', t('set.mem.enabled'), true)}
+      <div class="lp-note">${esc(t('set.mem.desc'))}</div>
+      ${m.enabled ? `
+        ${checkbox('memories.auto', t('set.mem.auto'))}
+        ${checkbox('memories.recall', t('set.mem.recall'), true)}
+        ${m.recall ? `
+          <div class="lp-row">${inline('set.mem.every', { n: numberInput('memories.everyN', t('set.mem.every.aria')), count: numberInput('memories.count', t('set.mem.count.aria')) })}</div>
+          <div class="lp-row">${inline('set.mem.ages', { age: numberInput('memories.minAge', t('set.mem.minAge.aria')), cool: numberInput('memories.cooldown', t('set.mem.cooldown.aria')) })}</div>
+          <div class="lp-note">${esc(t('set.mem.recallNote'))}</div>` : ''}` : ''}`;
 
     const compressAuto = checkbox('compress.auto', t('set.compress.auto'));
     const compress = `
@@ -1478,6 +1569,7 @@ function renderSettings() {
       ${section('summary', t('sec.summary'), t('sec.summary.hint'), summary)}
       ${section('filter', t('sec.filter'), t('sec.filter.hint'), filter)}
       ${section('track', t('sec.track'), t('sec.track.hint'), track)}
+      ${section('memories', t('sec.memories'), t(s.memories.enabled ? 'sec.calendar.on' : 'sec.calendar.off'), memories)}
       ${section('calendar', t('sec.calendar'), t(s.calendar.enabled ? 'sec.calendar.on' : 'sec.calendar.off'), calendar)}
       ${section('compress', t('sec.compress'), t('sec.compress.hint'), compress)}
       ${section('hide', t('sec.hide'), t('sec.hide.hint'), hide)}
@@ -1804,6 +1896,44 @@ function onClick(e) {
             return;
         case 'fold-sec':
             toggleSection(btn.dataset.key);
+            render();
+            return;
+        case 'mem-add':
+            view.mem.adding = true;
+            view.mem.editing = null;
+            render();
+            panel.querySelector('[data-mem="title"]')?.focus();
+            return;
+        case 'mem-edit':
+            view.mem.editing = btn.dataset.key;
+            view.mem.adding = false;
+            render();
+            return;
+        case 'mem-cancel':
+            view.mem.editing = null;
+            view.mem.adding = false;
+            render();
+            return;
+        case 'mem-save': {
+            const form = panel.querySelector('[data-role="mem-form"]');
+            const title = form?.querySelector('[data-mem="title"]')?.value ?? '';
+            const content = form?.querySelector('[data-mem="content"]')?.value ?? '';
+            const ok = btn.dataset.key ? editMemory(btn.dataset.key, { title, content }) : addMemory({ title, content });
+            if (!ok) {
+                form?.querySelector('[data-mem="content"]')?.focus();
+                return;
+            }
+            view.mem.editing = null;
+            view.mem.adding = false;
+            render();
+            return;
+        }
+        case 'mem-delete':
+            removeMemory(btn.dataset.key);
+            render();
+            return;
+        case 'mem-next':
+            surfaceNext(btn.dataset.key, btn.getAttribute('aria-pressed') !== 'true');
             render();
             return;
         case 'cal-month':

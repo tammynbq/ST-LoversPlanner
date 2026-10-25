@@ -129,7 +129,7 @@ check('restore change', (await notes()).find((x) => x.type === 'promise').state 
 const tabs = async () => page.$$eval('.lp-tab', (b) => b.map((x) => x.dataset.tab).join());
 const cards = async () => page.$$eval('.lp-note-section', (s) => s.map((x) => x.querySelectorAll('.lp-note-card').length).join());
 await openPanel('characters');
-check('tabs: summary, characters, items, notes, calendar, done, settings', (await tabs()) === 'summary,characters,items,notes,calendar,done,settings', await tabs());
+check('tabs: summary, characters, items, notes, memories, calendar, done, settings', (await tabs()) === 'summary,characters,items,notes,memories,calendar,done,settings', await tabs());
 check('characters tab: 3', (await cards()) === '3', await cards());
 await unfoldAll();
 check('likes shown on card', (await page.textContent('.lp-note-section')).includes('熱可可'));

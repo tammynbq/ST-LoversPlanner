@@ -6,7 +6,9 @@
 import { getSettings, saveSettings } from './settings.js';
 
 const THINKING = ['think', 'thinking', 'thought', 'thoughts', 'reasoning', 'reflection', '思考', '思維鏈', '思维链', '思維', '思维', '內心', '内心'];
-const STATUS = ['status', 'statusbar', 'status_bar', 'state', 'theater', 'theatre', '狀態欄', '状态栏', '狀態', '状态', '小劇場', '小剧场'];
+const STATUS = ['status', 'statusbar', 'status_bar', 'state', '狀態欄', '状态栏', '狀態', '状态'];
+/** 小劇場（番外）：預設不當正劇摘要，但有意義的可以收進回憶錄（filter.theater）。 */
+export const THEATER = ['theater', 'theatre', '小劇場', '小剧场', '番外'];
 const HTML_BLOCKS = ['details', 'style', 'script', 'table', 'svg'];
 
 function escapeRe(s) {
@@ -52,6 +54,22 @@ function dropHtml(text, keep = new Set()) {
     return out.replace(/<\/?[a-z][a-z0-9-]*(?:\s[^<>]*)?\/?>/gi, '');
 }
 
+function theaterTags(rules) {
+    return [...THEATER, ...parseTagList(rules.theaterTags)];
+}
+
+/** 小劇場的內容（「只收進回憶錄」時另外給模型看）。沒有就回傳 ''。 */
+export function extractTheater(text, rules = getSettings().filter) {
+    if (!rules || (rules.theater ?? 'keepsake') !== 'keepsake') return '';
+    const parts = [];
+    const src = String(text ?? '');
+    for (const name of theaterTags(rules)) {
+        const n = escapeRe(name);
+        for (const m of src.matchAll(new RegExp(`<\\s*${n}(?:\\s[^>]*)?>([\\s\\S]*?)<\\s*\\/\\s*${n}\\s*>`, 'gi'))) parts.push(m[1]);
+    }
+    return parts.map((x) => dropHtml(x).replace(/\n{3,}/g, '\n\n').trim()).filter(Boolean).join('\n\n');
+}
+
 /** 送去摘要之前整理一則訊息。rules 預設用目前的設定（測試框會傳入草稿）。 */
 export function cleanForSummary(text, rules = getSettings().filter) {
     let out = String(text ?? '');
@@ -62,7 +80,9 @@ export function cleanForSummary(text, rules = getSettings().filter) {
     const keep = new Set(parseTagList(rules.keep).map((x) => x.toLowerCase()));
     const kept = (name) => !keep.has(name.toLowerCase());
     if (rules.thinking) for (const name of THINKING.filter(kept)) out = dropTag(out, name, { prefilled: true });
-    for (const name of [...(rules.status ? STATUS : []), ...parseTagList(rules.tags)].filter(kept)) out = dropTag(out, name);
+    // 小劇場：'story' 當正文一起摘要；'keepsake'（只收進回憶錄）和 'skip' 都從正文拿掉。
+    const theaterOff = (rules.theater ?? 'keepsake') !== 'story';
+    for (const name of [...(rules.status ? STATUS : []), ...(theaterOff ? theaterTags(rules) : []), ...parseTagList(rules.tags)].filter(kept)) out = dropTag(out, name);
     if (rules.html) out = dropHtml(out, keep);
     return out.replace(/\n{3,}/g, '\n\n').trim();
 }
@@ -98,10 +118,12 @@ export function scanTags(messages) {
 export function tagMode(name, rules = getSettings().filter) {
     const key = name.toLowerCase();
     const has = (list) => parseTagList(list).some((x) => x.toLowerCase() === key);
-    const builtin = THINKING.includes(key) ? 'thinking' : STATUS.includes(key) ? 'status' : HTML_BLOCKS.includes(key) ? 'html' : null;
+    const isTheater = THEATER.includes(key) || parseTagList(rules.theaterTags).some((x) => x.toLowerCase() === key);
+    const builtin = THINKING.includes(key) ? 'thinking' : STATUS.includes(key) ? 'status' : isTheater ? 'theater' : HTML_BLOCKS.includes(key) ? 'html' : null;
     if (has(rules.only)) return { mode: 'only', builtin };
     if (has(rules.tags)) return { mode: 'skip', builtin };
-    const builtinOn = builtin && rules[builtin] && !has(rules.keep);
+    const on = builtin === 'theater' ? (rules.theater ?? 'keepsake') !== 'story' : rules[builtin];
+    const builtinOn = builtin && on && !has(rules.keep);
     return { mode: builtinOn ? 'skip' : 'read', builtin };
 }
 
@@ -114,7 +136,7 @@ export function setTagMode(name, mode) {
     const only = without(rules.only);
     const keep = without(rules.keep);
     const { builtin } = tagMode(name, { ...rules, tags: '', only: '', keep: '' });
-    const builtinOn = Boolean(builtin && rules[builtin]);
+    const builtinOn = Boolean(builtin && (builtin === 'theater' ? (rules.theater ?? 'keepsake') !== 'story' : rules[builtin]));
     if (mode === 'skip' && !builtinOn) tags.push(name);
     if (mode === 'read' && builtinOn) keep.push(name);
     if (mode === 'only') only.push(name);
