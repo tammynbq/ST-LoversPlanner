@@ -23,6 +23,7 @@ import {
 } from './summarize.js';
 import { saveChapter, setCoarseRedo } from './compress.js';
 import { estimateTokens } from './hide.js';
+import { cleanForSummary } from './filter.js';
 
 /** 每次呼叫除了原文之外，提示詞本身（規則、記事清單）大約多少 token。 */
 const PROMPT_OVERHEAD = 700;
@@ -81,7 +82,7 @@ export function planCatchup({ from, to, fineFrom, block }) {
     const chat = getChat();
     const raw = (i) => {
         const src = floorSource(i);
-        return estimateTokens([...src.users.map((u) => u.mes), chat[i]?.mes ?? ''].join('\n'));
+        return estimateTokens([...src.users.map((u) => u.mes), chat[i]?.mes ?? ''].map(cleanForSummary).join('\n'));
     };
     const tokens = list.reduce((n, i) => n + raw(i), 0) + (coarse.length + fine.length) * PROMPT_OVERHEAD;
     return { coarse, fine, floors: list.length, calls: coarse.length + fine.length, tokens };
@@ -189,8 +190,8 @@ async function buildPrompt(indices) {
     const parts = [];
     for (const i of indices) {
         const src = floorSource(i);
-        if (s.summary.includeUser) for (const u of src.users) parts.push(`${u.name ?? c?.name1 ?? 'User'}: ${u.mes}`);
-        parts.push(`${chat[i].name ?? c?.name2 ?? 'Character'}: ${chat[i].mes}`);
+        if (s.summary.includeUser) for (const u of src.users) parts.push(`${u.name ?? c?.name1 ?? 'User'}: ${cleanForSummary(u.mes)}`);
+        parts.push(`${chat[i].name ?? c?.name2 ?? 'Character'}: ${cleanForSummary(chat[i].mes)}`);
     }
     const content = parts.join('\n\n');
     const tokens = await countTokens(content);

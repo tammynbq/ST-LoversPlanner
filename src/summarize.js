@@ -16,6 +16,7 @@ import { errorText } from './errors.js';
 import { formatNotesForPrompt, invalidateNotes, normalizeModelOps, replay } from './notes.js';
 import { buildL1Parts } from './l1rules.js';
 import { parseJsonLenient } from './json.js';
+import { cleanForSummary } from './filter.js';
 import {
     chatKey, floorSource, floorStatus, getChat, getEntry, isAiMessage, lastAiIndex, saveChatSoon, setEntry,
 } from './chat.js';
@@ -253,10 +254,11 @@ export async function buildL1Prompt(index) {
     // 給模型看「這一層之前」的記事；重做舊樓層時不會把之後的變化算進來。
     const notesBefore = replay({ upTo: index }).notes;
     const parts = [];
+    // 思維鏈、狀態欄等先拿掉（設定 › 摘要時跳過的內容）。
     if (s.summary.includeUser) {
-        for (const u of src.users) parts.push(`${u.name ?? c?.name1 ?? 'User'}: ${u.mes}`);
+        for (const u of src.users) parts.push(`${u.name ?? c?.name1 ?? 'User'}: ${cleanForSummary(u.mes)}`);
     }
-    parts.push(`${src.ai.name ?? c?.name2 ?? 'Character'}: ${src.ai.mes}`);
+    parts.push(`${src.ai.name ?? c?.name2 ?? 'Character'}: ${cleanForSummary(src.ai.mes)}`);
     const content = parts.join('\n\n');
 
     const tokens = await countTokens(content);

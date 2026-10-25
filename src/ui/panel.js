@@ -8,6 +8,7 @@ import { getTemplate, isTemplateModified, resetTemplate, setTemplate, TEMPLATE_K
 import { listModels, normalizeBaseUrl, testConnection } from '../api/custom.js';
 import { testEmbedding } from '../api/embed.js';
 import { warmVectors } from '../recall.js';
+import { cleanForSummary } from '../filter.js';
 import {
     abandonCatchup, fineFromFor, getCatchup, pauseCatchup, planCatchup, remaining, resumeCatchup, startCatchup,
 } from '../catchup.js';
@@ -1144,6 +1145,25 @@ function renderSettings() {
       <div class="lp-row">${inline('set.summary.tokens', { min: numberInput('summary.minTokens', 'min tokens'), max: numberInput('summary.maxTokens', 'max tokens') })}</div>
       <div class="lp-note">${esc(t('set.summary.note'))}</div>`;
 
+    const textInput = (path, id, placeholder) =>
+        `<input id="${id}" type="text" class="text_pole lp-grow" data-path="${path}" value="${esc(getPath(s, path) ?? '')}" placeholder="${esc(placeholder)}" autocomplete="off" spellcheck="false">`;
+    const filter = `
+      <div class="lp-note">${esc(t('set.filter.desc'))}</div>
+      ${checkbox('filter.thinking', t('set.filter.thinking'))}
+      ${checkbox('filter.status', t('set.filter.status'))}
+      ${checkbox('filter.html', t('set.filter.html'))}
+      <label class="lp-field" for="lp-filter-tags"><span class="lp-label">${esc(t('set.filter.tags'))}</span>
+        ${textInput('filter.tags', 'lp-filter-tags', t('set.filter.tags.ph'))}</label>
+      <label class="lp-field" for="lp-filter-only"><span class="lp-label">${esc(t('set.filter.only'))}</span>
+        ${textInput('filter.only', 'lp-filter-only', t('set.filter.only.ph'))}</label>
+      <div class="lp-note">${esc(t('set.filter.only.note'))}</div>
+      <details class="lp-preview-raw">
+        <summary>${esc(t('set.filter.test'))}</summary>
+        <textarea class="text_pole lp-sum-editor" data-role="filter-test" placeholder="${esc(t('set.filter.test.ph'))}" aria-label="${esc(t('set.filter.test'))}"></textarea>
+        <div class="lp-label">${esc(t('set.filter.test.result'))}</div>
+        <pre class="lp-preview-text" data-role="filter-result"></pre>
+      </details>`;
+
     const trackItem = (key) => checkbox(`track.${key}`, t(`track.${key}`), true);
     const track = `
       <div class="lp-note">${esc(t('set.track.desc'))}</div>
@@ -1204,6 +1224,7 @@ function renderSettings() {
       ${section('general', t('sec.general'), t('sec.general.hint'), general)}
       ${section('model', t('sec.model'), t(`set.source.current.${s.source}`), model)}
       ${section('summary', t('sec.summary'), t('sec.summary.hint'), summary)}
+      ${section('filter', t('sec.filter'), t('sec.filter.hint'), filter)}
       ${section('track', t('sec.track'), t('sec.track.hint'), track)}
       ${section('compress', t('sec.compress'), t('sec.compress.hint'), compress)}
       ${section('hide', t('sec.hide'), t('sec.hide.hint'), hide)}
@@ -1729,6 +1750,12 @@ function onChange(e) {
     setPath(getSettings(), path, value);
     fixRanges(path);
     saveSettings();
+    // 改了「摘要時跳過的內容」：試試看的結果跟著更新。
+    if (path.startsWith('filter.')) {
+        const test = panel.querySelector('[data-role="filter-test"]');
+        const out = panel.querySelector('[data-role="filter-result"]');
+        if (test && out) out.textContent = cleanForSummary(test.value);
+    }
     hooks.onSettingChanged(path, value);
     if (el.dataset.rerender !== undefined) {
         render();
@@ -1751,6 +1778,11 @@ function onInput(e) {
         // 打字時稍等一下再重畫，不要每個字都重畫。
         clearTimeout(searchTimer);
         searchTimer = setTimeout(render, 150);
+        return;
+    }
+    if (el.dataset?.role === 'filter-test') {
+        const out = panel.querySelector('[data-role="filter-result"]');
+        if (out) out.textContent = cleanForSummary(el.value);
         return;
     }
     if (el.dataset?.cu) {

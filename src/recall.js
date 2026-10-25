@@ -16,6 +16,7 @@ import { cosine } from './api/embed.js';
 import { ApiError } from './api/custom.js';
 import { getVectors } from './vectors.js';
 import { errorText } from './errors.js';
+import { cleanForSummary } from './filter.js';
 
 /** 拿來比對向量的「最近原文」最多取多少字（取最後面的）。 */
 const QUERY_CHARS = 1500;
@@ -73,7 +74,7 @@ function scanText(keepFrom, limit) {
     const out = [];
     for (let i = Math.max(0, keepFrom); i < limit; i++) {
         const m = chat[i];
-        if (m && !m.is_system && typeof m.mes === 'string') out.push(m.mes);
+        if (m && !m.is_system && typeof m.mes === 'string') out.push(cleanForSummary(m.mes));
     }
     return out.join('\n');
 }

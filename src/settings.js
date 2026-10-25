@@ -22,6 +22,8 @@ export const DEFAULTS = Object.freeze({
         minTokens: 30,
         maxTokens: 150,
     },
+    // 摘要時跳過的內容（只影響送去摘要的文字）。tags：自訂要跳過的標籤；only：只看這些標籤裡的內容。
+    filter: { thinking: true, status: true, html: true, tags: '', only: '' },
     compress: {
         auto: true, // 到期就自動壓縮
         l1PerL2: 10,
