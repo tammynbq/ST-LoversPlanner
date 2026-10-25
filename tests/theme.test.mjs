@@ -50,6 +50,42 @@ check('closes', !(await page.$('.lp-overlay')));
 await page.evaluate(() => { document.getElementById('extensionsMenu').style.display = ''; document.getElementById('lp_wand_entry').click(); });
 check('reopens on the top layer', await page.evaluate(() => document.querySelector('.lp-overlay')?.matches(':popover-open')));
 
+// ===== 沒有 popover 的舊瀏覽器＋主題把聊天區放在最上面：自我檢查要救回來 =====
+const page2 = await browser.newPage({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+page2.on('pageerror', (e) => errors.push('pageerror2: ' + e.message));
+await page2.addInitScript(() => {
+  delete HTMLElement.prototype.showPopover;
+  window.__chat = Array.from({ length: 4 }, (_, i) => ({ name: i % 2 ? '沈言' : '小雨', is_user: !(i % 2), mes: `第${i}則`, send_date: `d${i}`, extra: {} }));
+});
+await page2.goto(URL);
+await page2.waitForFunction(() => Boolean(document.getElementById('lp_wand_entry')), null, { timeout: 15000 });
+await page2.evaluate(() => {
+  document.body.style.transform = 'translateZ(0)';
+  const sheld = document.createElement('div');
+  sheld.id = 'sheld';
+  sheld.style.cssText = 'position:fixed;left:0;right:0;top:100px;bottom:0;z-index:2147483647;background:#eee';
+  document.body.appendChild(sheld);
+  document.getElementById('extensionsMenu').style.display = '';
+  document.getElementById('lp_wand_entry').click();
+});
+await page2.waitForTimeout(400);
+const hit2 = await page2.evaluate(() => {
+  const el = document.elementFromPoint(195, 500);
+  return { panel: Boolean(el?.closest('.lp-panel')), parent: document.querySelector('.lp-overlay')?.parentElement?.tagName };
+});
+check('self-check rescues a covered window (no popover)', hit2.panel && hit2.parent === 'HTML', JSON.stringify(hit2));
+await page2.screenshot({ path: `${OUT}/theme-rescued.png` });
+await page2.close();
+
+// 程式版本和 manifest 一致；擴充設定裡顯示版本
+const versions = await page.evaluate(async () => {
+  const { VERSION } = await import('/src/version.js');
+  const manifest = await (await fetch('/manifest.json', { cache: 'no-store' })).json();
+  return { VERSION, manifest: manifest.version, drawer: document.querySelector('#lp_settings_drawer .lp-version')?.textContent };
+});
+check('code version matches manifest', versions.VERSION === versions.manifest, JSON.stringify(versions));
+check('drawer shows the running version', versions.drawer === `v${versions.VERSION}`, JSON.stringify(versions));
+
 for (const line of results) console.log(line);
 console.log('ERRORS:', errors.length ? errors.join('\n') : 'none');
 await browser.close();

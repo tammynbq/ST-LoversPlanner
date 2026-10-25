@@ -3,6 +3,7 @@
 import { escapeHtml as esc } from '../util.js';
 import { t } from '../i18n.js';
 import { openPanel } from './panel.js';
+import { VERSION } from '../version.js';
 
 const WAND_ID = 'lp_wand_entry';
 const DRAWER_ID = 'lp_settings_drawer';
@@ -60,7 +61,8 @@ export function relabelEntries() {
     if (label) label.textContent = t('app.name');
     const drawer = document.getElementById(DRAWER_ID);
     if (drawer) {
-        drawer.querySelector('.lp-drawer-title').innerHTML = esc(t('app.name'));
+        // 附上正在執行的程式版本：手機瀏覽器有時會一直用快取的舊檔，看這裡就知道更新有沒有載入。
+        drawer.querySelector('.lp-drawer-title').innerHTML = `${esc(t('app.name'))} <small class="lp-version">v${esc(VERSION)}</small>`;
         drawer.querySelector('.lp-drawer-hint').textContent = t('drawer.hint');
         drawer.querySelector('.lp-drawer-open').textContent = t('drawer.open');
     }

@@ -39,6 +39,7 @@ const DICT = {
     'zh-TW': {
         'app.name': '戀人手帳',
         'drawer.open': '打開戀人手帳',
+        'panel.covered': '大視窗好像被主題蓋住了。請截這個通知給開發者：{info}',
         'drawer.hint': '所有功能和設定都在大視窗裡。也可以從魔術棒選單打開。',
         'panel.close': '關閉',
         'panel.subtitle': '{char} / {chat}',
@@ -647,6 +648,7 @@ const DICT = {
     'zh-CN': {
         'app.name': '恋人手帐',
         'drawer.open': '打开恋人手帐',
+        'panel.covered': '大窗口好像被主题盖住了。请截这个通知给开发者：{info}',
         'drawer.hint': '所有功能和设置都在大窗口里。也可以从魔术棒菜单打开。',
         'panel.close': '关闭',
         'panel.subtitle': '{char} / {chat}',
@@ -1255,6 +1257,7 @@ const DICT = {
     en: {
         'app.name': "Lover's Planner",
         'drawer.open': "Open Lover's Planner",
+        'panel.covered': 'The main window seems to be covered by the theme. Please screenshot this for the developer: {info}',
         'drawer.hint': 'Everything lives in the main window. You can also open it from the wand menu.',
         'panel.close': 'Close',
         'panel.subtitle': '{char} / {chat}',

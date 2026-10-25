@@ -10,6 +10,7 @@ import { testEmbedding } from '../api/embed.js';
 import { warmVectors } from '../recall.js';
 import { cleanForSummary, scanTags, setTagMode, tagMode } from '../filter.js';
 import { getLoadedVersion } from '../update.js';
+import { VERSION } from '../version.js';
 import { addMemory, editMemory, listMemories, memoriesOn, nextPinned, onMemoriesChange, removeMemory, surfaceNext } from '../memories.js';
 import {
     auditFloors, auditIssues, auditProgress, auditResults, fixAll, fixIssue, issueCount, pickAuditFloors, runChecks,
@@ -168,6 +169,39 @@ export function openPanel(tab) {
     }
     render();
     panel.querySelector('[data-action="close"]')?.focus();
+    // 畫好之後確認真的蓋滿畫面（有些主題會把聊天區放在我們上面）。
+    requestAnimationFrame(() => requestAnimationFrame(ensureVisible));
+}
+
+/** 大視窗有沒有真的在最上面、蓋滿畫面：回傳說明（給診斷用）。 */
+function coverage() {
+    const r = panel.getBoundingClientRect();
+    const x = innerWidth / 2;
+    const y = Math.min(innerHeight - 10, Math.max(r.top + 120, innerHeight / 2));
+    const top = document.elementFromPoint(x, y);
+    const ok = r.height >= innerHeight * 0.6 && Boolean(top && overlay.contains(top));
+    const name = (el) => (el ? `${el.tagName.toLowerCase()}${el.id ? `#${el.id}` : ''}${typeof el.className === 'string' && el.className ? `.${el.className.split(/\s+/)[0]}` : ''}` : '-');
+    return { ok, info: `v${VERSION}｜popover:${typeof overlay.showPopover === 'function' ? (overlay.matches(':popover-open') ? 'open' : 'off') : 'no'}｜h:${Math.round(r.height)}/${innerHeight}｜top:${name(top)}` };
+}
+
+/** 被主題蓋住時：搬到 <body> 外面、用行內樣式強制蓋滿；還是不行就顯示診斷，讓使用者截圖。 */
+function ensureVisible() {
+    if (!isPanelOpen() || isTauriTavern()) return;
+    if (coverage().ok) return;
+    const before = coverage().info;
+    try {
+        document.documentElement.appendChild(overlay);
+        showOnTopLayer();
+        overlay.style.cssText = 'position:fixed!important;inset:0!important;top:0!important;left:0!important;width:100vw!important;height:100vh!important;height:100dvh!important;z-index:2147483647!important;transform:none!important;display:flex!important;margin:0!important;';
+        panel.style.cssText = 'width:100%!important;height:100%!important;max-height:none!important;';
+    } catch (e) {
+        console.warn(LOG_PREFIX, '搬移大視窗失敗', e);
+    }
+    requestAnimationFrame(() => {
+        const after = coverage();
+        console.warn(LOG_PREFIX, '大視窗被蓋住，已嘗試修正', before, '→', after.info);
+        if (!after.ok) toast(t('panel.covered', { info: `${before} → ${after.info}` }), 'warning');
+    });
 }
 
 export function closePanel() {
