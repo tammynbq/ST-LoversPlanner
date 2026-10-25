@@ -2,6 +2,9 @@
 
 import { ctx, MODULE } from './util.js';
 
+export const VECTOR_URL = 'https://api.siliconflow.cn/v1';
+export const VECTOR_MODEL = 'BAAI/bge-m3';
+
 export const DEFAULTS = Object.freeze({
     enabled: true,
     // 'auto' = 跟著酒館的介面語言；也可以是 'zh-TW' / 'zh-CN' / 'en'。
@@ -55,7 +58,8 @@ export const DEFAULTS = Object.freeze({
         memoryTopK: 3,
         noteTopK: 5, // 向量最多再補幾條記事
         threshold: 45, // 向量相似度門檻（%）
-        vector: { enabled: false, url: '', key: '', model: '' },
+        // 預填硅基流動和推薦模型（使用者要求），只要自己填 Key。
+        vector: { enabled: false, url: VECTOR_URL, key: '', model: VECTOR_MODEL },
     },
     inject: {
         // 'before_recent' 放在保留原文的最新幾層前面（推薦）| 'in_chat' 聊天中依深度 | 'in_prompt' | 'before_prompt'
@@ -67,7 +71,7 @@ export const DEFAULTS = Object.freeze({
     // 每張角色卡自己的資料，key 是角色卡頭像檔名：{ [avatar]: { scope } }
     characters: {},
     // 設定格式的版本，用來做一次性的轉換。
-    settingsVersion: 3,
+    settingsVersion: 4,
 });
 
 function isPlainObject(v) {
@@ -126,6 +130,11 @@ export function initSettings() {
     // v2 → v3：新增「放在最新原文前面」並設為預設。還是舊預設（聊天中、深度 4）的才換。
     if (saved && !(saved.settingsVersion >= 3)) {
         if (s.inject.position === 'in_chat' && s.inject.depth === 4) s.inject.position = 'before_recent';
+    }
+    // v3 → v4：向量模型預填硅基流動。v0.6.0 存下的是空白，網址和模型都還沒填的才補上。
+    if (saved && !(saved.settingsVersion >= 4)) {
+        const v = s.recall.vector;
+        if (!v.url && !v.model) Object.assign(v, { url: VECTOR_URL, model: VECTOR_MODEL });
     }
     s.settingsVersion = DEFAULTS.settingsVersion;
     // 舊版的 'auto' 就是現在的 'before'。

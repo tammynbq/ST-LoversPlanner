@@ -122,7 +122,7 @@ await mobile.screenshot({ path: `${OUT}/5-mobile-settings.png` });
 
 // 舊版設定的轉換：還是舊預設長度的換成新預設；自己改過的不動
 const old = await newPage({ width: 800, height: 600 }, 'window.__presetSettings = { lovers_planner: { summary: { mode: "auto", ratioMin: 5, ratioMax: 10, minTokens: 30, maxTokens: 300 }, inject: { position: "in_chat", depth: 4 } } };');
-check('migrate old defaults', await old.evaluate(() => { const s = window.__extSettings.lovers_planner; return s.summary.ratioMin === 3 && s.summary.ratioMax === 6 && s.summary.maxTokens === 150 && s.summary.mode === 'before' && s.inject.position === 'before_recent' && s.settingsVersion === 3; }));
+check('migrate old defaults', await old.evaluate(() => { const s = window.__extSettings.lovers_planner; return s.summary.ratioMin === 3 && s.summary.ratioMax === 6 && s.summary.maxTokens === 150 && s.summary.mode === 'before' && s.inject.position === 'before_recent' && s.settingsVersion === 4 && s.recall.vector.url === 'https://api.siliconflow.cn/v1' && s.recall.vector.model === 'BAAI/bge-m3'; }));
 const v2 = await newPage({ width: 800, height: 600 }, 'window.__presetSettings = { lovers_planner: { settingsVersion: 2, inject: { position: "in_chat", depth: 6 } } };');
 check('keep customized injection', await v2.evaluate(() => window.__extSettings.lovers_planner.inject.position === 'in_chat'));
 const custom = await newPage({ width: 800, height: 600 }, 'window.__presetSettings = { lovers_planner: { summary: { ratioMin: 8, ratioMax: 12, maxTokens: 400 } } };');

@@ -132,6 +132,7 @@ check('recall section has options', await page.isVisible('input[data-path="recal
 check('vector card hidden until enabled', !(await page.isVisible('[data-api-card="vector"]')));
 await page.check('input[data-path="recall.vector.enabled"]');
 await page.waitForSelector('[data-api-card="vector"]');
+check('vector prefilled with SiliconFlow', await page.inputValue('#lp-vector-url') === 'https://api.siliconflow.cn/v1' && await page.inputValue('#lp-vector-model') === 'BAAI/bge-m3');
 check('recommendation shown', (await page.textContent('details[data-sec="recall"]')).includes('bge-m3'));
 await page.fill('#lp-vector-url', 'https://embed.test/v1/embeddings');
 await page.fill('#lp-vector-model', 'fake-embed');
