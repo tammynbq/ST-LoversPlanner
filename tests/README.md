@@ -21,6 +21,7 @@ node tests/carry.test.mjs /tmp/shots
 node tests/catchup.test.mjs /tmp/shots
 node tests/filter.test.mjs /tmp/shots
 node tests/check.test.mjs /tmp/shots
+node tests/calendar.test.mjs /tmp/shots
 ```
 
 - `skeleton.test.mjs`：骨架（入口、分頁、設定、三語、手機版）
@@ -32,6 +33,7 @@ node tests/check.test.mjs /tmp/shots
 - `catchup.test.mjs`：補建舊樓層
 - `filter.test.mjs`：摘要時跳過的內容
 - `check.test.mjs`：🩺 檢查
+- `calendar.test.mjs`：行事曆
 - `compress.test.mjs`：L2／L3 分層壓縮
 - `track.test.mjs`：記錄項目、人物新欄位、物件數量
 - `hide.test.mjs`：隱藏舊樓層、注入、強制彈窗

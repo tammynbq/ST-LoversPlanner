@@ -18,7 +18,7 @@ import { initCatchup } from './src/catchup.js';
 function onSettingChanged(path) {
     if (path === 'language') relabelEntries();
     // 這些設定會改變聊天畫面上摘要區塊的樣子或提示。
-    if (['language', 'enabled', 'summary.mode', 'hide.markHidden'].includes(path) || path.startsWith('track.')) renderAllBlocks();
+    if (['language', 'enabled', 'summary.mode', 'hide.markHidden'].includes(path) || path.startsWith('track.') || path.startsWith('calendar.')) renderAllBlocks();
     if (path === 'enabled') clearInjection();
 }
 

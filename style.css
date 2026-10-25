@@ -625,3 +625,24 @@
 .lp-sev-warn > .fa-solid { color: var(--lp-warn); }
 .lp-sev-info > .fa-solid { color: var(--lp-info); }
 .lp-check-audit { display: flex; flex-direction: column; gap: 0.4em; padding: 0.7em 0.8em; margin-top: 0.6em; }
+
+/* ===== 行事曆 ===== */
+.lp-calendar { display: flex; flex-direction: column; gap: 0.6em; }
+.lp-cal-nav { align-items: center; gap: 0.4em; }
+.lp-cal-title { font-weight: 600; min-width: 7em; text-align: center; }
+.lp-cal-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
+.lp-cal-head { text-align: center; font-size: 0.8em; color: var(--lp-muted); padding: 2px 0; }
+.lp-cal-cell { min-height: 3.2em; padding: 3px 2px; border: 1px solid var(--lp-border); border-radius: 6px; background: transparent; color: inherit; font: inherit; display: flex; flex-direction: column; align-items: center; gap: 1px; cursor: pointer; }
+.lp-cal-empty { border: none; cursor: default; }
+.lp-cal-cell:hover, .lp-cal-cell:focus-visible { background: var(--lp-card); }
+.lp-cal-cell.lp-on { outline: 2px solid var(--lp-accent); outline-offset: -2px; }
+.lp-cal-today .lp-cal-num { background: var(--lp-accent); color: #fff; border-radius: 999px; padding: 0 0.4em; }
+.lp-cal-period { background: color-mix(in srgb, #e5534b 14%, transparent); }
+.lp-cal-num { font-size: 0.85em; line-height: 1.4; }
+.lp-cal-marks { display: flex; flex-wrap: wrap; justify-content: center; gap: 1px; font-size: 0.7em; line-height: 1.2; }
+.lp-cal-pred { opacity: 0.4; }
+.lp-cal-status { display: flex; flex-direction: column; gap: 0.2em; }
+.lp-cal-day { display: flex; flex-direction: column; gap: 0.4em; padding: 0.7em 0.8em; }
+.lp-cal-day .lp-row { flex-wrap: wrap; gap: 0.4em; align-items: center; }
+.lp-cal-item { display: flex; flex-wrap: wrap; gap: 0.4em; align-items: center; }
+.lp-cal-chip { font-size: 0.9em; }

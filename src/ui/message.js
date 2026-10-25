@@ -7,6 +7,7 @@ import { getChat, getEntry, isAiMessage, lastAiIndex } from '../chat.js';
 import { enqueue, floorState, isActive, onSummaryChange, skipFloor, unskipFloor, writeSummary } from '../summarize.js';
 import { describeOp, getNotes, onNotesChange, opType, setFloorOpUndone } from '../notes.js';
 import { computeHidden } from '../hide.js';
+import { calendarOn, calTracked } from '../calendar.js';
 
 const expanded = new Set(); // 展開中的樓層
 const editing = new Set(); // 正在手動編輯的樓層
@@ -81,13 +82,27 @@ export function runAction(index, act) {
 export function sceneHtml(entry) {
     if (!entry) return '';
     const items = [
+        ['date', 'fa-regular fa-calendar', calendarOn() ? entry.date : ''],
         ['time', 'fa-regular fa-clock', isTracked('time') ? entry.time : ''],
         ['location', 'fa-solid fa-location-dot', isTracked('location') ? entry.location : ''],
         ['characters', 'fa-solid fa-user-group', isTracked('cast') ? (entry.characters ?? []).join('、') : ''],
     ].filter(([, , v]) => v);
-    if (!items.length) return '';
+    // 這一層的行事曆事件（行程、生理期、親熱、紀念日）。
+    const events = (entry.events ?? []).filter((ev) => calTracked(ev.type)).map((ev) => `<span class="lp-scene-item lp-cal-chip">${esc(eventLabel(ev))}</span>`);
+    if (!items.length && !events.length) return '';
     return `<div class="lp-scene">${items.map(([k, icon, v]) =>
-        `<span class="lp-scene-item"><span class="${icon}" aria-hidden="true"></span><span class="lp-sr">${esc(t(`meta.${k}`))}：</span>${esc(v)}</span>`).join('')}</div>`;
+        `<span class="lp-scene-item"><span class="${icon}" aria-hidden="true"></span><span class="lp-sr">${esc(t(`meta.${k}`))}：</span>${esc(v)}</span>`).join('')}${events.join('')}</div>`;
+}
+
+/** 一個行事曆事件的簡短文字（摘要區塊、行事曆分頁共用）。 */
+export function eventLabel(ev) {
+    switch (ev.type) {
+        case 'plan': return `📌 ${ev.date ? `${ev.date.slice(5)} ` : ''}${ev.title}`;
+        case 'period': return `🩸 ${t(ev.state === 'end' ? 'cal.periodEnd' : 'cal.periodStart')}`;
+        case 'intimacy': return `💕 ${t('cal.intimacyN', { n: ev.count ?? 1 })}`;
+        case 'anniversary': return `🎂 ${ev.date} ${ev.title}`;
+        default: return '';
+    }
 }
 
 /** 這一層造成的記事變化，每條可以撤銷／恢復。 */
@@ -112,9 +127,11 @@ function editorHtml(entry) {
     // 沒勾選的欄位不顯示；儲存時沿用原本的值。
     const time = isTracked('time') ? `<label class="lp-field"><span class="lp-label">${esc(t('meta.time'))}</span><input type="text" class="text_pole" data-field="time" value="${v(entry?.time)}"></label>` : '';
     const location = isTracked('location') ? `<label class="lp-field"><span class="lp-label">${esc(t('meta.location'))}</span><input type="text" class="text_pole" data-field="location" value="${v(entry?.location)}"></label>` : '';
+    const date = calendarOn() ? `<label class="lp-field"><span class="lp-label">${esc(t('meta.date'))}</span><input type="date" class="text_pole" data-field="date" value="${v(entry?.date)}"></label>` : '';
     const cast = isTracked('cast') ? `<label class="lp-field"><span class="lp-label">${esc(t('meta.characters'))}</span><input type="text" class="text_pole" data-field="characters" value="${v((entry?.characters ?? []).join('、'))}" placeholder="${esc(t('meta.charactersHint'))}"></label>` : '';
     return `
       ${time || location ? `<div class="lp-editor-grid">${time}${location}</div>` : ''}
+      ${date}
       ${cast}
       <label class="lp-field"><span class="lp-label">${esc(t('meta.summary'))}</span><textarea class="text_pole lp-sum-editor" data-field="summary" placeholder="${esc(t('sum.editPlaceholder'))}">${v(entry?.summary)}</textarea></label>
       <div class="lp-sum-actions">
@@ -237,6 +254,7 @@ function onChatClick(e) {
             time: field('time', entry?.time ?? ''),
             location: field('location', entry?.location ?? ''),
             characters: field('characters', entry?.characters ?? []),
+            date: field('date', entry?.date ?? ''),
             summary: field('summary', ''),
         });
         if (!ok) {

@@ -17,6 +17,7 @@ import { formatNotesForPrompt, invalidateNotes, normalizeModelOps, replay } from
 import { buildL1Parts } from './l1rules.js';
 import { parseJsonLenient } from './json.js';
 import { cleanForSummary } from './filter.js';
+import { calendarOn, cleanEvents, normDate } from './calendar.js';
 import {
     chatKey, floorSource, floorStatus, getChat, getEntry, isAiMessage, lastAiIndex, saveChatSoon, setEntry,
 } from './chat.js';
@@ -219,26 +220,40 @@ function lengthUnits(content, tokens, targetTokens) {
     return Math.max(10, Math.round((targetTokens * perToken) / 10) * 10);
 }
 
-/** 往前找最近一個有時間或地點的已摘要樓層，讓模型延續。 */
+/** 往前找最近一個有時間、地點或日期的已摘要樓層，讓模型延續。 */
 function previousSceneText(index) {
     const useTime = isTracked('time');
     const useLocation = isTracked('location');
-    // 時間、地點都沒勾，就不需要「上一層」這段。
-    if (!useTime && !useLocation) return '';
+    const useDate = calendarOn();
+    // 時間、地點、日期都沒勾，就不需要「上一層」這段。
+    if (!useTime && !useLocation && !useDate) return '';
     const chat = getChat();
     for (let i = index - 1; i >= 0; i--) {
         if (!isAiMessage(chat[i])) continue;
         const e = getEntry(i);
         const time = useTime ? e?.time : '';
         const location = useLocation ? e?.location : '';
-        if (e?.status === 'ok' && (time || location)) {
+        const date = useDate ? normDate(e?.date) : '';
+        if (e?.status === 'ok' && (time || location || date)) {
             const parts = [];
             if (useTime) parts.push(t('prompt.previousTime', { time: time || '—' }));
             if (useLocation) parts.push(t('prompt.previousLocation', { location: location || '—' }));
+            if (useDate && date) parts.push(t('prompt.previousDate', { date }));
             return `${t('prompt.previousLabel')}${parts.join('｜')}`;
         }
     }
     return `${t('prompt.previousLabel')}${t('prompt.noPrevious')}`;
+}
+
+/** 往前找最近一個有日期的樓層（行事曆的日期要延續它）。 */
+export function previousDate(index) {
+    const chat = getChat();
+    for (let i = index - 1; i >= 0; i--) {
+        if (!isAiMessage(chat[i])) continue;
+        const d = normDate(getEntry(i)?.date);
+        if (d) return d;
+    }
+    return '';
 }
 
 /** 記事清單（連標題）；沒勾任何記事類型就是空的。 */
@@ -265,7 +280,7 @@ export async function buildL1Prompt(index) {
     const ratio = (s.summary.ratioMin + s.summary.ratioMax) / 200;
     const targetTokens = Math.min(s.summary.maxTokens, Math.max(s.summary.minTokens, Math.round(tokens * ratio)));
     const length = lengthUnits(content, tokens, targetTokens);
-    const { rules, format } = buildL1Parts({ length, char: c?.name2 ?? '', user: c?.name1 ?? '' });
+    const { rules, format } = buildL1Parts({ length, char: c?.name2 ?? '', user: c?.name1 ?? '', previousDate: previousDate(index) });
     const prompt = fillTemplate(getTemplate('l1'), {
         char: c?.name2 ?? '',
         user: c?.name1 ?? '',
@@ -297,6 +312,8 @@ export function parseL1(raw) {
             ...cleanScene(obj),
             summary: obj.summary.trim(),
             ops: Array.isArray(obj.ops) ? obj.ops : [],
+            date: obj.date ?? '',
+            events: obj.events ?? [],
             repaired: parsed.repaired,
         };
     }
@@ -341,6 +358,10 @@ async function summarizeFloor(index) {
         setEntry(index, {
             v: 2, status: 'ok', time: keep('time', 'time'), location: keep('location', 'location'),
             characters: keep('cast', 'characters'), summary: parsed.summary, ops, hash, at: Date.now(),
+            // 行事曆：沒開的話沿用舊的，重新打開時資料還在。
+            ...(calendarOn()
+                ? { date: normDate(parsed.date) || previousDate(index), events: cleanEvents(parsed.events) }
+                : { date: prev?.date ?? '', events: prev?.events ?? [] }),
             // 回覆被截斷、是救回來的：摘要或記事可能不完整，畫面上會提醒。
             ...(parsed.repaired ? { repaired: true } : {}),
         });
@@ -384,8 +405,10 @@ export function writeSummary(index, fields) {
     if (!summary) return false;
     const prev = getEntry(index);
     const ops = prev?.status === 'ok' && Array.isArray(prev.ops) ? prev.ops : [];
+    const events = prev?.status === 'ok' && Array.isArray(prev.events) ? prev.events : [];
+    const date = fields?.date !== undefined ? normDate(fields.date) : (prev?.date ?? '');
     setEntry(index, {
-        v: 2, status: 'ok', ...cleanScene(fields), summary, ops,
+        v: 2, status: 'ok', ...cleanScene(fields), summary, ops, events, date,
         hash: floorSource(index).hash, at: Date.now(), manual: true,
     });
     saveChatSoon();

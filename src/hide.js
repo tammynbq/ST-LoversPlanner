@@ -15,6 +15,7 @@ import { enqueue, enqueueCompress, floorState, isActive, pendingCount, setHoldin
 import { compressionDue, structure } from './compress.js';
 import { selectRelevant } from './recall.js';
 import { recapLines } from './carry.js';
+import { calendarInjection } from './calendar.js';
 
 /** 保留原文的 AI 樓層數（規格：最新 2 個）。 */
 export const KEEP_AI = 2;
@@ -121,7 +122,9 @@ export function injectionParts(hidden, selection = null) {
         byType[type] = { count, total: list.length, text: count ? formatNotesForPrompt(notes, { withIds: false, types: [type], only, emptyText: '' }) : '' };
     }
     const memories = selection?.memories ?? [];
+    const calendar = calendarInjection();
     return {
+        calendar: { text: calendar },
         summaries: {
             floors: rows.filter((r) => r.kind === 'floors').length,
             chapters: rows.filter((r) => r.kind === 'chapters').length,
@@ -140,13 +143,14 @@ export function buildInjection(hidden, selection = null) {
     return textOf(injectionParts(hidden, selection));
 }
 
-function textOf({ summaries, memories, notes }) {
+function textOf({ summaries, memories, notes, calendar }) {
     const noteText = Object.values(notes).map((n) => n.text).filter(Boolean).join('\n');
-    if (!summaries.text && !memories.text && !noteText) return '';
+    if (!summaries.text && !memories.text && !noteText && !calendar?.text) return '';
     const parts = [t('inject.intro')];
     if (summaries.text) parts.push(`${t('inject.summaries')}\n${summaries.text}`);
     if (memories.text) parts.push(`${t('inject.memories')}\n${memories.text}`);
     if (noteText) parts.push(`${t('inject.notes')}\n${noteText}`);
+    if (calendar?.text) parts.push(`${t('inject.calendar')}\n${calendar.text}`);
     return parts.join('\n\n');
 }
 
@@ -170,6 +174,7 @@ export async function previewInjection() {
         chapters: await count(sp.chapters),
         floors: await count(sp.floors),
         memories: await count(parts.memories.text),
+        calendar: await count(parts.calendar.text),
         total: await count(text),
         hiddenRaw: await count(hiddenRaw),
     };

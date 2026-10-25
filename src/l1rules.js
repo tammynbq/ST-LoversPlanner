@@ -2,8 +2,9 @@
 // 沒勾的項目在提示詞裡完全不出現，模型也就不會回報。
 
 import { currentLocale } from './i18n.js';
-import { isTracked, trackedNoteTypes } from './settings.js';
+import { getSettings, isTracked, trackedNoteTypes } from './settings.js';
 import { NOTE_FIELDS } from './notes.js';
+import { CAL_TYPES, calendarOn, calTracked, normDate } from './calendar.js';
 
 const TEXT = {
     'zh-TW': {
@@ -26,6 +27,14 @@ const TEXT = {
         locationChapter: 'location：這一整段主要的地點（有好幾個就用「、」分開）。',
         castChapter: 'characters：這一整段出場的主要人物名字（陣列）。',
         summaryChapter: 'summary：約 {length} 字，依時間順序寫這一整段的主要事件、人物關係和情緒的變化、約定和伏筆。',
+        date: 'date：這一層發生在故事裡的哪一天，格式 YYYY-MM-DD。原文寫了日期就照寫；沒寫就延續上一層的日期；過了夜（隔天、第二天早上）就加一天。{start}',
+        dateChapter: 'date：這一整段的最後一天在故事裡是哪一天，格式 YYYY-MM-DD（推算方式同上：沒寫就延續，過夜加一天）。{start}',
+        dateStart: '完全沒有線索時，從 {start} 開始算。',
+        events: 'events：這一層和行事曆有關的事（陣列，沒有就是空陣列）：',
+        evPlan: 'plan：約好或安排在某一天要做的事。date 是那一天（YYYY-MM-DD），title 簡短寫要做什麼。',
+        evPeriod: 'period：{user} 的生理期。開始用 state: "start"，結束用 state: "end"。',
+        evIntimacy: 'intimacy：{char} 和 {user} 親熱（發生性行為），count 是這一層發生幾次。',
+        evAnniversary: 'anniversary：紀念日或生日（每年重複），date 寫 MM-DD，title 寫是什麼日子（例如「小雨的生日」）。',
         sep: '／',
     },
     'zh-CN': {
@@ -48,6 +57,14 @@ const TEXT = {
         locationChapter: 'location：这一整段主要的地点（有好几个就用「、」分开）。',
         castChapter: 'characters：这一整段出场的主要人物名字（数组）。',
         summaryChapter: 'summary：约 {length} 字，按时间顺序写这一整段的主要事件、人物关系和情绪的变化、约定和伏笔。',
+        date: 'date：这一层发生在故事里的哪一天，格式 YYYY-MM-DD。原文写了日期就照写；没写就延续上一层的日期；过了夜（隔天、第二天早上）就加一天。{start}',
+        dateChapter: 'date：这一整段的最后一天在故事里是哪一天，格式 YYYY-MM-DD（推算方式同上：没写就延续，过夜加一天）。{start}',
+        dateStart: '完全没有线索时，从 {start} 开始算。',
+        events: 'events：这一层和行事历有关的事（数组，没有就是空数组）：',
+        evPlan: 'plan：约好或安排在某一天要做的事。date 是那一天（YYYY-MM-DD），title 简短写要做什么。',
+        evPeriod: 'period：{user} 的生理期。开始用 state: "start"，结束用 state: "end"。',
+        evIntimacy: 'intimacy：{char} 和 {user} 亲热（发生性行为），count 是这一层发生几次。',
+        evAnniversary: 'anniversary：纪念日或生日（每年重复），date 写 MM-DD，title 写是什么日子（例如「小雨的生日」）。',
         sep: '／',
     },
     en: {
@@ -70,16 +87,29 @@ const TEXT = {
         locationChapter: 'location: the main places in this whole section (separate several with commas).',
         castChapter: 'characters: names of the main characters who appear in this whole section (array).',
         summaryChapter: 'summary: about {length} words, in order: the main events of this whole section, changes in relationships and mood, promises and foreshadowing.',
+        date: 'date: which day in the story this floor happens, as YYYY-MM-DD. Use a date stated in the text; otherwise carry over the previous floor\'s date, adding one day when the night has passed (next day, next morning). {start}',
+        dateChapter: 'date: the story date of the last day of this whole section, as YYYY-MM-DD (same reasoning: carry over, add a day when the night passes). {start}',
+        dateStart: 'With no clue at all, start from {start}.',
+        events: 'events: calendar-related things in this floor (array; empty if none):',
+        evPlan: 'plan: something arranged for a particular day. date is that day (YYYY-MM-DD); title says briefly what.',
+        evPeriod: 'period: {user}\'s menstrual period. Use state: "start" when it begins and state: "end" when it ends.',
+        evIntimacy: 'intimacy: {char} and {user} being intimate (having sex); count is how many times in this floor.',
+        evAnniversary: 'anniversary: an anniversary or birthday (repeats every year); date as MM-DD, title says what day it is (e.g. "Xiaoyu\'s birthday").',
         sep: ' / ',
     },
 };
+
+/** 故事開始日：設定裡填的，沒填就用今天（現實的日期）。 */
+function startDate() {
+    return normDate(getSettings().calendar?.start) || new Date().toISOString().slice(0, 10);
+}
 
 function fill(text, vars) {
     return text.replace(/\{(\w+)\}/g, (m, k) => (k in vars ? String(vars[k]) : m));
 }
 
 /** 產生 {{rules}} 和 {{format}}。chapter：補建時一次讀一整段、寫成一章的版本。 */
-export function buildL1Parts({ length, char, user, chapter = false }) {
+export function buildL1Parts({ length, char, user, chapter = false, previousDate = '' }) {
     const T = TEXT[currentLocale()] ?? TEXT.en;
     const vars = { length, char, user };
     const types = trackedNoteTypes();
@@ -87,6 +117,12 @@ export function buildL1Parts({ length, char, user, chapter = false }) {
 
     const rules = [];
     for (const key of scene) rules.push(chapter ? T[`${key}Chapter`] : T[key]);
+    // 行事曆：故事裡的日期。
+    const cal = calendarOn();
+    if (cal) {
+        const start = normDate(previousDate) ? '' : fill(T.dateStart, { start: startDate() });
+        rules.push(fill(chapter ? T.dateChapter : T.date, { start }).trim());
+    }
     const summarySub = [];
     if (isTracked('time') || isTracked('location')) summarySub.push(T.noScene);
     if (types.length) summarySub.push(T.noOpsDetail);
@@ -99,6 +135,11 @@ export function buildL1Parts({ length, char, user, chapter = false }) {
         sub.push(T.noDup);
         rules.push([T.ops, ...sub.map((x) => `   - ${x}`)].join('\n'));
     }
+    const evTypes = cal ? CAL_TYPES.filter(calTracked) : [];
+    if (evTypes.length) {
+        const key = { plan: 'evPlan', period: 'evPeriod', intimacy: 'evIntimacy', anniversary: 'evAnniversary' };
+        rules.push([T.events, ...evTypes.map((x) => `   - ${fill(T[key[x]], vars)}`)].join('\n'));
+    }
     const numbered = rules.map((r, i) => `${i + 1}. ${r}`).join('\n');
 
     // JSON 格式範例：只列有勾選的欄位和記事類型。
@@ -106,6 +147,11 @@ export function buildL1Parts({ length, char, user, chapter = false }) {
     if (isTracked('time')) lines.push('  "time": "…",');
     if (isTracked('location')) lines.push('  "location": "…",');
     if (isTracked('cast')) lines.push('  "characters": ["…"],');
+    if (cal) lines.push('  "date": "YYYY-MM-DD",');
+    if (evTypes.length) {
+        const ex = { plan: '{ "type": "plan", "date": "YYYY-MM-DD", "title": "…" }', period: '{ "type": "period", "state": "start" }', intimacy: '{ "type": "intimacy", "count": 1 }', anniversary: '{ "type": "anniversary", "date": "MM-DD", "title": "…" }' };
+        lines.push(`  "events": [${evTypes.map((x) => ex[x]).join(', ')}],`);
+    }
     if (types.length) {
         lines.push('  "summary": "…",', '  "ops": [');
         const ex = types.map((type) => {

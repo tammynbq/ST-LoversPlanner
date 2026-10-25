@@ -41,6 +41,17 @@ export const DEFAULTS = Object.freeze({
         promise: true,
         todo: true,
     },
+    // 行事曆：故事裡的日期＋行程、生理期（{{user}} 的）、親熱的日子、紀念日。
+    // start：故事開始日（模型完全沒線索時從這天算）；ahead：送給角色「接下來幾天」的事。
+    calendar: {
+        enabled: true,
+        track: { plan: true, period: true, intimacy: true, anniversary: true },
+        start: '',
+        periodCycle: 28,
+        periodLength: 5,
+        inject: true,
+        ahead: 7,
+    },
     hide: {
         markHidden: true,
     },

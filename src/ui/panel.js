@@ -28,7 +28,11 @@ import {
     cancelQueue, enqueue, enqueueCompress, floorState, isActive, onSummaryChange, pendingCount, unsummarizedIndices,
 } from '../summarize.js';
 import { compressionDue, deleteChapter, editChapter, editVolume, structure } from '../compress.js';
-import { actionsFor, hintFor, revealFloor, runAction, sceneHtml, STATUS_ICONS } from './message.js';
+import { actionsFor, eventLabel, hintFor, revealFloor, runAction, sceneHtml, STATUS_ICONS } from './message.js';
+import {
+    addManualEvent, buildCalendar, CAL_TYPES, calendarOn, calTracked, dayInfo, monthGrid, monthTitle, onCalendarChange,
+    periodStatus, removeEvent, restoreRemoved, shiftMonth, upcoming, weekdayName,
+} from '../calendar.js';
 import {
     addNoteManual, changeQuantity, closedNotes, completeNoteManual, deleteNoteManual, getNotes, NOTE_FIELDS, NOTE_TYPES,
     noteTitle, NUMBER_FIELDS,
@@ -38,7 +42,7 @@ import {
     CHAR_SCOPE_VALUES, CHAT_SCOPE_VALUES, characterName, getCharacterScope, getChatScope, SCOPE_KINDS,
 } from '../scope.js';
 
-const TABS = ['summary', 'characters', 'items', 'notes', 'done', 'settings'];
+const TABS = ['summary', 'characters', 'items', 'notes', 'calendar', 'done', 'settings'];
 
 /** 每個分頁放哪些記事類型（記事分頁＝約定＋待辦）。 */
 const TAB_TYPES = { characters: ['character'], items: ['item'], notes: ['promise', 'todo'] };
@@ -48,6 +52,7 @@ function visibleTabs() {
     return TABS.filter((tab) => {
         if (TAB_TYPES[tab]) return TAB_TYPES[tab].some(isTracked);
         if (tab === 'done') return ['item', 'promise', 'todo'].some(isTracked);
+        if (tab === 'calendar') return calendarOn();
         return true;
     });
 }
@@ -70,6 +75,9 @@ const NUMBER_LIMITS = {
     'recall.noteTopK': [0, 50],
     'recall.threshold': [0, 100],
     'carry.recapLength': [50, 4000],
+    'calendar.periodCycle': [15, 60],
+    'calendar.periodLength': [1, 15],
+    'calendar.ahead': [0, 60],
 };
 
 /** 成對的上下限：下限比上限大時，把上限拉到和下限一樣。 */
@@ -113,6 +121,8 @@ const view = {
     },
     // 🩺 檢查：開著時取代分頁內容。list 是最近一次的結果（按修正時用 id 找回來）。
     check: { open: false, list: [], auditN: 5, message: null },
+    // 行事曆：顯示哪個月（YYYY-MM）、選了哪天、新增表單。
+    cal: { month: null, selected: null, addType: null },
     // 補建舊樓層的設定卡片。
     catchup: { open: false, from: null, to: null, fine: 30, block: null },
     // 從其他聊天匯入：選哪個聊天、帶哪些。
@@ -322,6 +332,7 @@ function renderTab() {
         case 'items':
         case 'notes':
             return renderNotesTab(TAB_TYPES[view.tab].filter(isTracked));
+        case 'calendar': return renderCalendarTab();
         case 'done': return renderDoneTab();
         case 'settings': return renderSettings();
         default: return '';
@@ -473,6 +484,92 @@ function renderSummaryTab() {
         ${queueArea}
         <div class="lp-floor-list">${rows}</div>
         ${more}
+      </div>`;
+}
+
+// ===== 行事曆 =====
+
+function renderCalendarTab() {
+    if (!isActive()) return '';
+    const cal = buildCalendar();
+    const month = view.cal.month ?? (cal.today ?? new Date().toISOString().slice(0, 10)).slice(0, 7);
+    view.cal.month = month;
+    const { pad, days } = monthGrid(month);
+    const head = Array.from({ length: 7 }, (_, k) => weekdayName(`2023-01-0${k + 1}`, 'narrow')); // 2023-01-01 是星期日
+    const cells = [];
+    for (let k = 0; k < pad; k++) cells.push('<span class="lp-cal-cell lp-cal-empty" aria-hidden="true"></span>');
+    for (const d of days) {
+        const info = dayInfo(cal, d);
+        const marks = [];
+        if (info.period) marks.push(`<span class="lp-cal-mark${info.period === 'predicted' ? ' lp-cal-pred' : ''}" aria-hidden="true">🩸</span>`);
+        if (info.intimacy) marks.push(`<span class="lp-cal-mark" aria-hidden="true">💕${info.intimacy > 1 ? info.intimacy : ''}</span>`);
+        if (info.plans.length) marks.push('<span class="lp-cal-mark" aria-hidden="true">📌</span>');
+        if (info.anniversaries.length) marks.push('<span class="lp-cal-mark" aria-hidden="true">🎂</span>');
+        const cls = ['lp-cal-cell', d === cal.today ? 'lp-cal-today' : '', d === view.cal.selected ? 'lp-on' : '', info.period === 'actual' ? 'lp-cal-period' : ''].filter(Boolean).join(' ');
+        const label = [d, ...info.items.map(eventLabel), info.period === 'predicted' ? t('cal.predicted') : ''].filter(Boolean).join('，');
+        cells.push(`<button type="button" class="${cls}" data-action="cal-day" data-date="${d}" aria-label="${esc(label)}" aria-pressed="${d === view.cal.selected}">
+            <span class="lp-cal-num">${Number(d.slice(8))}</span><span class="lp-cal-marks">${marks.join('')}</span></button>`);
+    }
+    const nav = `
+      <div class="lp-row lp-cal-nav">
+        <button type="button" class="menu_button lp-btn" data-action="cal-month" data-delta="-1" aria-label="${esc(t('cal.prev'))}">‹</button>
+        <span class="lp-cal-title" data-role="cal-title">${esc(monthTitle(month))}</span>
+        <button type="button" class="menu_button lp-btn" data-action="cal-month" data-delta="1" aria-label="${esc(t('cal.next'))}">›</button>
+        <span class="lp-spacer"></span>
+        ${cal.today ? `<button type="button" class="menu_button lp-btn" data-action="cal-today">${esc(t('cal.gotoToday'))}</button>` : ''}
+      </div>`;
+    const grid = `<div class="lp-cal-grid" role="grid">${head.map((h) => `<span class="lp-cal-head">${esc(h)}</span>`).join('')}${cells.join('')}</div>`;
+    return `<div class="lp-calendar">${calendarStatus(cal)}${nav}${grid}${calendarDay(cal)}</div>`;
+}
+
+/** 上方的狀態：今天、生理期、接下來的事。 */
+function calendarStatus(cal) {
+    if (!cal.today) return `<div class="lp-callout" data-role="cal-status">${esc(t('cal.noToday'))}</div>`;
+    const lines = [`<div><b>${esc(t('cal.todayIs', { date: cal.today, weekday: weekdayName(cal.today, 'long') }))}</b></div>`];
+    const p = periodStatus(cal);
+    if (p?.kind === 'during') lines.push(`<div>🩸 ${esc(t('cal.status.during', { day: p.day }))}</div>`);
+    else if (p?.kind === 'until') lines.push(`<div>🩸 ${esc(t('cal.status.until', { days: p.days, date: p.date, cycle: cal.cycle }))}</div>`);
+    else if (p?.kind === 'late') lines.push(`<div class="lp-warn-text">🩸 ${esc(t('cal.status.late', { days: p.days }))}</div>`);
+    const list = upcoming(cal);
+    if (list.length) {
+        const items = list.map((x) => {
+            const when = x.in === 0 ? t('cal.today') : t('cal.inDays', { n: x.in });
+            const what = x.kind === 'period' ? `🩸 ${t('cal.periodExpected')}` : x.kind === 'anniversary' ? `🎂 ${x.title}` : `📌 ${x.title}`;
+            return `<li>${esc(`${x.date.slice(5)}（${when}）${what}`)}</li>`;
+        }).join('');
+        lines.push(`<div class="lp-label">${esc(t('cal.upcoming'))}</div><ul class="lp-recall-list">${items}</ul>`);
+    }
+    return `<div class="lp-callout lp-cal-status" data-role="cal-status">${lines.join('')}</div>`;
+}
+
+/** 選了某一天：當天的事（可以刪），以及新增表單。 */
+function calendarDay(cal) {
+    const d = view.cal.selected;
+    if (!d) return `<div class="lp-note">${esc(t('cal.pickDay'))}</div>`;
+    const info = dayInfo(cal, d);
+    const rows = info.items.map((x) => {
+        const src = x.source === 'floor'
+            ? `<button type="button" class="lp-link" data-action="note-jump" data-index="${x.floor}">${esc(t('cal.fromFloor', { n: x.floor }))}</button>`
+            : `<span class="lp-note">${esc(t('cal.manual'))}</span>`;
+        const ref = x.source === 'manual' ? `data-id="${esc(x.id)}"` : `data-key="${esc(x.key)}"`;
+        return `<li class="lp-cal-item"><span>${esc(eventLabel(x))}</span> ${src}
+          <button type="button" class="menu_button lp-btn lp-mini lp-danger" data-action="cal-remove" data-source="${x.source}" ${ref}>${esc(t('cal.remove'))}</button></li>`;
+    });
+    if (info.period === 'predicted') rows.push(`<li class="lp-note">🩸 ${esc(t('cal.predicted'))}</li>`);
+    else if (info.period === 'actual' && !info.items.some((x) => x.type === 'period')) rows.push(`<li class="lp-note">🩸 ${esc(t('cal.status.during', { day: info.periodDay }))}</li>`);
+    const types = CAL_TYPES.filter(calTracked);
+    const type = types.includes(view.cal.addType) ? view.cal.addType : types[0];
+    let fields = '';
+    if (type === 'plan' || type === 'anniversary') fields = `<input type="text" class="text_pole lp-grow" data-role="cal-title-input" placeholder="${esc(t(type === 'plan' ? 'cal.add.planPh' : 'cal.add.annivPh'))}" aria-label="${esc(t('cal.add.title'))}">`;
+    else if (type === 'intimacy') fields = `<input type="number" class="text_pole lp-num" data-role="cal-count" min="1" max="20" value="1" aria-label="${esc(t('cal.add.count'))}">`;
+    else if (type === 'period') fields = `<select class="text_pole lp-select" data-role="cal-state" aria-label="${esc(t('cal.add.state'))}"><option value="start">${esc(t('cal.periodStart'))}</option><option value="end">${esc(t('cal.periodEnd'))}</option></select>`;
+    const typeSel = `<select class="text_pole lp-select" data-role="cal-type" aria-label="${esc(t('cal.add.type'))}">${types.map((x) => `<option value="${x}"${x === type ? ' selected' : ''}>${esc(t(`cal.type.${x}`))}</option>`).join('')}</select>`;
+    return `
+      <div class="lp-card lp-cal-day" data-role="cal-day">
+        <div class="lp-scope-title">${esc(`${d}（${weekdayName(d, 'long')}）`)}</div>
+        ${rows.length ? `<ul class="lp-recall-list">${rows.join('')}</ul>` : `<div class="lp-note">${esc(t('cal.empty'))}</div>`}
+        ${types.length ? `<div class="lp-row">${typeSel}${fields}<button type="button" class="menu_button lp-btn lp-primary" data-action="cal-add">${esc(t('cal.add'))}</button></div>` : ''}
+        ${cal.removedCount ? `<div class="lp-row"><span class="lp-note">${esc(t('cal.removedN', { n: cal.removedCount }))}</span><button type="button" class="menu_button lp-btn lp-mini" data-action="cal-restore">${esc(t('cal.restore'))}</button></div>` : ''}
       </div>`;
 }
 
@@ -783,7 +880,7 @@ function renderTree(states) {
 
 let summaryRefreshTimer = null;
 function canAutoRefresh() {
-    if (!isPanelOpen() || !(view.check.open || ['summary', 'notes', 'done'].includes(view.tab))) return false;
+    if (!isPanelOpen() || !(view.check.open || ['summary', 'notes', 'done', 'calendar'].includes(view.tab))) return false;
     // 正在填表單（記事、章／卷總結）時不重畫，免得打到一半的字不見。
     return !(view.notes.editing || view.notes.adding || view.sum.editing);
 }
@@ -797,6 +894,7 @@ function scheduleRefresh() {
 onSummaryChange(scheduleRefresh);
 onNotesChange(scheduleRefresh);
 onCarryChange(scheduleRefresh);
+onCalendarChange(scheduleRefresh);
 // 每次送出後更新標題列的統計（不整頁重畫）。
 onStatsChange(() => {
     const el = isPanelOpen() ? panel.querySelector('.lp-stats') : null;
@@ -1272,6 +1370,20 @@ function renderSettings() {
       <div class="lp-track-group"><span class="lp-label">${esc(t('set.track.scene'))}</span>${['time', 'location', 'cast'].map(trackItem).join('')}</div>
       <div class="lp-track-group"><span class="lp-label">${esc(t('set.track.notes'))}</span>${['character', 'item', 'promise', 'todo'].map(trackItem).join('')}</div>`;
 
+    const c = s.calendar;
+    const calendar = `
+      ${checkbox('calendar.enabled', t('set.cal.enabled'), true)}
+      <div class="lp-note">${esc(t('set.cal.desc'))}</div>
+      ${c.enabled ? `
+        <div class="lp-track-group"><span class="lp-label">${esc(t('set.cal.track'))}</span>${CAL_TYPES.map((x) => checkbox(`calendar.track.${x}`, t(`cal.type.${x}`), true)).join('')}</div>
+        <label class="lp-field" for="lp-cal-start"><span class="lp-label">${esc(t('set.cal.start'))}</span>
+          <input id="lp-cal-start" type="date" class="text_pole" data-path="calendar.start" value="${esc(c.start ?? '')}"></label>
+        <div class="lp-note">${esc(t('set.cal.start.note'))}</div>
+        ${c.track.period ? `<div class="lp-row">${inline('set.cal.period', { cycle: numberInput('calendar.periodCycle', t('set.cal.cycle')), length: numberInput('calendar.periodLength', t('set.cal.length')) })}</div>
+        <div class="lp-note">${esc(t('set.cal.period.note'))}</div>` : ''}
+        ${checkbox('calendar.inject', t('set.cal.inject'), true)}
+        ${c.inject ? `<div class="lp-row">${inline('set.cal.ahead', { n: numberInput('calendar.ahead', t('set.cal.ahead.aria')) })}</div>` : ''}` : ''}`;
+
     const compressAuto = checkbox('compress.auto', t('set.compress.auto'));
     const compress = `
       ${compressAuto}
@@ -1328,6 +1440,7 @@ function renderSettings() {
       ${section('summary', t('sec.summary'), t('sec.summary.hint'), summary)}
       ${section('filter', t('sec.filter'), t('sec.filter.hint'), filter)}
       ${section('track', t('sec.track'), t('sec.track.hint'), track)}
+      ${section('calendar', t('sec.calendar'), t(s.calendar.enabled ? 'sec.calendar.on' : 'sec.calendar.off'), calendar)}
       ${section('compress', t('sec.compress'), t('sec.compress.hint'), compress)}
       ${section('hide', t('sec.hide'), t('sec.hide.hint'), hide)}
       ${section('scope', t('sec.scope'), t('sec.scope.hint'), scope)}
@@ -1655,6 +1768,43 @@ function onClick(e) {
             toggleSection(btn.dataset.key);
             render();
             return;
+        case 'cal-month':
+            view.cal.month = shiftMonth(view.cal.month, Number(btn.dataset.delta));
+            render();
+            return;
+        case 'cal-today':
+            view.cal.month = null;
+            view.cal.selected = buildCalendar().today;
+            render();
+            return;
+        case 'cal-day':
+            view.cal.selected = view.cal.selected === btn.dataset.date ? null : btn.dataset.date;
+            render();
+            return;
+        case 'cal-add': {
+            const box = panel.querySelector('[data-role="cal-day"]');
+            const type = box?.querySelector('[data-role="cal-type"]')?.value;
+            const ok = addManualEvent({
+                type, date: type === 'anniversary' ? view.cal.selected.slice(5) : view.cal.selected,
+                title: box?.querySelector('[data-role="cal-title-input"]')?.value ?? '',
+                count: box?.querySelector('[data-role="cal-count"]')?.value,
+                state: box?.querySelector('[data-role="cal-state"]')?.value,
+            });
+            if (!ok) {
+                box?.querySelector('[data-role="cal-title-input"]')?.focus();
+                return;
+            }
+            render();
+            return;
+        }
+        case 'cal-remove':
+            removeEvent({ source: btn.dataset.source, id: btn.dataset.id, key: btn.dataset.key });
+            render();
+            return;
+        case 'cal-restore':
+            restoreRemoved();
+            render();
+            return;
         case 'check-toggle':
             view.check.open = !view.check.open;
             view.check.message = null;
@@ -1867,6 +2017,11 @@ function onChange(e) {
         render();
         return;
     }
+    if (el.dataset?.role === 'cal-type') {
+        view.cal.addType = el.value;
+        render();
+        return;
+    }
     if (el.dataset?.role === 'summary-source') {
         setSummarySource(el.value);
         render();
@@ -1999,6 +2154,7 @@ async function fillPreview() {
     if (sm.volumes) rows.push(row(t('preview.volumes', { n: sm.volumes }), `${n(p.tokens.volumes)} tokens`));
     if (sm.chapters) rows.push(row(t('preview.chapters', { n: sm.chapters }), `${n(p.tokens.chapters)} tokens`));
     rows.push(row(t('preview.summaries', { n: sm.floors }), `${n(p.tokens.floors)} tokens`));
+    if (p.parts.calendar.text) rows.push(row(t('preview.calendar'), `${n(p.tokens.calendar)} tokens`));
     if (p.parts.memories.count) rows.push(row(t('preview.memories', { n: p.parts.memories.count }), `${n(p.tokens.memories)} tokens`));
     const sel = p.selection;
     for (const [type, info] of Object.entries(p.parts.notes)) {

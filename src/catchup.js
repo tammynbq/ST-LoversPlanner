@@ -19,11 +19,12 @@ import {
 } from './chat.js';
 import { formatNotesForPrompt, normalizeModelOps, replay } from './notes.js';
 import {
-    cancelQueue, enqueue, enqueueCoarse, isActive, parseL1, pendingCount, setAfterSummaryHook, setCoarseHandler,
+    cancelQueue, enqueue, enqueueCoarse, isActive, parseL1, pendingCount, previousDate, setAfterSummaryHook, setCoarseHandler,
 } from './summarize.js';
 import { saveChapter, setCoarseRedo } from './compress.js';
 import { estimateTokens } from './hide.js';
 import { cleanForSummary } from './filter.js';
+import { calendarOn, cleanEvents, normDate } from './calendar.js';
 
 /** 每次呼叫除了原文之外，提示詞本身（規則、記事清單）大約多少 token。 */
 const PROMPT_OVERHEAD = 700;
@@ -201,7 +202,7 @@ async function buildPrompt(indices) {
     const target = Math.min(600, Math.max(80, Math.round(tokens * l1 * l2 * 2)));
     const length = lengthUnits(content, tokens, target);
     const notesBefore = replay({ upTo: indices[0] }).notes;
-    const { rules, format } = buildL1Parts({ length, char: c?.name2 ?? '', user: c?.name1 ?? '', chapter: true });
+    const { rules, format } = buildL1Parts({ length, char: c?.name2 ?? '', user: c?.name1 ?? '', chapter: true, previousDate: previousDate(indices[0]) });
     const prompt = fill(getTemplate('catchup'), {
         char: c?.name2 ?? '',
         user: c?.name1 ?? '',
@@ -238,6 +239,8 @@ export async function runCoarse(indices, existing = null) {
             setEntry(i, {
                 v: 2, status: 'ok', coarse: true, time, location, characters: parsed.characters,
                 summary: '', ops: i === last ? ops : [], hash: floorSource(i).hash, at,
+                // 行事曆：這一段的日期和事件記在最後一層（前面幾層延續上一個日期）。
+                ...(calendarOn() && i === last ? { date: normDate(parsed.date), events: cleanEvents(parsed.events) } : {}),
             });
         }
         saveChapter({
