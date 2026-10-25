@@ -23,7 +23,7 @@ import {
 } from './summarize.js';
 import { saveChapter, setCoarseRedo } from './compress.js';
 import { estimateTokens } from './hide.js';
-import { cleanForSummary, extractTheater } from './filter.js';
+import { cleanForSummary, extractTheater, scanTags, tagMode } from './filter.js';
 import { calendarOn, cleanEvents, normDate } from './calendar.js';
 import { cleanKeepsakes, memoriesOn } from './memories.js';
 
@@ -82,12 +82,40 @@ export function planCatchup({ from, to, fineFrom, block }) {
     }
     if (cur.length) coarse.push(cur);
     const chat = getChat();
+    const withUser = getSettings().summary.includeUser;
+    // 和實際送出的一樣：照「摘要時跳過的內容」整理過才算（注意不能直接 map(cleanForSummary)，索引會被當成規則）。
     const raw = (i) => {
         const src = floorSource(i);
-        return estimateTokens([...src.users.map((u) => u.mes), chat[i]?.mes ?? ''].map(cleanForSummary).join('\n'));
+        const texts = [...(withUser ? src.users.map((u) => u.mes) : []), chat[i]?.mes ?? ''];
+        return estimateTokens(texts.map((x) => cleanForSummary(x)).join('\n'));
     };
     const tokens = list.reduce((n, i) => n + raw(i), 0) + (coarse.length + fine.length) * PROMPT_OVERHEAD;
     return { coarse, fine, floors: list.length, calls: coarse.length + fine.length, tokens };
+}
+
+let tagCache = { key: '', value: [] };
+
+/**
+ * 這個範圍裡「還會送出」的標籤（照目前的設定整理過、但先不拿掉 HTML 標籤，才看得到標籤名稱），
+ * 依佔的 token 由多到少：[{ name, tokens, floors, first, last, sample }]。讓使用者在補建前決定要不要跳過。
+ */
+export function catchupTags({ from, to }) {
+    const rules = getSettings().filter;
+    const chat = getChat();
+    const list = candidates(from, to);
+    const key = JSON.stringify([chatKey(), chat.length, from, to, list.length, rules]);
+    if (tagCache.key === key) return tagCache.value;
+    const loose = { ...rules, html: false };
+    const messages = list.map((i) => {
+        const src = floorSource(i);
+        const texts = [...(getSettings().summary.includeUser ? src.users.map((u) => u.mes) : []), chat[i]?.mes ?? ''];
+        return { index: i, text: texts.map((x) => cleanForSummary(x, loose)).join('\n') };
+    });
+    const value = scanTags(messages)
+        .filter((x) => x.tokens > 0 && tagMode(x.name).mode !== 'skip')
+        .sort((a, b) => b.tokens - a.tokens);
+    tagCache = { key, value };
+    return value;
 }
 
 /** 從第 fineCount 個（由新往舊數）候選樓層開始逐層細摘。 */

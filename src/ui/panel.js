@@ -16,7 +16,7 @@ import {
     auditFloors, auditIssues, auditProgress, auditResults, fixAll, fixIssue, issueCount, pickAuditFloors, runChecks,
 } from '../check.js';
 import {
-    abandonCatchup, fineFromFor, getCatchup, pauseCatchup, planCatchup, remaining, resumeCatchup, startCatchup,
+    abandonCatchup, catchupTags, fineFromFor, getCatchup, pauseCatchup, planCatchup, remaining, resumeCatchup, startCatchup,
 } from '../catchup.js';
 import {
     changeCharacterScope, changeChatScope, condenseRecap, deleteRecap, editRecap, effectiveScope, getLinkedSummary,
@@ -24,7 +24,7 @@ import {
 } from '../carry.js';
 import { errorText } from '../errors.js';
 import { getLastStats, onStatsChange, previewInjection } from '../hide.js';
-import { aiIndices, getChat, getEntry } from '../chat.js';
+import { aiIndices, chatKey, getChat, getEntry } from '../chat.js';
 import { hl, isExpanded, isSectionOpen, matches, setExpanded, setSectionOpen, terms, toggleExpanded, toggleSection } from './fold.js';
 import {
     cancelQueue, enqueue, enqueueCompress, floorState, isActive, onSummaryChange, pendingCount, unsummarizedIndices,
@@ -139,6 +139,8 @@ const view = {
     cal: { month: null, selected: null, addType: null },
     // 補建舊樓層的設定卡片。
     catchup: { open: false, from: null, to: null, fine: 30, block: null },
+    // 設定頁的標籤掃描：掃最新 2 層、最新 30 層，還是整個聊天。
+    tagScan: 'latest',
     // 從其他聊天匯入：選哪個聊天、帶哪些。
     imp: { src: null, kinds: null, result: null },
     // 向量模型：和自訂 API 一樣的草稿卡片。
@@ -803,6 +805,19 @@ function catchupEstimate(todo) {
     });
 }
 
+/** 補建範圍裡「還會送出」的標籤，佔得多的排前面；在這裡改成「不讀」，預估會馬上跟著變。 */
+function catchupTagList(todo) {
+    const v = catchupValues(todo);
+    const tags = catchupTags({ from: v.from, to: v.to }).slice(0, 12);
+    if (!tags.length) return '';
+    const total = tags.reduce((n, x) => n + x.tokens, 0);
+    return `<details class="lp-preview-raw lp-cu-tags"${view.catchup.tagsOpen ? ' open' : ''} data-role="cu-tags">
+        <summary>${esc(t('catchup.tags.title', { n: tags.length, tokens: total.toLocaleString() }))}</summary>
+        <div class="lp-note">${esc(t('catchup.tags.desc'))}</div>
+        <ul class="lp-tag-list">${tags.map((x) => tagRow(x, { stats: true })).join('')}</ul>
+      </details>`;
+}
+
 function catchupCard(todo) {
     const v = catchupValues(todo);
     const num = (key, value, min, max, label) =>
@@ -817,6 +832,7 @@ function catchupCard(todo) {
         <div class="lp-row">${inline('catchup.fine', { n: num('fine', v.fine, 0, 100000, t('catchup.fine.aria')) })}</div>
         <div class="lp-row">${inline('catchup.block', { n: num('block', v.block, 2, 100, t('catchup.block.aria')) })}</div>
         <div class="lp-note lp-catchup-estimate" data-role="cu-estimate">${esc(catchupEstimate(todo))}</div>
+        <div data-role="cu-tags-box">${catchupTagList(todo)}</div>
         ${warn}
         <div class="lp-row">
           <button type="button" class="menu_button lp-btn lp-primary" data-action="backfill-yes">${esc(t('catchup.start'))}</button>
@@ -1449,25 +1465,44 @@ function section(id, title, hint, content) {
     </details>`;
 }
 
-/** 最新 2 個 AI 樓層裡用到的標籤，每個選「讀／不讀／只讀」。 */
+const TAG_SCOPES = { latest: 2, recent: 30, all: Infinity };
+let tagScanCache = { key: '', value: [] };
+
+/** 一列標籤：名稱、出現幾次／多少 token／哪幾層、範例，和「讀／不讀／只讀」選單。 */
+function tagRow(x, { stats = false } = {}) {
+    const { mode, builtin } = tagMode(x.name);
+    const opts = ['read', 'skip', 'only'].map((m) => `<option value="${m}"${m === mode ? ' selected' : ''}>${esc(t(`set.filter.mode.${m}`))}</option>`).join('');
+    const info = stats
+        ? ` <span class="lp-note">${esc(t('set.filter.scan.stats', { tokens: x.tokens.toLocaleString(), floors: x.floors, first: x.first ?? '?', last: x.last ?? '?' }))}</span>`
+        : (x.count > 1 ? ` <span class="lp-note">×${x.count}</span>` : '');
+    return `<li class="lp-tag-row" data-tag-row="${esc(x.name)}">
+        <div class="lp-tag-main"><code>&lt;${esc(x.name)}&gt;</code>${info}${builtin ? ` <span class="lp-note">${esc(t(`set.filter.builtin.${builtin}`))}</span>` : ''}
+          ${x.sample ? `<div class="lp-note lp-tag-sample">${esc(x.sample)}…</div>` : ''}</div>
+        <select class="text_pole lp-select" data-role="tag-mode" data-tag="${esc(x.name)}" aria-label="${esc(t('set.filter.mode.aria', { tag: x.name }))}">${opts}</select>
+      </li>`;
+}
+
+/** AI 樓層裡用到的標籤（最新 2 層／最新 30 層／整個聊天），每個選「讀／不讀／只讀」。 */
 function tagScanner() {
     if (!isActive()) return '';
     const chat = getChat();
-    const latest = aiIndices().slice(-2).map((i) => chat[i]?.mes ?? '');
-    const tags = scanTags(latest);
+    const scope = TAG_SCOPES[view.tagScan] ? view.tagScan : 'latest';
+    const indices = aiIndices();
+    const picked = Number.isFinite(TAG_SCOPES[scope]) ? indices.slice(-TAG_SCOPES[scope]) : indices;
+    const key = `${chatKey()}|${chat.length}|${scope}|${(chat[chat.length - 1]?.mes ?? '').length}`;
+    if (tagScanCache.key !== key) {
+        const found = scanTags(picked.map((i) => ({ index: i, text: chat[i]?.mes ?? '' })));
+        // 掃得多的時候，佔得多的排前面（比較值得跳過）。
+        tagScanCache = { key, value: scope === 'latest' ? found : found.sort((a, b) => b.tokens - a.tokens) };
+    }
+    const tags = tagScanCache.value;
+    const scopes = Object.keys(TAG_SCOPES).map((k) => `<option value="${k}"${k === scope ? ' selected' : ''}>${esc(t(`set.filter.scan.scope.${k}`))}</option>`).join('');
     const body = tags.length
-        ? `<ul class="lp-tag-list">${tags.map((x) => {
-            const { mode, builtin } = tagMode(x.name);
-            const opts = ['read', 'skip', 'only'].map((m) => `<option value="${m}"${m === mode ? ' selected' : ''}>${esc(t(`set.filter.mode.${m}`))}</option>`).join('');
-            return `<li class="lp-tag-row" data-tag-row="${esc(x.name)}">
-                <div class="lp-tag-main"><code>&lt;${esc(x.name)}&gt;</code>${x.count > 1 ? ` <span class="lp-note">×${x.count}</span>` : ''}${builtin ? ` <span class="lp-note">${esc(t(`set.filter.builtin.${builtin}`))}</span>` : ''}
-                  ${x.sample ? `<div class="lp-note lp-tag-sample">${esc(x.sample)}…</div>` : ''}</div>
-                <select class="text_pole lp-select" data-role="tag-mode" data-tag="${esc(x.name)}" aria-label="${esc(t('set.filter.mode.aria', { tag: x.name }))}">${opts}</select>
-              </li>`;
-        }).join('')}</ul>`
+        ? `<ul class="lp-tag-list">${tags.map((x) => tagRow(x, { stats: true })).join('')}</ul>`
         : `<div class="lp-note">${esc(t('set.filter.scan.none'))}</div>`;
     return `<div class="lp-card lp-tag-scan" data-role="tag-scan">
-        <div class="lp-scope-title">${esc(t('set.filter.scan.title'))}</div>
+        <div class="lp-row"><span class="lp-scope-title">${esc(t('set.filter.scan.title'))}</span><span class="lp-spacer"></span>
+          <select class="text_pole lp-select" data-role="tag-scope" aria-label="${esc(t('set.filter.scan.scope'))}">${scopes}</select></div>
         <div class="lp-note">${esc(t('set.filter.scan.desc'))}</div>
         ${body}
       </div>`;
@@ -2235,7 +2270,14 @@ function onChange(e) {
         render();
         return;
     }
+    if (el.dataset?.role === 'tag-scope') {
+        view.tagScan = el.value;
+        render();
+        return;
+    }
     if (el.dataset?.role === 'tag-mode') {
+        // 在補建卡片裡改的：重畫後清單維持打開（toggle 事件是非同步的，不能等它）。
+        if (el.closest('[data-role="cu-tags"]')) view.catchup.tagsOpen = true;
         setTagMode(el.dataset.tag, el.value);
         render();
         return;
@@ -2317,6 +2359,8 @@ function onInput(e) {
         view.catchup[el.dataset.cu] = Number.isFinite(n) && el.value !== '' ? n : null;
         const box = panel.querySelector('[data-role="cu-estimate"]');
         if (box) box.textContent = catchupEstimate(unsummarizedIndices());
+        const tags = panel.querySelector('[data-role="cu-tags-box"]');
+        if (tags) tags.innerHTML = catchupTagList(unsummarizedIndices());
         return;
     }
     if (el.dataset?.draft) {
@@ -2433,6 +2477,10 @@ function onToggle(e) {
     }
     if (e.target?.dataset && 'preview' in e.target.dataset) {
         view.sum.previewOpen = e.target.open;
+        return;
+    }
+    if (e.target?.dataset?.role === 'cu-tags') {
+        view.catchup.tagsOpen = e.target.open;
         return;
     }
     const sec = e.target?.dataset?.sec;

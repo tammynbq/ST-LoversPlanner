@@ -92,23 +92,51 @@ export function cleanForSummary(text, rules = getSettings().filter) {
 /** 排版用的行內標籤，不列出來（拿掉標籤、保留文字就好）。 */
 const INLINE = new Set(['b', 'i', 'u', 's', 'em', 'strong', 'small', 'big', 'sup', 'sub', 'br', 'hr', 'span', 'div', 'p', 'font', 'img', 'a', 'center', 'ruby', 'rt', 'rp', 'mark', 'q', 'del', 'ins', 'code', 'pre', 'li', 'ul', 'ol', 'tr', 'td', 'th', 'tbody', 'thead', 'summary', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote', 'section', 'article', 'header', 'footer', 'label', 'button', 'input']);
 
-/** 找出訊息裡用到的標籤：[{ name, count, sample }]（依出現順序）。 */
+/** 粗估 token（和 hide.js 的 estimateTokens 一樣；這裡另寫一份免得互相 import）。 */
+function roughTokens(s) {
+    const cjk = (s.match(/[㐀-鿿豈-﫿]/g) ?? []).length;
+    return Math.ceil(cjk / 1.2 + (s.length - cjk) / 4);
+}
+
+/**
+ * 找出訊息裡用到的標籤：[{ name, count, floors, tokens, first, last, sample }]（依出現順序）。
+ * messages：字串，或 { index, text }（first／last 是出現過的最舊、最新樓層）。
+ * tokens：標籤裡面的內容大約多少 token（沒有結尾的不算）。
+ */
 export function scanTags(messages) {
     const found = new Map();
     const re = /<\s*([A-Za-z\u3400-\u9fff\uf900-\ufaff][\w\u3400-\u9fff\uf900-\ufaff:-]*)(?:\s[^<>]*)?>/g;
-    for (const text of messages) {
-        const src = String(text ?? '');
+    const closers = new Map();
+    for (const item of messages) {
+        const src = String((typeof item === 'object' && item !== null ? item.text : item) ?? '');
+        const index = typeof item === 'object' && item !== null ? item.index : null;
+        const seen = new Set();
         for (const m of src.matchAll(re)) {
             const name = m[1];
             const key = name.toLowerCase();
             if (INLINE.has(key)) continue;
+            if (!closers.has(key)) closers.set(key, new RegExp(`<\\s*\\/\\s*${escapeRe(name)}\\s*>`, 'gi'));
+            const close = closers.get(key);
+            const start = m.index + m[0].length;
+            close.lastIndex = start;
+            const end = close.exec(src)?.index ?? -1;
+            const inner = end >= 0 ? src.slice(start, end) : '';
             if (!found.has(key)) {
                 // 範例：標籤裡面的前 40 個字。
-                const close = src.slice(m.index + m[0].length).search(new RegExp(`<\\s*\\/\\s*${escapeRe(name)}\\s*>`, 'i'));
-                const inner = src.slice(m.index + m[0].length, close >= 0 ? m.index + m[0].length + close : undefined);
-                found.set(key, { name, count: 0, sample: inner.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 40) });
+                const head = end >= 0 ? inner : src.slice(start, start + 200);
+                found.set(key, { name, count: 0, floors: 0, tokens: 0, first: index, last: index, sample: head.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 40) });
             }
-            found.get(key).count++;
+            const x = found.get(key);
+            x.count++;
+            x.tokens += inner ? roughTokens(inner) : 0;
+            if (!seen.has(key)) {
+                seen.add(key);
+                x.floors++;
+                if (index !== null) {
+                    x.first = x.first === null ? index : Math.min(x.first, index);
+                    x.last = x.last === null ? index : Math.max(x.last, index);
+                }
+            }
         }
     }
     return [...found.values()];
