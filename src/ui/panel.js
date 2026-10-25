@@ -9,6 +9,7 @@ import { listModels, normalizeBaseUrl, testConnection } from '../api/custom.js';
 import { testEmbedding } from '../api/embed.js';
 import { warmVectors } from '../recall.js';
 import { cleanForSummary } from '../filter.js';
+import { getLoadedVersion } from '../update.js';
 import {
     abandonCatchup, fineFromFor, getCatchup, pauseCatchup, planCatchup, remaining, resumeCatchup, startCatchup,
 } from '../catchup.js';
@@ -407,6 +408,10 @@ function renderSummaryTab() {
         if (todo.length && view.catchup.open) queueArea = catchupCard(todo);
         else if (todo.length) {
             queueArea = `<div class="lp-row"><button type="button" class="menu_button lp-btn" data-action="backfill-ask">${esc(t('sum.backfill', { n: todo.length }))}</button></div>`;
+        } else {
+            // 沒有可以補建的也顯示按鈕（灰的），並說明原因，免得找不到。
+            queueArea = `<div class="lp-row"><button type="button" class="menu_button lp-btn" data-action="backfill-ask" disabled>${esc(t('sum.backfill', { n: 0 }))}</button>
+              <span class="lp-note">${esc(t('sum.backfill.none'))}</span></div>`;
         }
     }
 
@@ -1127,7 +1132,8 @@ function renderSettings() {
         <label class="lp-label" for="lp-lang">${esc(t('set.language'))}</label>
         ${select('language', 'lp-lang', [['auto', t('set.language.auto', { name: hostName })], ...LOCALES.map((l) => [l, LOCALE_NAMES[l]])], true)}
       </div>
-      <div class="lp-note">${esc(t('set.language.note'))}</div>`;
+      <div class="lp-note">${esc(t('set.language.note'))}</div>
+      <div class="lp-note" data-role="version">${esc(t('set.version', { version: getLoadedVersion() ?? '?' }))}</div>`;
 
     const model = `
       ${radio('lp-source', 'source', 'main', t('set.source.main'))}

@@ -58,6 +58,11 @@ function reloadNow() {
     globalThis.location.reload();
 }
 
+/** 這次載入的版本（manifest.json 的 version）。 */
+export function getLoadedVersion() {
+    return loadedVersion;
+}
+
 /** 讀一次 manifest；版本變了就排定重新整理。回傳讀到的版本。 */
 export async function checkForUpdate() {
     if (!getSettings().update?.autoReload || pendingVersion) return null;

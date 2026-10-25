@@ -218,7 +218,7 @@ await page.click('[data-action="backfill-ask"]');
 await page.click('[data-action="backfill-yes"]');
 await page.waitForFunction(() => window.__chat[0].extra?.lovers_planner?.status === 'ok' && window.__chat[2].extra?.lovers_planner?.status === 'ok');
 await page.waitForTimeout(200);
-check('backfill done', !(await page.isVisible('[data-action="backfill-ask"]')));
+check('backfill done', await page.isDisabled('[data-action="backfill-ask"]'));
 
 // 11. 關掉插件 → 區塊消失
 await page.click('[data-tab="settings"]');
