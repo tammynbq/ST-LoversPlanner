@@ -22,6 +22,10 @@ const TEXT = {
         todo: 'todo 是主角自己打算做的事。完成用 complete 加 done。',
         both: '同一件事不要同時記成 promise 和 todo。',
         noDup: '清單裡已經有的不要重複新增。沒有值得記的變化就讓 ops 是空陣列。',
+        timeChapter: 'time：這一整段的故事內時間範圍（例如「第三天 → 第五天」）。完全無法判斷就留空字串。',
+        locationChapter: 'location：這一整段主要的地點（有好幾個就用「、」分開）。',
+        castChapter: 'characters：這一整段出場的主要人物名字（陣列）。',
+        summaryChapter: 'summary：約 {length} 字，依時間順序寫這一整段的主要事件、人物關係和情緒的變化、約定和伏筆。',
         sep: '／',
     },
     'zh-CN': {
@@ -40,6 +44,10 @@ const TEXT = {
         todo: 'todo 是主角自己打算做的事。完成用 complete 加 done。',
         both: '同一件事不要同时记成 promise 和 todo。',
         noDup: '清单里已经有的不要重复新增。没有值得记的变化就让 ops 是空数组。',
+        timeChapter: 'time：这一整段的故事内时间范围（例如「第三天 → 第五天」）。完全无法判断就留空字符串。',
+        locationChapter: 'location：这一整段主要的地点（有好几个就用「、」分开）。',
+        castChapter: 'characters：这一整段出场的主要人物名字（数组）。',
+        summaryChapter: 'summary：约 {length} 字，按时间顺序写这一整段的主要事件、人物关系和情绪的变化、约定和伏笔。',
         sep: '／',
     },
     en: {
@@ -58,6 +66,10 @@ const TEXT = {
         todo: 'todo is something a lead plans to do. Finished: complete + done.',
         both: 'Never record the same thing as both a promise and a todo.',
         noDup: "Don't add anything that is already in the list. If nothing worth recording changed, leave ops as an empty array.",
+        timeChapter: 'time: the span of story time this whole section covers (e.g. "day three → day five"). If impossible to tell, use an empty string.',
+        locationChapter: 'location: the main places in this whole section (separate several with commas).',
+        castChapter: 'characters: names of the main characters who appear in this whole section (array).',
+        summaryChapter: 'summary: about {length} words, in order: the main events of this whole section, changes in relationships and mood, promises and foreshadowing.',
         sep: ' / ',
     },
 };
@@ -66,20 +78,20 @@ function fill(text, vars) {
     return text.replace(/\{(\w+)\}/g, (m, k) => (k in vars ? String(vars[k]) : m));
 }
 
-/** 產生 {{rules}} 和 {{format}}。 */
-export function buildL1Parts({ length, char, user }) {
+/** 產生 {{rules}} 和 {{format}}。chapter：補建時一次讀一整段、寫成一章的版本。 */
+export function buildL1Parts({ length, char, user, chapter = false }) {
     const T = TEXT[currentLocale()] ?? TEXT.en;
     const vars = { length, char, user };
     const types = trackedNoteTypes();
     const scene = ['time', 'location', 'cast'].filter(isTracked);
 
     const rules = [];
-    for (const key of scene) rules.push(T[key]);
+    for (const key of scene) rules.push(chapter ? T[`${key}Chapter`] : T[key]);
     const summarySub = [];
     if (isTracked('time') || isTracked('location')) summarySub.push(T.noScene);
     if (types.length) summarySub.push(T.noOpsDetail);
     summarySub.push(T.noComment);
-    rules.push([fill(T.summary, vars), ...summarySub.map((x) => `   - ${x}`)].join('\n'));
+    rules.push([fill(chapter ? T.summaryChapter : T.summary, vars), ...summarySub.map((x) => `   - ${x}`)].join('\n'));
     if (types.length) {
         const sub = [fill(T.opsAdd, { types: types.join(T.sep) })];
         for (const type of types) sub.push(fill(T[type], vars));

@@ -18,6 +18,7 @@ node tests/fold.test.mjs /tmp/shots
 node tests/recall.test.mjs /tmp/shots
 node tests/update.test.mjs
 node tests/carry.test.mjs /tmp/shots
+node tests/catchup.test.mjs /tmp/shots
 ```
 
 - `skeleton.test.mjs`：骨架（入口、分頁、設定、三語、手機版）
@@ -26,6 +27,7 @@ node tests/carry.test.mjs /tmp/shots
 - `recall.test.mjs`：只送相關的記事、回憶召回、向量
 - `update.test.mjs`：更新後自動重新整理
 - `carry.test.mjs`：帶走、即時共用、前情提要、匯入
+- `catchup.test.mjs`：補建舊樓層
 - `compress.test.mjs`：L2／L3 分層壓縮
 - `track.test.mjs`：記錄項目、人物新欄位、物件數量
 - `hide.test.mjs`：隱藏舊樓層、注入、強制彈窗

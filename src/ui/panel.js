@@ -9,6 +9,9 @@ import { listModels, normalizeBaseUrl, testConnection } from '../api/custom.js';
 import { testEmbedding } from '../api/embed.js';
 import { warmVectors } from '../recall.js';
 import {
+    abandonCatchup, fineFromFor, getCatchup, pauseCatchup, planCatchup, remaining, resumeCatchup, startCatchup,
+} from '../catchup.js';
+import {
     changeCharacterScope, changeChatScope, condenseRecap, deleteRecap, editRecap, effectiveScope, getLinkedSummary,
     getRecap, importFrom, lastCarry, onCarryChange, otherSnapshots, restoreRecapRaw, setSummarySource, undoCarry,
 } from '../carry.js';
@@ -19,7 +22,7 @@ import { hl, isExpanded, isSectionOpen, matches, setExpanded, setSectionOpen, te
 import {
     cancelQueue, enqueue, enqueueCompress, floorState, isActive, onSummaryChange, pendingCount, unsummarizedIndices,
 } from '../summarize.js';
-import { compressionDue, editChapter, editVolume, structure } from '../compress.js';
+import { compressionDue, deleteChapter, editChapter, editVolume, structure } from '../compress.js';
 import { actionsFor, hintFor, revealFloor, runAction, sceneHtml, STATUS_ICONS } from './message.js';
 import {
     addNoteManual, changeQuantity, closedNotes, completeNoteManual, deleteNoteManual, getNotes, NOTE_FIELDS, NOTE_TYPES,
@@ -103,6 +106,8 @@ const view = {
         busy: false,
         status: null, // { type: 'ok' | 'error' | 'saved', text }
     },
+    // 補建舊樓層的設定卡片。
+    catchup: { open: false, from: null, to: null, fine: 30, block: null },
     // 從其他聊天匯入：選哪個聊天、帶哪些。
     imp: { src: null, kinds: null, result: null },
     // 向量模型：和自訂 API 一樣的草稿卡片。
@@ -342,7 +347,7 @@ function summaryRow(index, state, query = '') {
         </button>`;
     if (!open) return `<div class="lp-floor-row lp-folded" data-fold-key="${esc(key)}">${head}</div>`;
     const showHint = hint && (!summary || state === 'stale' || state === 'fail');
-    const actions = [...actionsFor(state), 'jump'].map((a) =>
+    const actions = [...actionsFor(state, index), 'jump'].map((a) =>
         `<button type="button" class="menu_button lp-btn${['summarize', 'redo', 'retry'].includes(a) ? ' lp-primary' : ''}" data-action="sum-act" data-act="${a}" data-index="${index}">${esc(t(`act.${a}`))}</button>`).join('');
     return `
       <div class="lp-floor-row lp-unfolded" data-fold-key="${esc(key)}">
@@ -385,18 +390,22 @@ function renderSummaryTab() {
     const shown = list.slice(0, view.sum.limit);
 
     const pending = pendingCount();
+    const cu = getCatchup();
     let queueArea = '';
     if (pending) {
-        queueArea = `<div class="lp-callout lp-row" role="status"><span>${esc(t('sum.progress', { n: pending }))}</span><span class="lp-spacer"></span>
-          <button type="button" class="menu_button lp-btn" data-action="sum-stop">${esc(t('sum.stop'))}</button></div>`;
+        const text = cu ? t('catchup.progress', { done: Math.max(0, cu.total - remaining()), total: cu.total, n: pending }) : t('sum.progress', { n: pending });
+        queueArea = `<div class="lp-callout lp-row" role="status" data-role="catchup-progress"><span>${esc(text)}</span><span class="lp-spacer"></span>
+          <button type="button" class="menu_button lp-btn" data-action="sum-stop">${esc(t(cu ? 'catchup.pause' : 'sum.stop'))}</button></div>`;
+    } else if (cu) {
+        const left = remaining();
+        queueArea = `<div class="lp-callout lp-row" data-role="catchup-paused"><span>${esc(t('catchup.pausedBanner', { done: Math.max(0, cu.total - left), total: cu.total }))}${cu.error ? `<br><span class="lp-error-text">${esc(cu.error)}</span>` : ''}</span><span class="lp-spacer"></span>
+          <button type="button" class="menu_button lp-btn lp-primary" data-action="catchup-resume">${esc(t('catchup.resume'))}</button>
+          <button type="button" class="menu_button lp-btn" data-action="catchup-abandon">${esc(t('catchup.abandon'))}</button></div>`;
     } else {
-        const todo = unsummarizedIndices().length;
-        if (todo && view.sum.confirmBackfill) {
-            queueArea = `<div class="lp-callout lp-row"><span>${esc(t('sum.backfill.confirm', { n: todo }))}</span><span class="lp-spacer"></span>
-              <button type="button" class="menu_button lp-btn lp-primary" data-action="backfill-yes">${esc(t('sum.backfill.yes'))}</button>
-              <button type="button" class="menu_button lp-btn" data-action="backfill-no">${esc(t('sum.backfill.no'))}</button></div>`;
-        } else if (todo) {
-            queueArea = `<div class="lp-row"><button type="button" class="menu_button lp-btn" data-action="backfill-ask">${esc(t('sum.backfill', { n: todo }))}</button></div>`;
+        const todo = unsummarizedIndices();
+        if (todo.length && view.catchup.open) queueArea = catchupCard(todo);
+        else if (todo.length) {
+            queueArea = `<div class="lp-row"><button type="button" class="menu_button lp-btn" data-action="backfill-ask">${esc(t('sum.backfill', { n: todo.length }))}</button></div>`;
         }
     }
 
@@ -441,6 +450,50 @@ function renderSummaryTab() {
         ${queueArea}
         <div class="lp-floor-list">${rows}</div>
         ${more}
+      </div>`;
+}
+
+// ===== 摘要分頁：補建舊樓層 =====
+
+function catchupValues(todo) {
+    const c = view.catchup;
+    const first = todo[0];
+    const last = todo[todo.length - 1];
+    const from = Number.isInteger(c.from) ? c.from : first;
+    const to = Number.isInteger(c.to) ? c.to : last;
+    const block = Number.isInteger(c.block) ? c.block : (Number(getSettings().compress.l1PerL2) || 10);
+    const fine = Number.isInteger(c.fine) ? c.fine : 30;
+    return { from, to, block, fine };
+}
+
+function catchupEstimate(todo) {
+    const v = catchupValues(todo);
+    const plan = planCatchup({ from: v.from, to: v.to, block: v.block, fineFrom: fineFromFor(v.from, v.to, v.fine) });
+    return t('catchup.estimate', {
+        floors: plan.floors, coarse: plan.coarse.length, fine: plan.fine.length, calls: plan.calls,
+        tokens: plan.tokens.toLocaleString(),
+    });
+}
+
+function catchupCard(todo) {
+    const v = catchupValues(todo);
+    const num = (key, value, min, max, label) =>
+        `<input type="number" class="text_pole lp-num" data-cu="${key}" min="${min}" max="${max}" step="1" value="${value}" aria-label="${esc(label)}">`;
+    const lastIndex = getChat().length - 1;
+    const warn = getSettings().source === 'main' ? `<div class="lp-callout lp-warn">${esc(t('catchup.mainWarn'))}</div>` : '';
+    return `
+      <div class="lp-card lp-catchup" data-role="catchup">
+        <div class="lp-scope-title">${esc(t('catchup.title'))}</div>
+        <div class="lp-note">${esc(t('catchup.desc'))}</div>
+        <div class="lp-row">${inline('catchup.range', { from: num('from', v.from, 0, lastIndex, t('catchup.from')), to: num('to', v.to, 0, lastIndex, t('catchup.to')) })}</div>
+        <div class="lp-row">${inline('catchup.fine', { n: num('fine', v.fine, 0, 100000, t('catchup.fine.aria')) })}</div>
+        <div class="lp-row">${inline('catchup.block', { n: num('block', v.block, 2, 100, t('catchup.block.aria')) })}</div>
+        <div class="lp-note lp-catchup-estimate" data-role="cu-estimate">${esc(catchupEstimate(todo))}</div>
+        ${warn}
+        <div class="lp-row">
+          <button type="button" class="menu_button lp-btn lp-primary" data-action="backfill-yes">${esc(t('catchup.start'))}</button>
+          <button type="button" class="menu_button lp-btn" data-action="backfill-no">${esc(t('sum.backfill.no'))}</button>
+        </div>
       </div>`;
 }
 
@@ -536,9 +589,11 @@ function digestCard(kind, data, state, query = '') {
       <div class="lp-digest">
         ${sceneHtml({ time: data.time, location: data.location, characters: [] })}
         ${hint ? `<div class="lp-sum-hint${state === 'stale' ? ' lp-warn' : ''}">${esc(hint)}</div>` : ''}
+        ${data.coarse ? `<div class="lp-note" data-role="coarse-tag">${esc(t('catchup.coarseChapter'))}</div>` : ''}
         ${data.summary ? `<div class="lp-sum-text">${hl(data.summary, query)}</div>` : ''}
         <div class="lp-sum-actions">
           <button type="button" class="menu_button lp-btn${state !== 'ok' ? ' lp-primary' : ''}" data-action="digest-redo" data-id="${esc(id)}">${esc(t('compress.redo'))}</button>
+          ${data.coarse ? `<button type="button" class="menu_button lp-btn" data-action="digest-refine" data-id="${esc(id)}">${esc(t('catchup.refine'))}</button>` : ''}
           <button type="button" class="menu_button lp-btn" data-action="digest-edit" data-id="${esc(id)}">${esc(t('act.edit'))}</button>
         </div>
       </div>`;
@@ -1514,23 +1569,44 @@ function onClick(e) {
             onSummaryAction(Number(btn.dataset.index), btn.dataset.act);
             return;
         case 'sum-stop':
-            cancelQueue();
+            if (getCatchup()) pauseCatchup();
+            else cancelQueue();
             render();
             return;
         case 'backfill-ask':
-            view.sum.confirmBackfill = true;
+            view.catchup = { open: true, from: null, to: null, fine: 30, block: null };
             render();
             return;
         case 'backfill-no':
-            view.sum.confirmBackfill = false;
+            view.catchup.open = false;
             render();
             return;
-        case 'backfill-yes':
-            view.sum.confirmBackfill = false;
-            // 由舊到新，一層一層排隊。
-            unsummarizedIndices().forEach((i) => enqueue(i));
+        case 'backfill-yes': {
+            const todo = unsummarizedIndices();
+            if (!todo.length) return;
+            const v = catchupValues(todo);
+            view.catchup.open = false;
+            startCatchup({ from: Math.min(v.from, v.to), to: Math.max(v.from, v.to), fineCount: v.fine, block: v.block });
             render();
             return;
+        }
+        case 'catchup-resume':
+            resumeCatchup();
+            render();
+            return;
+        case 'catchup-abandon':
+            abandonCatchup();
+            render();
+            return;
+        case 'digest-refine': {
+            // 粗略的章改成逐層細摘：先拿掉這一章（那幾層會先送原文），再一層一層摘要。
+            const ch = structure().chapters.find((c) => c.data.id === btn.dataset.id);
+            if (!ch) return;
+            deleteChapter(ch.data.id);
+            ch.indices.filter((i) => i >= 0).forEach((i) => enqueue(i));
+            render();
+            return;
+        }
         case 'note-add':
             view.notes.adding = btn.dataset.type;
             view.notes.editing = null;
@@ -1675,6 +1751,13 @@ function onInput(e) {
         // 打字時稍等一下再重畫，不要每個字都重畫。
         clearTimeout(searchTimer);
         searchTimer = setTimeout(render, 150);
+        return;
+    }
+    if (el.dataset?.cu) {
+        const n = Math.round(Number(el.value));
+        view.catchup[el.dataset.cu] = Number.isFinite(n) && el.value !== '' ? n : null;
+        const box = panel.querySelector('[data-role="cu-estimate"]');
+        if (box) box.textContent = catchupEstimate(unsummarizedIndices());
         return;
     }
     if (el.dataset?.draft) {

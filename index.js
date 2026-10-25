@@ -13,6 +13,7 @@ import { initMessageBlocks, renderAllBlocks } from './src/ui/message.js';
 import { refreshPanel, setPanelHooks } from './src/ui/panel.js';
 import { initUpdateWatch } from './src/update.js';
 import { initCarry, onChatOpened } from './src/carry.js';
+import { initCatchup } from './src/catchup.js';
 
 function onSettingChanged(path) {
     if (path === 'language') relabelEntries();
@@ -38,6 +39,7 @@ async function start() {
     initHiding();
     initCompression();
     initCarry();
+    initCatchup();
     initAttention();
     initMessageBlocks();
     renderAllBlocks();

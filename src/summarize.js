@@ -23,12 +23,16 @@ import {
 /** 主 API 正在生成時，超過這麼久沒收到結束事件就當作已經結束（避免卡住）。 */
 const MAIN_BUSY_TIMEOUT_MS = 3 * 60 * 1000;
 
-// 佇列裡有兩種工作：{ index, chatId } 摘要一層；{ kind: 'compress', target, chatId } 壓縮（compress.js）。
+// 佇列裡有三種工作：{ index, chatId } 摘要一層；{ kind: 'compress', target, chatId } 壓縮（compress.js）；
+// { kind: 'coarse', indices, chatId } 補建時把一整段舊樓層直接寫成一章（catchup.js）。
 const queue = [];
 const queued = new Set();
-let running = null; // 正在摘要的 index；壓縮中是 'compress'
+let running = null; // 正在摘要的 index；壓縮中是 'compress'；粗略補建中是 'coarse'
+let runningCoarse = new Set(); // 粗略補建中的那一段樓層
+const coarseQueued = new Set(); // 排隊等粗略補建的樓層
 let compressHandler = null; // compress.js 的 runCompression（用註冊的方式，避免互相 import）
-let afterSummaryHook = null; // 一層摘要好之後呼叫（compress.js 用來檢查要不要壓縮）
+let coarseHandler = null; // catchup.js 的 runCoarse
+const afterSummaryHooks = []; // 一層（或一段）摘要好之後呼叫（compress.js 檢查要不要壓縮、catchup.js 檢查進度）
 let mainBusySince = 0;
 // 攔截器正在「等摘要好才開始生成」：這時候主 API 是空的，可以直接摘要。
 let holding = false;
@@ -51,8 +55,8 @@ export function isActive() {
 
 /** 畫面用的狀態：存起來的狀態，再加上「排隊中／摘要中」。 */
 export function floorState(index) {
-    if (running === index) return 'busy';
-    if (queued.has(index)) return 'queued';
+    if (running === index || runningCoarse.has(index)) return 'busy';
+    if (queued.has(index) || coarseQueued.has(index)) return 'queued';
     return floorStatus(index);
 }
 
@@ -77,7 +81,27 @@ export function setCompressHandler(fn) {
 }
 
 export function setAfterSummaryHook(fn) {
-    afterSummaryHook = fn;
+    afterSummaryHooks.push(fn);
+}
+
+function runAfterHooks(index) {
+    for (const fn of afterSummaryHooks) {
+        try { fn(index); } catch (e) { console.error(LOG_PREFIX, e); }
+    }
+}
+
+export function setCoarseHandler(fn) {
+    coarseHandler = fn;
+}
+
+/** 排一個粗略補建工作：把這幾層（連續的舊樓層）直接寫成一章。 */
+export function enqueueCoarse(indices) {
+    if (!isActive() || !coarseHandler || !indices.length) return false;
+    queue.push({ kind: 'coarse', indices: [...indices], chatId: chatKey() });
+    indices.forEach((i) => coarseQueued.add(i));
+    notify(null);
+    drain();
+    return true;
 }
 
 export function isCompressing() {
@@ -97,6 +121,7 @@ export function enqueueCompress(target = null) {
 export function cancelQueue() {
     queue.length = 0;
     queued.clear();
+    coarseQueued.clear();
     notify(null);
 }
 
@@ -129,7 +154,8 @@ async function drain() {
     if (getSettings().source === 'main' && mainBusy() && !holding) return;
     const item = queue.shift();
     if (!item) return;
-    if (item.kind !== 'compress') queued.delete(item.index);
+    if (item.kind === 'coarse') item.indices.forEach((i) => coarseQueued.delete(i));
+    else if (item.kind !== 'compress') queued.delete(item.index);
     if (item.chatId !== chatKey()) {
         drain();
         return;
@@ -148,6 +174,23 @@ async function drain() {
         }
         return;
     }
+    if (item.kind === 'coarse') {
+        running = 'coarse';
+        runningCoarse = new Set(item.indices);
+        notify(null);
+        try {
+            await coarseHandler?.(item.indices);
+        } catch (e) {
+            console.error(LOG_PREFIX, '粗略補建出錯', e);
+        } finally {
+            running = null;
+            runningCoarse = new Set();
+            notify(null);
+            runAfterHooks(null);
+            setTimeout(drain, 0);
+        }
+        return;
+    }
     running = item.index;
     notify(item.index);
     try {
@@ -155,7 +198,7 @@ async function drain() {
     } finally {
         running = null;
         notify(item.index);
-        try { afterSummaryHook?.(item.index); } catch (e) { console.error(LOG_PREFIX, e); }
+        runAfterHooks(item.index);
         setTimeout(drain, 0);
     }
 }
@@ -285,7 +328,11 @@ async function summarizeFloor(index) {
         if (!stillHere()) return;
         // 對照這一層之前的記事整理變化：配上 id、去掉重複新增和找不到的。
         const prev = getEntry(index);
-        const ops = normalizeModelOps(parsed.ops, built.notesBefore, prev?.ops, { types: trackedNoteTypes() });
+        let ops = normalizeModelOps(parsed.ops, built.notesBefore, prev?.ops, { types: trackedNoteTypes() });
+        // 粗略補建時，整段的記事變化記在這一段的最後一層；改成逐層細摘時保留下來，不然會不見。
+        // 這些變化標著 block，重做幾次都會留著。
+        const blockOps = Array.isArray(prev?.ops) ? prev.ops.filter((op) => op.block) : [];
+        if (blockOps.length) ops = [...blockOps, ...ops.filter((op) => !blockOps.some((o) => o.id === op.id && o.op === 'add'))];
         // 沒勾的欄位模型不會回報；沿用舊值，重新勾起來時資料還在。
         const keep = (key, field) => (isTracked(key) ? parsed[field] : (prev?.[field] ?? parsed[field]));
         // 摘要途中原文被改的話，hash 對不上，會自動顯示成「過期」。

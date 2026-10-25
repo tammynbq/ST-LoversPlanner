@@ -6,13 +6,14 @@
 import { currentLocale } from './i18n.js';
 import { getSettings, saveSettings } from './settings.js';
 
-export const TEMPLATE_KEYS = ['l1', 'l2', 'l3', 'recap'];
+export const TEMPLATE_KEYS = ['l1', 'l2', 'l3', 'recap', 'catchup'];
 
 export const TEMPLATE_VARS = {
     l1: ['{{char}}', '{{user}}', '{{length}}', '{{content}}', '{{rules}}', '{{previous}}', '{{notes}}', '{{format}}'],
     l2: ['{{summaries}}', '{{length}}'],
     l3: ['{{chapters}}', '{{length}}'],
     recap: ['{{recap}}', '{{length}}'],
+    catchup: ['{{char}}', '{{user}}', '{{length}}', '{{content}}', '{{rules}}', '{{previous}}', '{{notes}}', '{{format}}'],
 };
 
 
@@ -49,6 +50,20 @@ const DEFAULTS = {
 {{recap}}
 
 只輸出濃縮後的內容。`,
+        catchup: `你是故事記錄員，負責替 {{char}} 和 {{user}} 的故事做紀錄。
+
+下面是很長的一段舊對話（好幾層）。請用繁體中文、第三人稱，把這一整段寫成一份章節總結，並回報：
+{{rules}}
+
+{{previous}}
+
+{{notes}}
+
+這一段對話：
+{{content}}
+
+只輸出下面格式的 JSON，不要輸出其他文字：
+{{format}}`,
     },
     'zh-CN': {
         l1: `你是故事记录员，负责替 {{char}} 和 {{user}} 的故事做记录。
@@ -82,6 +97,20 @@ const DEFAULTS = {
 {{recap}}
 
 只输出浓缩后的内容。`,
+        catchup: `你是故事记录员，负责替 {{char}} 和 {{user}} 的故事做记录。
+
+下面是很长的一段旧对话（好几层）。请用简体中文、第三人称，把这一整段写成一份章节总结，并回报：
+{{rules}}
+
+{{previous}}
+
+{{notes}}
+
+这一段对话：
+{{content}}
+
+只输出下面格式的 JSON，不要输出其他文字：
+{{format}}`,
     },
     en: {
         l1: `You are the story's record keeper for {{char}} and {{user}}.
@@ -115,6 +144,20 @@ Output only the summary, with no title or explanation.`,
 {{recap}}
 
 Output only the condensed text.`,
+        catchup: `You are the story keeper for {{char}} and {{user}}.
+
+Below is a long stretch of an older conversation (several floors). Write this whole stretch as one chapter summary, in English and in the third person, and report:
+{{rules}}
+
+{{previous}}
+
+{{notes}}
+
+The conversation:
+{{content}}
+
+Output only JSON in the format below, nothing else:
+{{format}}`,
     },
 };
 

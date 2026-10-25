@@ -23,10 +23,16 @@ export const KEEP_AI = 2;
 const PROMPT_TYPE = { IN_PROMPT: 0, IN_CHAT: 1, BEFORE_PROMPT: 2 };
 const ROLE_SYSTEM = 0;
 
-/** 一層 AI 回覆可以被摘要「頂替」：已摘要（且沒過期）或跳過。排隊中／摘要中的不算。 */
-function isCovered(index) {
+/**
+ * 一層 AI 回覆可以被摘要「頂替」：已摘要（且沒過期）或跳過。排隊中／摘要中的不算。
+ * 粗略補建的樓層沒有單層摘要，只有它所在的章有效時才算（章過期就照送原文）。
+ */
+function isCovered(index, st) {
     const state = floorState(index);
-    return state === 'ok' || state === 'skip';
+    if (state === 'skip') return true;
+    if (state !== 'ok') return false;
+    if (!getEntry(index)?.coarse) return true;
+    return st().covered.has(index);
 }
 
 /**
@@ -47,9 +53,11 @@ export function computeHidden(limit = getChat().length) {
 
     const keepFrom = ai[ai.length - KEEP_AI - 1] + 1;
     let prevAi = -1;
+    let cached = null;
+    const st = () => (cached ??= structure());
     for (const f of ai) {
         if (f >= keepFrom) break;
-        if (isCovered(f)) {
+        if (isCovered(f, st)) {
             hidden.add(f);
             // 這層前面的使用者發言（到上一個 AI 樓層為止）跟著隱藏。
             for (let i = prevAi + 1; i < f; i++) if (isUserMessage(chat[i])) hidden.add(i);

@@ -604,4 +604,9 @@
 .lp-recap .lp-row { gap: 0.5em; flex-wrap: wrap; }
 .lp-recap-text { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0.3em 0; line-height: 1.5; }
 .lp-recap-linked { border-style: dashed; }
-.lp-toast-undo { margin-top: 0.4em; }
+.lp-toast-actions { display: flex; gap: 0.4em; flex-wrap: wrap; margin-top: 0.4em; }
+
+/* ===== 補建舊樓層 ===== */
+.lp-catchup { display: flex; flex-direction: column; gap: 0.5em; padding: 0.7em 0.8em; margin-bottom: 0.6em; }
+.lp-catchup .lp-row { gap: 0.4em; flex-wrap: wrap; align-items: center; }
+.lp-catchup .lp-callout { margin: 0; }

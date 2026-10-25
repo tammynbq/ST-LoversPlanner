@@ -12,7 +12,7 @@
 //   即時共用 → 同角色共用一份（characters[頭像].shared.notes），兩邊都能改，以最新的修改為準。
 // 這個版本之前就有的舊聊天，第一次打開時記憶範圍設成「獨立」，不會突然和別的聊天混在一起。
 
-import { ctx, LOG_PREFIX, MODULE, toast } from './util.js';
+import { ctx, LOG_PREFIX, MODULE, toast, toastActions } from './util.js';
 import { getSettings, isTracked, saveSettings } from './settings.js';
 import { t } from './i18n.js';
 import { getTemplate } from './prompts.js';
@@ -400,27 +400,14 @@ function isNewChat() {
     return !chat.some(isUserMessage) && aiIndices().length <= 1;
 }
 
-let undoToast = null;
-
 function announce(snap, result) {
-    const msg = t('carry.done', { chat: snap.id, notes: result.notes });
-    try {
-        if (globalThis.toastr?.info) {
-            undoToast?.remove?.();
-            const html = `<div>${msg.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`)}</div><button type="button" class="menu_button lp-btn lp-toast-undo">${t('carry.undo')}</button>`;
-            undoToast = globalThis.toastr.info(html, '', {
-                timeOut: 15000, extendedTimeOut: 5000, escapeHtml: false, closeButton: true, tapToDismiss: false,
-            });
-            const el = undoToast?.[0] ?? undoToast;
-            el?.querySelector?.('.lp-toast-undo')?.addEventListener('click', () => {
-                undoCarry();
-                undoToast?.remove?.();
-                toast(t('carry.undone'), 'info');
-            });
-            return;
-        }
-    } catch (e) { /* 改用一般通知 */ }
-    toast(msg, 'info');
+    toastActions(t('carry.done', { chat: snap.id, notes: result.notes }), [{
+        label: t('carry.undo'),
+        run: () => {
+            undoCarry();
+            toast(t('carry.undone'), 'info');
+        },
+    }]);
 }
 
 /** 換聊天後：新聊天照角色的共同設定自動帶記憶；舊聊天第一次打開時設成獨立。 */

@@ -22,7 +22,9 @@ export const STATUS_ICONS = {
 };
 
 /** 每種狀態可以做的操作。摘要區塊和大視窗共用。 */
-export function actionsFor(state) {
+export function actionsFor(state, index = null) {
+    // 粗略補建的樓層：沒有單層摘要，要細摘請到大視窗的那一章按「改成逐層細摘」。
+    if (state === 'ok' && index !== null && getEntry(index)?.coarse) return [];
     switch (state) {
         case 'none': return ['summarize', 'skip'];
         case 'ok': return ['edit', 'redo', 'skip'];
@@ -48,6 +50,7 @@ export function hintFor(index, state) {
         case 'skip': return t('sum.hint.skip');
         case 'fail': return t('sum.hint.fail', { error: entry?.error ?? '' });
         case 'stale': return t('sum.hint.stale');
+        case 'ok': return entry?.coarse ? t('sum.hint.coarse') : '';
         default: return '';
     }
 }
@@ -143,7 +146,7 @@ function blockHtml(index) {
             const scene = state === 'skip' ? '' : sceneHtml(entry);
             const text = summary ? `<div class="lp-sum-text">${esc(summary)}</div>` : `<div class="lp-sum-hint">${esc(hintFor(index, state))}</div>`;
             const changes = state === 'ok' || state === 'stale' ? changesHtml(index) : '';
-            const actions = actionsFor(state).map((a) =>
+            const actions = actionsFor(state, index).map((a) =>
                 `<button type="button" class="menu_button lp-btn${['summarize', 'redo', 'retry'].includes(a) ? ' lp-primary' : ''}" data-lp-act="${a}">${esc(t(`act.${a}`))}</button>`).join('');
             body = `${hint}${scene}${text}${changes}${actions ? `<div class="lp-sum-actions">${actions}</div>` : ''}`;
         }

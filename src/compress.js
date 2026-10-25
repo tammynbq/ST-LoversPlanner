@@ -129,7 +129,8 @@ export function dueChapterFloors(st = structure()) {
         if (!isAiMessage(chat[i]) || st.claimed.has(i)) continue;
         const state = floorState(i);
         if (state === 'skip') continue;
-        if (state !== 'ok') return null;
+        // 粗略補建的樓層沒有單層摘要，不能拿來合併。
+        if (state !== 'ok' || getEntry(i)?.coarse) return null;
         picked.push(i);
         if (picked.length === n) return picked;
     }
@@ -268,6 +269,12 @@ export async function runCompression(target) {
     if (target) {
         const st = structure();
         const ch = st.chapters.find((c) => c.data.id === target);
+        if (ch?.data.coarse && coarseRedo) {
+            const alive = ch.indices.filter((i) => i >= 0 && isAiMessage(getChat()[i]));
+            if (alive.length) await coarseRedo(alive, ch.data);
+            else deleteChapter(target);
+            return;
+        }
         if (ch) {
             const alive = ch.indices.filter((i) => i >= 0 && floorState(i) === 'ok');
             if (alive.length) await compressChapter(alive, ch.data);
@@ -303,6 +310,17 @@ export async function runCompression(target) {
 export function compressionDue() {
     const st = structure();
     return Boolean(dueChapterFloors(st) || dueVolumeChapters(st));
+}
+
+/** 補建（catchup.js）直接寫好的一章。 */
+export function saveChapter(item) {
+    upsert('chapters', item);
+}
+
+// 粗略補建的章，重做時要回去讀原文（成員沒有單層摘要可以合併）。
+let coarseRedo = null;
+export function setCoarseRedo(fn) {
+    coarseRedo = fn;
 }
 
 export function editChapter(id, summary) {
