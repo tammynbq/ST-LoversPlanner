@@ -77,6 +77,22 @@ check('self-check rescues a covered window (no popover)', hit2.panel && hit2.par
 await page2.screenshot({ path: `${OUT}/theme-rescued.png` });
 await page2.close();
 
+// ===== 窄螢幕：按鈕不能被擠成一個字寬的直條（主題把 .menu_button 設成 min-content 也一樣） =====
+const page3 = await browser.newPage({ viewport: { width: 375, height: 800 }, isMobile: true, hasTouch: true });
+await page3.addInitScript(() => {
+  window.__chat = Array.from({ length: 6 }, (_, i) => ({ name: i % 2 ? '沈言' : '小雨', is_user: !(i % 2), mes: `第${i}則`, send_date: `d${i}`, extra: {} }));
+  window.__presetSettings = { lovers_planner: { language: 'zh-CN' } };
+});
+await page3.goto(URL);
+await page3.waitForFunction(() => Boolean(document.getElementById('lp_wand_entry')), null, { timeout: 15000 });
+await page3.addStyleTag({ content: '.menu_button { width: min-content; }' });
+await page3.evaluate(() => { document.getElementById('extensionsMenu').style.display = ''; document.getElementById('lp_wand_entry').click(); });
+await page3.click('[data-tab="summary"]');
+const tall = await page3.$$eval('.lp-panel .lp-btn', (els) => els.filter((b) => b.offsetParent).map((b) => [b.textContent.trim(), Math.round(b.getBoundingClientRect().height)]).filter(([, h]) => h > 60));
+check('buttons stay on one line on a narrow screen', tall.length === 0, JSON.stringify(tall));
+await page3.screenshot({ path: `${OUT}/theme-narrow.png` });
+await page3.close();
+
 // 程式版本和 manifest 一致；擴充設定裡顯示版本
 const versions = await page.evaluate(async () => {
   const { VERSION } = await import('/src/version.js');
