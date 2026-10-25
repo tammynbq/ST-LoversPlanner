@@ -8,7 +8,8 @@ import { getTemplate, isTemplateModified, resetTemplate, setTemplate, TEMPLATE_K
 import { listModels, normalizeBaseUrl, testConnection } from '../api/custom.js';
 import { errorText } from '../errors.js';
 import { getLastStats, onStatsChange, previewInjection } from '../hide.js';
-import { aiIndices, getEntry } from '../chat.js';
+import { aiIndices, getChat, getEntry } from '../chat.js';
+import { hl, isExpanded, isSectionOpen, matches, setExpanded, terms, toggleExpanded, toggleSection } from './fold.js';
 import {
     cancelQueue, enqueue, enqueueCompress, floorState, isActive, onSummaryChange, pendingCount, unsummarizedIndices,
 } from '../summarize.js';
@@ -74,9 +75,12 @@ const view = {
         limit: SUMMARY_PAGE,
         confirmBackfill: false,
         previewOpen: false,
-        open: new Set(['loose']), // 展開中的群組（loose＝未壓縮、章 id、卷 id）
         editing: null, // 正在編輯的章／卷 id
     },
+    // 各分頁的篩選字串，以及總搜尋。
+    query: { summary: '', characters: '', items: '', notes: '', done: '' },
+    global: { open: false, query: '' },
+    focusKey: null, // 重畫後捲到這個項目（總搜尋點結果時用）
     tpl: 'l1',
     confirmReset: false,
     resetDone: false,
@@ -190,6 +194,9 @@ function render() {
     const scrollTop = body ? body.scrollTop : 0;
     // 重畫時保住正在打的字（章／卷總結的編輯框）。
     const draftDigest = panel.querySelector('[data-digest-text]')?.value;
+    // 正在搜尋框打字時，重畫後游標要留在原處。
+    const active = document.activeElement;
+    const searchFocus = active?.dataset?.search ? { scope: active.dataset.search, pos: active.selectionStart } : null;
     panel.setAttribute('aria-label', t('app.name'));
     panel.setAttribute('lang', currentLocale());
     panel.innerHTML = renderHeader() + renderTabs() + `<div class="lp-body">${renderBanner()}${renderTab()}</div>`;
@@ -197,6 +204,17 @@ function render() {
     if (newBody) newBody.scrollTop = scrollTop;
     const digestBox = panel.querySelector('[data-digest-text]');
     if (digestBox && draftDigest !== undefined) digestBox.value = draftDigest;
+    if (searchFocus) {
+        const box = panel.querySelector(`[data-search="${searchFocus.scope}"]`);
+        if (box) {
+            box.focus();
+            try { box.setSelectionRange(searchFocus.pos, searchFocus.pos); } catch (e) { /* 有些輸入框不支援 */ }
+        }
+    }
+    if (view.focusKey) {
+        panel.querySelector(`[data-fold-key="${CSS.escape(view.focusKey)}"]`)?.scrollIntoView({ block: 'center' });
+        view.focusKey = null;
+    }
 }
 
 function renderHeader() {
@@ -213,6 +231,9 @@ function renderHeader() {
         <div class="lp-title">${esc(t('app.name'))}${subtitle ? ` <span class="lp-subtitle">· ${esc(subtitle)}</span>` : ''}</div>
         <div class="lp-stats">${esc(statsText())}</div>
       </div>
+      <button type="button" class="lp-icon-btn${view.global.open ? ' lp-on' : ''}" data-action="global-toggle" aria-pressed="${view.global.open}" aria-label="${esc(t('search.global'))}" title="${esc(t('search.global'))}">
+        <span class="fa-solid fa-magnifying-glass" aria-hidden="true"></span>
+      </button>
       <button type="button" class="lp-icon-btn" data-action="close" aria-label="${esc(t('panel.close'))}" title="${esc(t('panel.close'))}">
         <span class="fa-solid fa-xmark" aria-hidden="true"></span>
       </button>
@@ -232,7 +253,8 @@ function statsText() {
 function renderTabs() {
     if (!visibleTabs().includes(view.tab)) view.tab = 'summary';
     const items = visibleTabs().map((tab) => {
-        const on = view.tab === tab;
+        // 總搜尋開著時，沒有分頁是「目前的」。
+        const on = view.tab === tab && !view.global.open;
         return `<button type="button" role="tab" class="lp-tab${on ? ' lp-on' : ''}" aria-selected="${on}" data-action="tab" data-tab="${tab}">${esc(t(`tab.${tab}`))}</button>`;
     }).join('');
     return `<div class="lp-tabs" role="tablist">${items}</div>`;
@@ -248,6 +270,7 @@ function renderBanner() {
 }
 
 function renderTab() {
+    if (view.global.open) return renderGlobalSearch();
     switch (view.tab) {
         case 'summary': return renderSummaryTab();
         case 'characters':
@@ -272,24 +295,55 @@ function badge(state) {
     return `<span class="lp-badge lp-st-${state}"><span class="${STATUS_ICONS[state]}" aria-hidden="true"></span>${esc(t(`st.${state}`))}</span>`;
 }
 
-function summaryRow(index, state) {
+function floorKey(index) {
+    return `floor:${getChat()[index]?.send_date ?? index}`;
+}
+
+/** 搜尋用：一層摘要的所有文字。 */
+function floorText(index) {
+    const e = getEntry(index);
+    return [`#${index}`, e?.summary, e?.time, e?.location, (e?.characters ?? []).join(' ')].filter(Boolean).join(' ');
+}
+
+/** 一層摘要：平常只顯示一行，點開才有完整內容和按鈕。搜尋時符合的自動展開。 */
+function summaryRow(index, state, query = '') {
     const entry = getEntry(index);
     const summary = state === 'skip' ? '' : (entry?.summary ?? '');
     const hint = hintFor(index, state);
+    const key = floorKey(index);
+    const open = isExpanded(key) || Boolean(query);
+    const head = `
+        <button type="button" class="lp-row-head" data-action="fold" data-key="${esc(key)}" aria-expanded="${open}">
+          <span class="lp-sum-chev" aria-hidden="true">${open ? '▾' : '▸'}</span>
+          <span class="lp-floor-no">#${index}</span>
+          ${badge(state)}
+          <span class="lp-row-preview">${open ? '' : hl(summary || hint, query)}</span>
+        </button>`;
+    if (!open) return `<div class="lp-floor-row lp-folded" data-fold-key="${esc(key)}">${head}</div>`;
     const showHint = hint && (!summary || state === 'stale' || state === 'fail');
     const actions = [...actionsFor(state), 'jump'].map((a) =>
         `<button type="button" class="menu_button lp-btn${['summarize', 'redo', 'retry'].includes(a) ? ' lp-primary' : ''}" data-action="sum-act" data-act="${a}" data-index="${index}">${esc(t(`act.${a}`))}</button>`).join('');
     return `
-      <div class="lp-floor-row">
-        <div class="lp-floor-no">#${index}</div>
+      <div class="lp-floor-row lp-unfolded" data-fold-key="${esc(key)}">
+        ${head}
         <div class="lp-floor-main">
-          <div>${badge(state)}</div>
           ${state === 'skip' ? '' : sceneHtml(entry)}
-          ${summary ? `<div class="lp-sum-text">${esc(summary)}</div>` : ''}
+          ${summary ? `<div class="lp-sum-text">${hl(summary, query)}</div>` : ''}
           ${showHint ? `<div class="lp-sum-hint">${esc(hint)}</div>` : ''}
           <div class="lp-sum-actions">${actions}</div>
         </div>
       </div>`;
+}
+
+/** 分頁上方的篩選框。 */
+function searchBox(scope, placeholderKey = 'search.placeholder') {
+    const value = scope === 'global' ? view.global.query : (view.query[scope] ?? '');
+    return `
+      <label class="lp-search">
+        <span class="fa-solid fa-magnifying-glass" aria-hidden="true"></span>
+        <span class="lp-sr">${esc(t(placeholderKey))}</span>
+        <input type="search" class="text_pole" data-search="${scope}" value="${esc(value)}" placeholder="${esc(t(placeholderKey))}" autocomplete="off" spellcheck="false">
+      </label>`;
 }
 
 function renderSummaryTab() {
@@ -328,7 +382,10 @@ function renderSummaryTab() {
     // 「全部」時照卷 → 章 → 各層折疊顯示；篩選時直接列出符合的樓層。
     let rows;
     let more = '';
-    if (view.sum.filter === 'all') {
+    const query = view.query.summary;
+    if (query) {
+        rows = renderSummarySearch(states, query);
+    } else if (view.sum.filter === 'all') {
         rows = renderTree(states);
     } else {
         rows = shown.length
@@ -353,6 +410,7 @@ function renderSummaryTab() {
     return `
       <div class="lp-summary">
         ${preview}
+        ${searchBox('summary')}
         <div class="lp-row">
           <div class="lp-chips">${chips}</div>
           <span class="lp-spacer"></span>
@@ -366,8 +424,13 @@ function renderSummaryTab() {
 
 // ===== 摘要分頁：卷 → 章 → 各層 =====
 
+/** 群組開著嗎：「未壓縮」預設開，章和卷預設收起；都記住上次的狀態。 */
+function groupOpen(id) {
+    return id === 'loose' ? isSectionOpen('group:loose') : isExpanded(`group:${id}`);
+}
+
 function groupHead(id, title, kind, range, meta, state = null) {
-    const open = view.sum.open.has(id);
+    const open = groupOpen(id);
     const badgeHtml = state && state !== 'ok' ? badge(state) : '';
     return `
       <button type="button" class="lp-group-head" data-action="sum-group" data-group="${esc(id)}" aria-expanded="${open}">
@@ -382,7 +445,7 @@ function groupHead(id, title, kind, range, meta, state = null) {
 }
 
 /** 章或卷的總結卡片：時間地點、內容、操作（重新壓縮、編輯）。 */
-function digestCard(kind, data, state) {
+function digestCard(kind, data, state, query = '') {
     const id = data.id;
     if (view.sum.editing === id) {
         return `
@@ -399,7 +462,7 @@ function digestCard(kind, data, state) {
       <div class="lp-digest">
         ${sceneHtml({ time: data.time, location: data.location, characters: [] })}
         ${hint ? `<div class="lp-sum-hint${state === 'stale' ? ' lp-warn' : ''}">${esc(hint)}</div>` : ''}
-        ${data.summary ? `<div class="lp-sum-text">${esc(data.summary)}</div>` : ''}
+        ${data.summary ? `<div class="lp-sum-text">${hl(data.summary, query)}</div>` : ''}
         <div class="lp-sum-actions">
           <button type="button" class="menu_button lp-btn${state !== 'ok' ? ' lp-primary' : ''}" data-action="digest-redo" data-id="${esc(id)}">${esc(t('compress.redo'))}</button>
           <button type="button" class="menu_button lp-btn" data-action="digest-edit" data-id="${esc(id)}">${esc(t('act.edit'))}</button>
@@ -415,10 +478,38 @@ function rangeText(indices) {
 
 function chapterGroup(c, states) {
     const id = c.data.id;
-    const body = view.sum.open.has(id)
+    const body = groupOpen(id)
         ? `<div class="lp-group-body">${digestCard('chapter', c.data, c.state)}${c.indices.filter((i) => i >= 0).sort((a, b) => (view.sum.newest ? b - a : a - b)).map((i) => summaryRow(i, states.get(i) ?? floorState(i))).join('')}</div>`
         : '';
     return `<div class="lp-group">${groupHead(id, t('chapter.label', { n: c.number }), 'L2', rangeText(c.indices), t('chapter.meta', { n: c.indices.length }), c.state)}${body}</div>`;
+}
+
+function digestText(label, data) {
+    return [label, data.summary, data.time, data.location].filter(Boolean).join(' ');
+}
+
+/** 摘要分頁有搜尋字串時：列出符合的卷、章和各層（各層也照篩選標籤）。 */
+function renderSummarySearch(states, query) {
+    const st = structure();
+    const blocks = [];
+    for (const v of st.volumes) {
+        const label = t('volume.label', { n: v.number });
+        if (!matches(digestText(label, v.data), query)) continue;
+        const indices = v.chapters.flatMap((c) => c.indices).filter((i) => i >= 0);
+        blocks.push({ at: Math.min(...indices, Infinity), html: `<div class="lp-group" data-fold-key="group:${esc(v.data.id)}"><div class="lp-group-label">${esc(label)} <span class="lp-kind-tag">L3</span> <span class="lp-note">${esc(rangeText(indices))}</span></div>${digestCard('volume', v.data, v.state, query)}</div>` });
+    }
+    for (const c of st.chapters) {
+        const label = t('chapter.label', { n: c.number });
+        if (!matches(digestText(label, c.data), query)) continue;
+        blocks.push({ at: Math.min(...c.indices.filter((i) => i >= 0), Infinity), html: `<div class="lp-group" data-fold-key="group:${esc(c.data.id)}"><div class="lp-group-label">${esc(label)} <span class="lp-kind-tag">L2</span> <span class="lp-note">${esc(rangeText(c.indices))}</span></div>${digestCard('chapter', c.data, c.state, query)}</div>` });
+    }
+    for (const [i, state] of states) {
+        if (!matchesFilter(state, view.sum.filter) || !matches(floorText(i), query)) continue;
+        blocks.push({ at: i, html: summaryRow(i, state, query) });
+    }
+    blocks.sort((a, b) => (view.sum.newest ? b.at - a.at : a.at - b.at));
+    const count = `<div class="lp-note" role="status">${esc(t('search.count', { n: blocks.length }))}</div>`;
+    return blocks.length ? count + blocks.map((b) => b.html).join('') : `<div class="lp-wip">${esc(t('search.none'))}</div>`;
 }
 
 function renderTree(states) {
@@ -429,7 +520,7 @@ function renderTree(states) {
     if (loose.length) {
         const sorted = [...loose].sort((a, b) => (view.sum.newest ? b - a : a - b));
         const shown = sorted.slice(0, view.sum.limit);
-        const open = view.sum.open.has('loose');
+        const open = groupOpen('loose');
         const more = sorted.length > shown.length
             ? `<button type="button" class="menu_button lp-btn lp-more" data-action="sum-more">${esc(t('sum.more', { n: sorted.length - shown.length }))}</button>` : '';
         const n = Number(getSettings().compress.l1PerL2) || 10;
@@ -447,7 +538,7 @@ function renderTree(states) {
         const id = v.data.id;
         const indices = v.chapters.flatMap((c) => c.indices);
         const chapters = [...v.chapters].sort((a, b) => (view.sum.newest ? b.number - a.number : a.number - b.number));
-        const body = view.sum.open.has(id)
+        const body = groupOpen(id)
             ? `<div class="lp-group-body">${digestCard('volume', v.data, v.state)}${chapters.map((c) => chapterGroup(c, states)).join('')}</div>`
             : '';
         blocks.push({
@@ -531,12 +622,40 @@ function noteActions(note) {
     return `<div class="lp-sum-actions">${out.join('')}</div>`;
 }
 
-function noteCard(note) {
+/** 搜尋用：一條記事的所有文字。 */
+function noteText(note) {
+    return [typeLabel(note.type), ...Object.values(note.data ?? {}), note.state !== 'active' ? resultLabel(note.result ?? note.state) : ''].filter(Boolean).join(' ');
+}
+
+/** 收起時那一行的副標：人物顯示身份／關係，物件顯示在誰手上，約定顯示和誰、時間。 */
+function noteSub(note) {
+    const d = note.data;
+    if (note.type === 'character') return [d.identity, d.relation].filter(Boolean).join(' · ');
+    if (note.type === 'item') return d.holder ?? '';
+    if (note.type === 'promise') return [d.with, d.when].filter(Boolean).join(' · ');
+    return '';
+}
+
+/** 記事卡片：平常只顯示一行，點開才有全部欄位和按鈕。搜尋時符合的自動展開。 */
+function noteCard(note, query = '') {
     if (view.notes.editing === note.id) return noteForm(note.type, note.data, { id: note.id });
+    const key = `note:${note.id}`;
+    const open = isExpanded(key) || Boolean(query);
+    const qtyTag = note.type === 'item' && note.data.quantity !== undefined ? `<span class="lp-qty-tag">×${esc(note.data.quantity)}</span>` : '';
+    const broken = note.state === 'broken' ? `<span class="lp-badge lp-st-fail">${esc(resultLabel('broken'))}</span>` : '';
+    const sub = noteSub(note);
+    const head = `
+        <button type="button" class="lp-row-head" data-action="fold" data-key="${esc(key)}" aria-expanded="${open}">
+          <span class="lp-sum-chev" aria-hidden="true">${open ? '▾' : '▸'}</span>
+          <span class="lp-note-title">${hl(noteTitle(note), query)}</span>
+          ${qtyTag}${broken}
+          ${!open && sub ? `<span class="lp-row-preview">${hl(sub, query)}</span>` : ''}
+        </button>`;
+    if (!open) return `<div class="lp-note-card lp-folded${note.state === 'broken' ? ' lp-note-broken' : ''}" data-fold-key="${esc(key)}">${head}</div>`;
     const titleField = NOTE_FIELDS[note.type][0];
     const lines = NOTE_FIELDS[note.type]
         .filter((f) => f !== titleField && !NUMBER_FIELDS.has(f) && note.data[f])
-        .map((f) => `<div class="lp-note-line"><span class="lp-label">${esc(t(`field.${note.type}.${f}`))}</span> ${esc(note.data[f])}</div>`)
+        .map((f) => `<div class="lp-note-line"><span class="lp-label">${esc(t(`field.${note.type}.${f}`))}</span> ${hl(note.data[f], query)}</div>`)
         .join('');
     // 物件的數量：直接用 −／＋ 改。
     const qty = note.type === 'item' ? `
@@ -546,10 +665,9 @@ function noteCard(note) {
           <span class="lp-qty-val" aria-live="polite">${esc(note.data.quantity ?? '—')}</span>
           <button type="button" class="menu_button lp-btn lp-mini lp-qty-btn" data-action="note-qty" data-delta="1" data-id="${note.id}" aria-label="${esc(t('notes.qtyPlus'))}">＋</button>
         </div>` : '';
-    const broken = note.state === 'broken' ? `<span class="lp-badge lp-st-fail">${esc(resultLabel('broken'))}</span>` : '';
     return `
-      <div class="lp-note-card${note.state === 'broken' ? ' lp-note-broken' : ''}">
-        <div class="lp-note-head"><span class="lp-note-title">${esc(noteTitle(note))}</span>${broken}</div>
+      <div class="lp-note-card${note.state === 'broken' ? ' lp-note-broken' : ''}" data-fold-key="${esc(key)}">
+        ${head}
         ${qty}
         ${lines}
         ${noteTrace(note)}
@@ -559,27 +677,38 @@ function noteCard(note) {
 
 function renderNotesTab(types = NOTE_TYPES) {
     if (!isActive()) return '';
+    const query = view.query[view.tab] ?? '';
     const sections = types.map((type) => {
         // 進行中的在前，被打破的約定在後。
-        const list = notesOfType(type).sort((a, b) => (a.state === 'broken') - (b.state === 'broken'));
+        const all = notesOfType(type).sort((a, b) => (a.state === 'broken') - (b.state === 'broken'));
+        const list = query ? all.filter((n) => matches(noteText(n), query)) : all;
         const hint = SECTION_HINT[type] ? `<span class="lp-note">${esc(t(SECTION_HINT[type]))}</span>` : '';
         const adding = view.notes.adding === type ? noteForm(type, {}) : '';
+        const secKey = `sec:${type}`;
+        // 搜尋時區塊一律打開，才看得到結果。
+        const open = isSectionOpen(secKey) || Boolean(query) || Boolean(adding);
+        const count = query ? t('search.countOf', { n: list.length, total: all.length }) : t('notes.count', { n: all.length });
         return `
           <section class="lp-note-section">
             <div class="lp-row">
-              <span class="lp-scope-title">${esc(t(`kind.${KIND_KEY[type]}`))}</span>
-              <span class="lp-note">${esc(t('notes.count', { n: list.length }))}</span>
-              ${hint}
+              <button type="button" class="lp-sec-toggle" data-action="fold-sec" data-key="${secKey}" aria-expanded="${open}">
+                <span class="lp-sum-chev" aria-hidden="true">${open ? '▾' : '▸'}</span>
+                <span class="lp-scope-title">${esc(t(`kind.${KIND_KEY[type]}`))}</span>
+                <span class="lp-note">${esc(count)}</span>
+              </button>
+              ${open ? hint : ''}
               <span class="lp-spacer"></span>
               <button type="button" class="menu_button lp-btn lp-mini" data-action="note-add" data-type="${type}">${esc(t('notes.add'))}</button>
             </div>
             ${adding}
-            <div class="lp-card-grid">${list.map(noteCard).join('')}</div>
+            ${open ? `<div class="lp-card-grid">${list.map((n) => noteCard(n, query)).join('')}</div>` : ''}
           </section>`;
     }).join('');
     const empty = types.every((type) => !notesOfType(type).length) && !view.notes.adding
         ? `<div class="lp-wip">${esc(t('notes.empty'))}</div>` : '';
-    return `${empty}<div class="lp-notes-stack">${sections}</div>`;
+    const none = query && types.every((type) => !notesOfType(type).some((n) => matches(noteText(n), query)))
+        ? `<div class="lp-wip">${esc(t('search.none'))}</div>` : '';
+    return `${searchBox(view.tab)}${empty}${none}<div class="lp-notes-stack">${sections}</div>`;
 }
 
 // ===== 已完成分頁 =====
@@ -587,18 +716,31 @@ function renderNotesTab(types = NOTE_TYPES) {
 function renderDoneTab() {
     if (!isActive()) return '';
     const list = closedNotes();
-    const rows = list.map((note) => `
-      <div class="lp-floor-row">
-        <span class="lp-chip-static">${esc(typeLabel(note.type))}</span>
-        <div class="lp-floor-main">
-          <div><span class="lp-note-title">${esc(noteTitle(note))}</span> <span class="lp-note">（${esc(resultLabel(note.result))}）</span></div>
-          ${noteTrace(note)}
-        </div>
-        <div class="lp-sum-actions lp-done-actions">
-          <button type="button" class="menu_button lp-btn lp-mini" data-action="note-reopen" data-id="${note.id}">${esc(t('done.restore'))}</button>
-          <button type="button" class="menu_button lp-btn lp-mini lp-danger" data-action="note-delete" data-id="${note.id}">${esc(t('done.delete'))}</button>
-        </div>
-      </div>`).join('');
+    const query = view.query.done;
+    const shown = query ? list.filter((n) => matches(noteText(n), query)) : list;
+    const rows = shown.map((note) => {
+        const key = `done:${note.id}`;
+        const open = isExpanded(key) || Boolean(query);
+        const head = `
+          <button type="button" class="lp-row-head" data-action="fold" data-key="${esc(key)}" aria-expanded="${open}">
+            <span class="lp-sum-chev" aria-hidden="true">${open ? '▾' : '▸'}</span>
+            <span class="lp-chip-static">${esc(typeLabel(note.type))}</span>
+            <span class="lp-note-title">${hl(noteTitle(note), query)}</span>
+            <span class="lp-note">（${esc(resultLabel(note.result))}）</span>
+          </button>`;
+        if (!open) return `<div class="lp-floor-row lp-folded" data-fold-key="${esc(key)}">${head}</div>`;
+        return `
+          <div class="lp-floor-row lp-unfolded" data-fold-key="${esc(key)}">
+            ${head}
+            <div class="lp-floor-main">
+              ${noteTrace(note)}
+              <div class="lp-sum-actions">
+                <button type="button" class="menu_button lp-btn lp-mini" data-action="note-reopen" data-id="${note.id}">${esc(t('done.restore'))}</button>
+                <button type="button" class="menu_button lp-btn lp-mini lp-danger" data-action="note-delete" data-id="${note.id}">${esc(t('done.delete'))}</button>
+              </div>
+            </div>
+          </div>`;
+    }).join('');
     let clear = '';
     if (list.length && view.notes.confirmClear) {
         clear = `<div class="lp-callout lp-row"><span>${esc(t('done.clearConfirm', { n: list.length }))}</span><span class="lp-spacer"></span>
@@ -610,9 +752,91 @@ function renderDoneTab() {
     return `
       <div class="lp-summary">
         <div class="lp-note">${esc(t('done.intro'))}</div>
-        ${list.length ? `<div class="lp-floor-list">${rows}</div>` : `<div class="lp-wip">${esc(t('done.empty'))}</div>`}
+        ${list.length ? searchBox('done') : ''}
+        ${!list.length ? `<div class="lp-wip">${esc(t('done.empty'))}</div>` : shown.length ? `<div class="lp-floor-list">${rows}</div>` : `<div class="lp-wip">${esc(t('search.none'))}</div>`}
         ${clear}
       </div>`;
+}
+
+// ===== 總搜尋 =====
+
+const GLOBAL_LIMIT = 30;
+
+function resultButton({ tab, key, title, sub = '', query }) {
+    return `
+      <button type="button" class="lp-result" data-action="goto" data-tab="${tab}" data-key="${esc(key)}">
+        <span class="lp-result-title">${hl(title, query)}</span>
+        ${sub ? `<span class="lp-result-sub">${hl(sub, query)}</span>` : ''}
+      </button>`;
+}
+
+function resultGroup(label, items) {
+    if (!items.length) return '';
+    const more = items.length > GLOBAL_LIMIT ? `<div class="lp-note">${esc(t('search.more', { n: items.length - GLOBAL_LIMIT }))}</div>` : '';
+    return `
+      <section class="lp-result-group">
+        <div class="lp-scope-title">${esc(label)} <span class="lp-note">${esc(t('notes.count', { n: items.length }))}</span></div>
+        ${items.slice(0, GLOBAL_LIMIT).join('')}${more}
+      </section>`;
+}
+
+/** 一次搜摘要、章／卷總結和所有記事；點結果就跳到那個分頁並展開那一項。 */
+function renderGlobalSearch() {
+    const query = view.global.query;
+    const head = `<div class="lp-global-head">${searchBox('global', 'search.globalPlaceholder')}
+      <button type="button" class="menu_button lp-btn" data-action="global-toggle">${esc(t('panel.close'))}</button></div>`;
+    if (!isActive()) return head;
+    if (!query.trim()) return `${head}<div class="lp-wip">${esc(t('search.globalHint'))}</div>`;
+
+    const groups = [];
+    const st = structure();
+    const digests = [];
+    for (const v of st.volumes) {
+        const label = t('volume.label', { n: v.number });
+        if (matches(digestText(label, v.data), query)) digests.push(resultButton({ tab: 'summary', key: `group:${v.data.id}`, title: label, sub: v.data.summary, query }));
+    }
+    for (const c of st.chapters) {
+        const label = t('chapter.label', { n: c.number });
+        if (matches(digestText(label, c.data), query)) digests.push(resultButton({ tab: 'summary', key: `group:${c.data.id}`, title: label, sub: c.data.summary, query }));
+    }
+    groups.push(resultGroup(t('search.groupDigests'), digests));
+    const floors = aiIndices().reverse()
+        .filter((i) => getEntry(i)?.summary && matches(floorText(i), query))
+        .map((i) => resultButton({ tab: 'summary', key: floorKey(i), title: `#${i}`, sub: getEntry(i).summary, query }));
+    groups.push(resultGroup(t('search.groupFloors'), floors));
+    const tabOf = { character: 'characters', item: 'items', promise: 'notes', todo: 'notes' };
+    for (const type of NOTE_TYPES) {
+        if (!isTracked(type)) continue;
+        const items = notesOfType(type)
+            .filter((n) => matches(noteText(n), query))
+            .map((n) => resultButton({ tab: tabOf[type], key: `note:${n.id}`, title: noteTitle(n), sub: matchedFields(n, query) || noteSub(n), query }));
+        groups.push(resultGroup(t(`kind.${KIND_KEY[type]}`), items));
+    }
+    const done = closedNotes()
+        .filter((n) => matches(noteText(n), query))
+        .map((n) => resultButton({ tab: 'done', key: `done:${n.id}`, title: noteTitle(n), sub: `${typeLabel(n.type)}（${resultLabel(n.result)}）`, query }));
+    groups.push(resultGroup(t('tab.done'), done));
+    const body = groups.join('');
+    return `${head}${body || `<div class="lp-wip">${esc(t('search.none'))}</div>`}`;
+}
+
+/** 總搜尋結果的副標：列出哪些欄位符合（標題本身符合的不重複列）。 */
+function matchedFields(note, query) {
+    const titleField = NOTE_FIELDS[note.type][0];
+    return NOTE_FIELDS[note.type]
+        .filter((f) => f !== titleField && note.data[f] && terms(query).some((x) => String(note.data[f]).toLowerCase().includes(x)))
+        .map((f) => `${t(`field.${note.type}.${f}`)}：${note.data[f]}`)
+        .join('｜');
+}
+
+/** 點了總搜尋的結果：切到那個分頁、用同樣的字篩選、展開並捲到那一項。 */
+function gotoResult({ tab, key }) {
+    view.global.open = false;
+    view.tab = tab;
+    if (tab in view.query) view.query[tab] = view.global.query;
+    setExpanded(key, true);
+    view.focusKey = key;
+    render();
 }
 
 function saveNoteForm(form) {
@@ -985,11 +1209,27 @@ function onClick(e) {
             return;
         case 'sum-group': {
             const id = btn.dataset.group;
-            if (view.sum.open.has(id)) view.sum.open.delete(id);
-            else view.sum.open.add(id);
+            if (id === 'loose') toggleSection('group:loose');
+            else toggleExpanded(`group:${id}`);
             render();
             return;
         }
+        case 'fold':
+            toggleExpanded(btn.dataset.key);
+            render();
+            return;
+        case 'fold-sec':
+            toggleSection(btn.dataset.key);
+            render();
+            return;
+        case 'global-toggle':
+            view.global.open = !view.global.open;
+            render();
+            if (view.global.open) panel.querySelector('[data-search="global"]')?.focus();
+            return;
+        case 'goto':
+            gotoResult(btn.dataset);
+            return;
         case 'compress-now':
             enqueueCompress();
             render();
@@ -1155,8 +1395,19 @@ function onChange(e) {
     }
 }
 
+let searchTimer = null;
+
 function onInput(e) {
     const el = e.target;
+    if (el.dataset?.search) {
+        const scope = el.dataset.search;
+        if (scope === 'global') view.global.query = el.value;
+        else view.query[scope] = el.value;
+        // 打字時稍等一下再重畫，不要每個字都重畫。
+        clearTimeout(searchTimer);
+        searchTimer = setTimeout(render, 150);
+        return;
+    }
     if (el.dataset?.draft) {
         const field = el.dataset.draft;
         if (field === 'model' && el.value === '__manual__') {

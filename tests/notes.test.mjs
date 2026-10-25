@@ -55,6 +55,20 @@ await page.goto(URL);
 await page.waitForFunction(() => document.getElementById('lp_wand_entry'));
 await page.evaluate(`window.__generateRaw = ${MODEL}`);
 
+// 大視窗裡的卡片和樓層預設是收起來的：點開它們（已經開著就不動）。
+const unfold = async (key) => {
+  const head = `[data-fold-key="${key}"] > .lp-row-head`;
+  await page.waitForSelector(head);
+  if ((await page.getAttribute(head, 'aria-expanded')) !== 'true') await page.click(head);
+};
+const unfoldAll = async () => {
+  for (let k = 0; k < 50; k++) {
+    const head = await page.$('.lp-folded > .lp-row-head');
+    if (!head) return;
+    await head.click();
+  }
+};
+
 const entry = (i) => page.evaluate((i) => window.__chat[i].extra?.lovers_planner ?? null, i);
 const notes = () => page.evaluate(async () => {
   const m = await import('/src/notes.js');
@@ -117,6 +131,7 @@ const cards = async () => page.$$eval('.lp-note-section', (s) => s.map((x) => x.
 await openPanel('characters');
 check('tabs: summary, characters, items, notes, done, settings', (await tabs()) === 'summary,characters,items,notes,done,settings', await tabs());
 check('characters tab: 3', (await cards()) === '3', await cards());
+await unfoldAll();
 check('likes shown on card', (await page.textContent('.lp-note-section')).includes('熱可可'));
 check('trace links', (await page.textContent('.lp-note-section')).includes('在 #0 新增'));
 await page.screenshot({ path: `${OUT}/notes-2-tab.png` });
@@ -132,6 +147,7 @@ check('manual add', (await notes()).some((x) => x.content === '買防曬乳'));
 // 標題不能清空
 const itemId = (await notes()).find((x) => x.type === 'item').id;
 await page.click('[data-tab="items"]');
+await unfold(`note:${itemId}`);
 await page.click(`[data-action="note-edit"][data-id="${itemId}"]`);
 await page.fill('[data-note-form] [data-note-field="name"]', '');
 await page.click('[data-action="note-save"]');
@@ -143,12 +159,14 @@ check('manual edit', (await notes()).find((x) => x.id === itemId).name === '銀�
 // 完成待辦 → 已完成分頁 → 還原
 const todoId = (await notes()).find((x) => x.content === '查車班').id;
 await page.click('[data-tab="notes"]');
+await unfold(`note:${todoId}`);
 await page.click(`[data-action="note-complete"][data-id="${todoId}"]`);
 check('todo done', (await notes()).find((x) => x.id === todoId).state === 'done');
 await page.click('[data-tab="done"]');
 const doneTitles = await page.$$eval('.lp-floor-row .lp-note-title', (els) => els.map((e) => e.textContent));
 check('done tab lists promise + todo', doneTitles.includes('週末去看海') && doneTitles.includes('查車班'), doneTitles.join());
 await page.screenshot({ path: `${OUT}/notes-3-done.png` });
+await unfold(`done:${todoId}`);
 await page.click(`[data-action="note-reopen"][data-id="${todoId}"]`);
 check('restore from done', (await notes()).find((x) => x.id === todoId).state === 'active');
 await page.click('[data-action="done-clear-ask"]');

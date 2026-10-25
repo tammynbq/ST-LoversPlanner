@@ -26,6 +26,20 @@ await page.addInitScript((chat) => { window.__chat = chat; }, CHAT);
 await page.goto(URL);
 await page.waitForFunction(() => document.getElementById('lp_wand_entry'));
 
+// 大視窗裡的卡片和樓層預設是收起來的：點開它們（已經開著就不動）。
+const unfold = async (key) => {
+  const head = `[data-fold-key="${key}"] > .lp-row-head`;
+  await page.waitForSelector(head);
+  if ((await page.getAttribute(head, 'aria-expanded')) !== 'true') await page.click(head);
+};
+const unfoldAll = async () => {
+  for (let k = 0; k < 50; k++) {
+    const head = await page.$('.lp-folded > .lp-row-head');
+    if (!head) return;
+    await head.click();
+  }
+};
+
 const state = (i) => page.evaluate((i) => document.querySelector(`.mes[mesid="${i}"] .lp-badge`)?.className.match(/lp-st-(\w+)/)?.[1] ?? null, i);
 const entry = (i) => page.evaluate((i) => window.__chat[i].extra?.lovers_planner ?? null, i);
 const settle = () => page.waitForTimeout(150);
@@ -187,10 +201,12 @@ await page.click('[data-action="sum-filter"][data-filter="fail"]');
 check('filter fail', (await page.$$eval('.lp-floor-row .lp-floor-no', (els) => els.map((e) => e.textContent))).join() === '#6');
 await page.click('[data-action="sum-filter"][data-filter="all"]');
 await page.screenshot({ path: `${OUT}/sum-3-panel.png` });
+await unfold('floor:6');
 await page.click('[data-action="sum-act"][data-act="retry"][data-index="6"]');
 await page.waitForFunction(() => window.__chat[6].extra?.lovers_planner?.status === 'ok');
 await page.waitForTimeout(200);
 check('retry from panel', await page.evaluate(() => [...document.querySelectorAll('.lp-floor-row')].find((r) => r.querySelector('.lp-floor-no').textContent === '#6')?.textContent.includes('補上的摘要')));
+await unfold('floor:2');
 await page.click('[data-action="sum-act"][data-act="jump"][data-index="2"]');
 check('jump closes panel and expands block', !(await page.isVisible('.lp-overlay')) && (await page.isVisible('.mes[mesid="2"] .lp-sum-body')));
 

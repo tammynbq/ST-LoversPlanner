@@ -14,10 +14,12 @@ node tests/notes.test.mjs /tmp/shots
 node tests/hide.test.mjs /tmp/shots
 node tests/track.test.mjs /tmp/shots
 node tests/compress.test.mjs /tmp/shots
+node tests/fold.test.mjs /tmp/shots
 ```
 
 - `skeleton.test.mjs`：骨架（入口、分頁、設定、三語、手機版）
 - `custom-api.test.mjs`：自訂 API（拉取模型、測試連接、儲存、CORS 被擋時改走酒館轉發、401）
+- `fold.test.mjs`：摺疊和搜尋
 - `compress.test.mjs`：L2／L3 分層壓縮
 - `track.test.mjs`：記錄項目、人物新欄位、物件數量
 - `hide.test.mjs`：隱藏舊樓層、注入、強制彈窗

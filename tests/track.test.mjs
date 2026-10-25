@@ -24,6 +24,20 @@ await page.addInitScript((chat) => { window.__chat = chat; }, CHAT);
 await page.goto(URL);
 await page.waitForFunction(() => document.getElementById('lp_wand_entry'));
 
+// 大視窗裡的卡片和樓層預設是收起來的：點開它們（已經開著就不動）。
+const unfold = async (key) => {
+  const head = `[data-fold-key="${key}"] > .lp-row-head`;
+  await page.waitForSelector(head);
+  if ((await page.getAttribute(head, 'aria-expanded')) !== 'true') await page.click(head);
+};
+const unfoldAll = async () => {
+  for (let k = 0; k < 50; k++) {
+    const head = await page.$('.lp-folded > .lp-row-head');
+    if (!head) return;
+    await head.click();
+  }
+};
+
 // 模型：第 0 層新增人物（含新欄位）和物件（含數量）；之後各層什麼都不做。
 await page.evaluate(() => {
   window.__generateRaw = async ({ prompt }) => {
@@ -69,9 +83,11 @@ check('item quantity stored as text', e0.ops[1].data.quantity === '10');
 await page.evaluate(() => { document.getElementById('extensionsMenu').style.display = ''; });
 await page.click('#lp_wand_entry');
 await page.click('[data-tab="characters"]');
+await unfoldAll();
 const card = await page.textContent('.lp-note-card');
 check('character card shows identity/appearance/outfit', card.includes('天衍宗弟子') && card.includes('高瘦') && card.includes('青色道袍'));
 await page.click('[data-tab="items"]');
+await unfoldAll();
 check('quantity shown', (await page.textContent('.lp-qty-val')).trim() === '10');
 await page.click('[data-action="note-qty"][data-delta="1"]');
 await page.click('[data-action="note-qty"][data-delta="1"]');
@@ -127,6 +143,7 @@ check('prompt has no empty-line gaps', !/\n\n\n/.test(p));
 await openSettings();
 for (const k of ['character', 'item', 'promise', 'todo', 'time']) await page.click(`input[data-path="track.${k}"]`);
 await page.click('[data-tab="items"]');
+await unfoldAll();
 check('re-tick brings items back', (await page.textContent('.lp-qty-val')).trim() === '0');
 check('time back in block', (await page.textContent('.mes[mesid="0"] .lp-sum')).includes('清晨'));
 
