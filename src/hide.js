@@ -10,7 +10,9 @@ import { t } from './i18n.js';
 import { floorStatus, getChat, getEntry, isAiMessage, isUserMessage, lastAiIndex } from './chat.js';
 import { formatNotesForPrompt, getNotes, NOTE_TYPES } from './notes.js';
 import { countTokens } from './llm.js';
-import { enqueue, floorState, isActive, pendingCount, setHolding, waitForIdle } from './summarize.js';
+import { sceneLine } from './lines.js';
+import { enqueue, enqueueCompress, floorState, isActive, pendingCount, setHolding, waitForIdle } from './summarize.js';
+import { compressionDue, structure } from './compress.js';
 
 /** 保留原文的 AI 樓層數（規格：最新 2 個）。 */
 export const KEEP_AI = 2;
@@ -66,28 +68,35 @@ export function estimateTokens(text) {
     return Math.ceil(cjk / 1.2 + (s.length - cjk) / 4);
 }
 
-function sceneLine(entry) {
-    // 沒勾選要記錄的欄位不送出。
-    const head = [
-        isTracked('time') ? entry.time : '',
-        isTracked('location') ? entry.location : '',
-        isTracked('cast') ? (entry.characters ?? []).join('、') : '',
-    ].filter(Boolean).join('｜');
-    return head ? `［${head}］${entry.summary}` : entry.summary;
-}
 
 /** 注入的文字：被隱藏樓層的摘要（依序）＋目前的記事。 */
 /**
  * 注入內容拆成幾塊（大視窗的「送出預覽」用來分別算 token）：
- * { summaries: { floors, text }, notes: { character|item|promise|todo: { count, text } } }
+ * { summaries: { floors, chapters, volumes, text, parts: { volumes, chapters, floors } },
+ *   notes: { character|item|promise|todo: { count, text } } }
+ * 前情摘要依故事順序排：有效的卷 → 沒進卷（或卷過期）的有效章 → 沒被有效章涵蓋的單層摘要。
  */
 export function injectionParts(hidden) {
-    const lines = [];
-    const indices = [...hidden].filter((i) => isAiMessage(getChat()[i])).sort((a, b) => a - b);
+    const st = structure();
+    const rows = []; // { at: 最早的樓層, line, kind }
+    for (const v of st.volumes) {
+        if (v.state !== 'ok') continue;
+        const first = Math.min(...v.chapters.flatMap((c) => c.indices).filter((i) => i >= 0));
+        rows.push({ at: first, kind: 'volumes', line: sceneLine({ ...v.data, characters: [] }, t('volume.label', { n: v.number })) });
+    }
+    for (const c of st.chapters) {
+        if (c.state !== 'ok' || st.coveredChapters.has(c.data.id)) continue;
+        const first = Math.min(...c.indices.filter((i) => i >= 0));
+        rows.push({ at: first, kind: 'chapters', line: sceneLine({ ...c.data, characters: [] }, t('chapter.label', { n: c.number })) });
+    }
+    const indices = [...hidden].filter((i) => isAiMessage(getChat()[i]) && !st.covered.has(i));
     for (const i of indices) {
         const e = getEntry(i);
-        if (e?.status === 'ok' && e.summary) lines.push(sceneLine(e));
+        if (e?.status === 'ok' && e.summary) rows.push({ at: i, kind: 'floors', line: sceneLine(e) });
     }
+    rows.sort((a, b) => a.at - b.at);
+    const lines = rows.map((r) => r.line);
+    const byKind = (kind) => rows.filter((r) => r.kind === kind).map((r) => r.line).join('\n');
     const notes = getNotes().notes;
     const byType = {};
     for (const type of NOTE_TYPES) {
@@ -95,7 +104,16 @@ export function injectionParts(hidden) {
         const count = [...notes.values()].filter((n) => n.type === type && n.state !== 'done').length;
         byType[type] = { count, text: count ? formatNotesForPrompt(notes, { withIds: false, types: [type], emptyText: '' }) : '' };
     }
-    return { summaries: { floors: lines.length, text: lines.join('\n') }, notes: byType };
+    return {
+        summaries: {
+            floors: rows.filter((r) => r.kind === 'floors').length,
+            chapters: rows.filter((r) => r.kind === 'chapters').length,
+            volumes: rows.filter((r) => r.kind === 'volumes').length,
+            text: lines.join('\n'),
+            parts: { volumes: byKind('volumes'), chapters: byKind('chapters'), floors: byKind('floors') },
+        },
+        notes: byType,
+    };
 }
 
 /** 注入的文字：被隱藏樓層的摘要（依序）＋目前的記事。 */
@@ -119,8 +137,12 @@ export async function previewInjection() {
     const text = buildInjection(hidden);
     const chat = getChat();
     const hiddenRaw = [...hidden].sort((a, b) => a - b).map((i) => chat[i]?.mes ?? '').join('\n');
+    const sp = parts.summaries.parts;
     const tokens = {
         summaries: parts.summaries.text ? await countTokens(parts.summaries.text) : 0,
+        volumes: sp.volumes ? await countTokens(sp.volumes) : 0,
+        chapters: sp.chapters ? await countTokens(sp.chapters) : 0,
+        floors: sp.floors ? await countTokens(sp.floors) : 0,
         total: text ? await countTokens(text) : 0,
         hiddenRaw: hiddenRaw ? await countTokens(hiddenRaw) : 0,
     };
@@ -219,6 +241,11 @@ async function prepareSummaries(type) {
         }
         if (pendingCount()) {
             toast(t('hold.waiting'), 'info');
+            await waitForIdle();
+        }
+        // 有到期的章／卷就先壓縮好（失敗也不擋生成，下次再試）。
+        if (s.compress.auto && compressionDue()) {
+            enqueueCompress();
             await waitForIdle();
         }
         const limit = type === 'swipe' ? getChat().length - 1 : getChat().length;

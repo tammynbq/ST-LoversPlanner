@@ -23,9 +23,12 @@ import {
 /** 主 API 正在生成時，超過這麼久沒收到結束事件就當作已經結束（避免卡住）。 */
 const MAIN_BUSY_TIMEOUT_MS = 3 * 60 * 1000;
 
-const queue = []; // { index, chatId }
+// 佇列裡有兩種工作：{ index, chatId } 摘要一層；{ kind: 'compress', target, chatId } 壓縮（compress.js）。
+const queue = [];
 const queued = new Set();
-let running = null; // 正在摘要的 index
+let running = null; // 正在摘要的 index；壓縮中是 'compress'
+let compressHandler = null; // compress.js 的 runCompression（用註冊的方式，避免互相 import）
+let afterSummaryHook = null; // 一層摘要好之後呼叫（compress.js 用來檢查要不要壓縮）
 let mainBusySince = 0;
 // 攔截器正在「等摘要好才開始生成」：這時候主 API 是空的，可以直接摘要。
 let holding = false;
@@ -69,6 +72,28 @@ export function enqueue(index, { front = false } = {}) {
     return true;
 }
 
+export function setCompressHandler(fn) {
+    compressHandler = fn;
+}
+
+export function setAfterSummaryHook(fn) {
+    afterSummaryHook = fn;
+}
+
+export function isCompressing() {
+    return running === 'compress';
+}
+
+/** 排一個壓縮工作（target：要重新壓縮的章／卷 id；null＝檢查並壓縮所有到期的）。 */
+export function enqueueCompress(target = null) {
+    if (!isActive() || !compressHandler) return false;
+    if (queue.some((q) => q.kind === 'compress' && q.target === target)) return true;
+    queue.push({ kind: 'compress', target, chatId: chatKey() });
+    notify(null);
+    drain();
+    return true;
+}
+
 export function cancelQueue() {
     queue.length = 0;
     queued.clear();
@@ -104,9 +129,23 @@ async function drain() {
     if (getSettings().source === 'main' && mainBusy() && !holding) return;
     const item = queue.shift();
     if (!item) return;
-    queued.delete(item.index);
+    if (item.kind !== 'compress') queued.delete(item.index);
     if (item.chatId !== chatKey()) {
         drain();
+        return;
+    }
+    if (item.kind === 'compress') {
+        running = 'compress';
+        notify(null);
+        try {
+            await compressHandler?.(item.target);
+        } catch (e) {
+            console.error(LOG_PREFIX, '壓縮出錯', e);
+        } finally {
+            running = null;
+            notify(null);
+            setTimeout(drain, 0);
+        }
         return;
     }
     running = item.index;
@@ -116,6 +155,7 @@ async function drain() {
     } finally {
         running = null;
         notify(item.index);
+        try { afterSummaryHook?.(item.index); } catch (e) { console.error(LOG_PREFIX, e); }
         setTimeout(drain, 0);
     }
 }

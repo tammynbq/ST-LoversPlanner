@@ -196,7 +196,7 @@ await page.click('[data-tab="summary"]');
 await page.click('details[data-preview] > summary');
 await page.waitForSelector('.lp-preview-row');
 const rows = await page.$$eval('.lp-preview-row', (r) => r.map((x) => x.textContent.replace(/\s+/g, ' ').trim()));
-check('preview rows: summaries, four note kinds, total, saved', rows.length === 7 && rows[0].startsWith('前情摘要') && rows[2].startsWith('物件（0 條）') && rows[6].startsWith('不送出的原文'), JSON.stringify(rows));
+check('preview rows: summaries, four note kinds, total, saved', rows.length === 7 && rows[0].startsWith('單層摘要') && rows[2].startsWith('物件（0 條）') && rows[6].startsWith('不送出的原文'), JSON.stringify(rows));
 check('preview line', (await page.textContent('[data-role="preview-line"]')).includes('tokens'));
 const injected = await page.evaluate(() => window.__runInterceptor('normal'));
 await page.click('.lp-preview-raw > summary');

@@ -6,6 +6,7 @@ import { initSettings } from './src/settings.js';
 import { initSummarizer } from './src/summarize.js';
 import { initNotes } from './src/notes.js';
 import { clearInjection, initHiding } from './src/hide.js';
+import { initCompression } from './src/compress.js';
 import { initAttention } from './src/ui/attention.js';
 import { mountSettingsDrawer, mountWandEntry, relabelEntries } from './src/ui/entry.js';
 import { initMessageBlocks, renderAllBlocks } from './src/ui/message.js';
@@ -33,6 +34,7 @@ async function start() {
     initNotes();
     initSummarizer();
     initHiding();
+    initCompression();
     initAttention();
     initMessageBlocks();
     renderAllBlocks();

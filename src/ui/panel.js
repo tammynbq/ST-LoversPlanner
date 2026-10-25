@@ -10,8 +10,9 @@ import { errorText } from '../errors.js';
 import { getLastStats, onStatsChange, previewInjection } from '../hide.js';
 import { aiIndices, getEntry } from '../chat.js';
 import {
-    cancelQueue, enqueue, floorState, isActive, onSummaryChange, pendingCount, unsummarizedIndices,
+    cancelQueue, enqueue, enqueueCompress, floorState, isActive, onSummaryChange, pendingCount, unsummarizedIndices,
 } from '../summarize.js';
+import { compressionDue, editChapter, editVolume, structure } from '../compress.js';
 import { actionsFor, hintFor, revealFloor, runAction, sceneHtml, STATUS_ICONS } from './message.js';
 import {
     addNoteManual, changeQuantity, closedNotes, completeNoteManual, deleteNoteManual, NOTE_FIELDS, NOTE_TYPES,
@@ -73,6 +74,8 @@ const view = {
         limit: SUMMARY_PAGE,
         confirmBackfill: false,
         previewOpen: false,
+        open: new Set(['loose']), // 展開中的群組（loose＝未壓縮、章 id、卷 id）
+        editing: null, // 正在編輯的章／卷 id
     },
     tpl: 'l1',
     confirmReset: false,
@@ -185,11 +188,15 @@ async function applyTauriSurface() {
 function render() {
     const body = panel.querySelector('.lp-body');
     const scrollTop = body ? body.scrollTop : 0;
+    // 重畫時保住正在打的字（章／卷總結的編輯框）。
+    const draftDigest = panel.querySelector('[data-digest-text]')?.value;
     panel.setAttribute('aria-label', t('app.name'));
     panel.setAttribute('lang', currentLocale());
     panel.innerHTML = renderHeader() + renderTabs() + `<div class="lp-body">${renderBanner()}${renderTab()}</div>`;
     const newBody = panel.querySelector('.lp-body');
     if (newBody) newBody.scrollTop = scrollTop;
+    const digestBox = panel.querySelector('[data-digest-text]');
+    if (digestBox && draftDigest !== undefined) digestBox.value = draftDigest;
 }
 
 function renderHeader() {
@@ -318,12 +325,22 @@ function renderSummaryTab() {
         }
     }
 
-    const rows = shown.length
-        ? shown.map((i) => summaryRow(i, states.get(i))).join('')
-        : `<div class="lp-wip">${esc(t('sum.emptyFilter'))}</div>`;
-    const more = list.length > shown.length
-        ? `<button type="button" class="menu_button lp-btn lp-more" data-action="sum-more">${esc(t('sum.more', { n: list.length - shown.length }))}</button>`
-        : '';
+    // 「全部」時照卷 → 章 → 各層折疊顯示；篩選時直接列出符合的樓層。
+    let rows;
+    let more = '';
+    if (view.sum.filter === 'all') {
+        rows = renderTree(states);
+    } else {
+        rows = shown.length
+            ? shown.map((i) => summaryRow(i, states.get(i))).join('')
+            : `<div class="lp-wip">${esc(t('sum.emptyFilter'))}</div>`;
+        more = list.length > shown.length
+            ? `<button type="button" class="menu_button lp-btn lp-more" data-action="sum-more">${esc(t('sum.more', { n: list.length - shown.length }))}</button>`
+            : '';
+    }
+    if (!pending && compressionDue()) {
+        queueArea += `<div class="lp-row"><button type="button" class="menu_button lp-btn" data-action="compress-now">${esc(t('compress.now'))}</button></div>`;
+    }
 
     // 送出預覽：先畫框，token 算好再填進去（fillPreview）。
     queueMicrotask(fillPreview);
@@ -347,13 +364,113 @@ function renderSummaryTab() {
       </div>`;
 }
 
+// ===== 摘要分頁：卷 → 章 → 各層 =====
+
+function groupHead(id, title, kind, range, meta, state = null) {
+    const open = view.sum.open.has(id);
+    const badgeHtml = state && state !== 'ok' ? badge(state) : '';
+    return `
+      <button type="button" class="lp-group-head" data-action="sum-group" data-group="${esc(id)}" aria-expanded="${open}">
+        <span class="lp-sum-chev" aria-hidden="true">${open ? '▾' : '▸'}</span>
+        <span class="lp-group-title">${esc(title)}</span>
+        <span class="lp-kind-tag">${esc(kind)}</span>
+        <span class="lp-note">${esc(range)}</span>
+        ${badgeHtml}
+        <span class="lp-spacer"></span>
+        <span class="lp-note lp-group-meta">${esc(meta)}</span>
+      </button>`;
+}
+
+/** 章或卷的總結卡片：時間地點、內容、操作（重新壓縮、編輯）。 */
+function digestCard(kind, data, state) {
+    const id = data.id;
+    if (view.sum.editing === id) {
+        return `
+          <div class="lp-digest" data-digest="${esc(id)}">
+            <textarea class="text_pole lp-sum-editor" data-digest-text aria-label="${esc(t('act.edit'))}">${esc(data.summary ?? '')}</textarea>
+            <div class="lp-sum-actions">
+              <button type="button" class="menu_button lp-btn lp-primary" data-action="digest-save" data-kind="${kind}" data-id="${esc(id)}">${esc(t('act.save'))}</button>
+              <button type="button" class="menu_button lp-btn" data-action="digest-cancel">${esc(t('act.cancel'))}</button>
+            </div>
+          </div>`;
+    }
+    const hint = state === 'stale' ? t(`${kind}.stale`) : state === 'fail' ? t('sum.hint.fail', { error: data.error ?? '' }) : '';
+    return `
+      <div class="lp-digest">
+        ${sceneHtml({ time: data.time, location: data.location, characters: [] })}
+        ${hint ? `<div class="lp-sum-hint${state === 'stale' ? ' lp-warn' : ''}">${esc(hint)}</div>` : ''}
+        ${data.summary ? `<div class="lp-sum-text">${esc(data.summary)}</div>` : ''}
+        <div class="lp-sum-actions">
+          <button type="button" class="menu_button lp-btn${state !== 'ok' ? ' lp-primary' : ''}" data-action="digest-redo" data-id="${esc(id)}">${esc(t('compress.redo'))}</button>
+          <button type="button" class="menu_button lp-btn" data-action="digest-edit" data-id="${esc(id)}">${esc(t('act.edit'))}</button>
+        </div>
+      </div>`;
+}
+
+function rangeText(indices) {
+    const list = indices.filter((i) => i >= 0);
+    if (!list.length) return '';
+    return `#${Math.min(...list)}–#${Math.max(...list)}`;
+}
+
+function chapterGroup(c, states) {
+    const id = c.data.id;
+    const body = view.sum.open.has(id)
+        ? `<div class="lp-group-body">${digestCard('chapter', c.data, c.state)}${c.indices.filter((i) => i >= 0).sort((a, b) => (view.sum.newest ? b - a : a - b)).map((i) => summaryRow(i, states.get(i) ?? floorState(i))).join('')}</div>`
+        : '';
+    return `<div class="lp-group">${groupHead(id, t('chapter.label', { n: c.number }), 'L2', rangeText(c.indices), t('chapter.meta', { n: c.indices.length }), c.state)}${body}</div>`;
+}
+
+function renderTree(states) {
+    const st = structure();
+    const blocks = []; // { at, html }：用最早的樓層排序
+    // 未壓縮：不屬於任何章的樓層。
+    const loose = [...states.keys()].filter((i) => !st.claimed.has(i));
+    if (loose.length) {
+        const sorted = [...loose].sort((a, b) => (view.sum.newest ? b - a : a - b));
+        const shown = sorted.slice(0, view.sum.limit);
+        const open = view.sum.open.has('loose');
+        const more = sorted.length > shown.length
+            ? `<button type="button" class="menu_button lp-btn lp-more" data-action="sum-more">${esc(t('sum.more', { n: sorted.length - shown.length }))}</button>` : '';
+        const n = Number(getSettings().compress.l1PerL2) || 10;
+        blocks.push({
+            at: Math.min(...loose),
+            html: `<div class="lp-group">${groupHead('loose', t('group.loose'), 'L1', rangeText(loose), t('group.looseMeta', { n: loose.length, every: n }))}
+              ${open ? `<div class="lp-group-body">${shown.map((i) => summaryRow(i, states.get(i))).join('')}${more}</div>` : ''}</div>`,
+        });
+    }
+    for (const c of st.chapters) {
+        if (st.claimedChapters.has(c.data.id)) continue;
+        blocks.push({ at: Math.min(...c.indices.filter((i) => i >= 0), Infinity), html: chapterGroup(c, states) });
+    }
+    for (const v of st.volumes) {
+        const id = v.data.id;
+        const indices = v.chapters.flatMap((c) => c.indices);
+        const chapters = [...v.chapters].sort((a, b) => (view.sum.newest ? b.number - a.number : a.number - b.number));
+        const body = view.sum.open.has(id)
+            ? `<div class="lp-group-body">${digestCard('volume', v.data, v.state)}${chapters.map((c) => chapterGroup(c, states)).join('')}</div>`
+            : '';
+        blocks.push({
+            at: Math.min(...indices.filter((i) => i >= 0), Infinity),
+            html: `<div class="lp-group">${groupHead(id, t('volume.label', { n: v.number }), 'L3', rangeText(indices), t('volume.meta', { n: v.chapters.length }), v.state)}${body}</div>`,
+        });
+    }
+    blocks.sort((a, b) => (view.sum.newest ? b.at - a.at : a.at - b.at));
+    return blocks.map((b) => b.html).join('');
+}
+
 let summaryRefreshTimer = null;
+function canAutoRefresh() {
+    if (!isPanelOpen() || !['summary', 'notes', 'done'].includes(view.tab)) return false;
+    // 正在填表單（記事、章／卷總結）時不重畫，免得打到一半的字不見。
+    return !(view.notes.editing || view.notes.adding || view.sum.editing);
+}
+
 function scheduleRefresh() {
-    if (!isPanelOpen() || !['summary', 'notes', 'done'].includes(view.tab)) return;
-    // 正在填記事表單時不重畫，免得打到一半的字不見。
-    if (view.notes.editing || view.notes.adding) return;
+    if (!canAutoRefresh()) return;
     clearTimeout(summaryRefreshTimer);
-    summaryRefreshTimer = setTimeout(render, 80);
+    // 觸發時再檢查一次：排程之後使用者可能已經開始編輯了。
+    summaryRefreshTimer = setTimeout(() => { if (canAutoRefresh()) render(); }, 80);
 }
 onSummaryChange(scheduleRefresh);
 onNotesChange(scheduleRefresh);
@@ -619,7 +736,9 @@ function renderSettings() {
       <div class="lp-track-group"><span class="lp-label">${esc(t('set.track.scene'))}</span>${['time', 'location', 'cast'].map(trackItem).join('')}</div>
       <div class="lp-track-group"><span class="lp-label">${esc(t('set.track.notes'))}</span>${['character', 'item', 'promise', 'todo'].map(trackItem).join('')}</div>`;
 
+    const compressAuto = checkbox('compress.auto', t('set.compress.auto'));
     const compress = `
+      ${compressAuto}
       <div class="lp-row">${inline('set.compress.l2', { n: numberInput('compress.l1PerL2', 'L1 → L2') })}</div>
       <div class="lp-row">${inline('set.compress.l3', { n: numberInput('compress.l2PerL3', 'L2 → L3') })}</div>
       <div class="lp-row">${inline('set.compress.ratio', { min: numberInput('compress.ratioMin', 'min %'), max: numberInput('compress.ratioMax', 'max %') })}</div>
@@ -864,6 +983,39 @@ function onClick(e) {
             view.sum.limit += SUMMARY_PAGE;
             render();
             return;
+        case 'sum-group': {
+            const id = btn.dataset.group;
+            if (view.sum.open.has(id)) view.sum.open.delete(id);
+            else view.sum.open.add(id);
+            render();
+            return;
+        }
+        case 'compress-now':
+            enqueueCompress();
+            render();
+            return;
+        case 'digest-redo':
+            view.sum.editing = null;
+            enqueueCompress(btn.dataset.id);
+            render();
+            return;
+        case 'digest-edit':
+            view.sum.editing = btn.dataset.id;
+            render();
+            panel.querySelector('[data-digest-text]')?.focus();
+            return;
+        case 'digest-cancel':
+            view.sum.editing = null;
+            render();
+            return;
+        case 'digest-save': {
+            const text = panel.querySelector('[data-digest-text]')?.value ?? '';
+            const ok = btn.dataset.kind === 'volume' ? editVolume(btn.dataset.id, text) : editChapter(btn.dataset.id, text);
+            if (!ok) return;
+            view.sum.editing = null;
+            render();
+            return;
+        }
         case 'sum-act':
             onSummaryAction(Number(btn.dataset.index), btn.dataset.act);
             return;
@@ -1056,7 +1208,11 @@ async function fillPreview() {
         ? t('preview.line', { total: n(p.tokens.total), raw: n(p.tokens.hiddenRaw) })
         : t('preview.nothing');
     const row = (label, value, cls = '') => `<div class="lp-preview-row${cls}"><span>${esc(label)}</span><span class="lp-preview-num">${esc(value)}</span></div>`;
-    const rows = [row(t('preview.summaries', { n: p.parts.summaries.floors }), `${n(p.tokens.summaries)} tokens`)];
+    const sm = p.parts.summaries;
+    const rows = [];
+    if (sm.volumes) rows.push(row(t('preview.volumes', { n: sm.volumes }), `${n(p.tokens.volumes)} tokens`));
+    if (sm.chapters) rows.push(row(t('preview.chapters', { n: sm.chapters }), `${n(p.tokens.chapters)} tokens`));
+    rows.push(row(t('preview.summaries', { n: sm.floors }), `${n(p.tokens.floors)} tokens`));
     for (const [type, info] of Object.entries(p.parts.notes)) {
         rows.push(row(t('preview.notes', { kind: t(`kind.${KIND_KEY[type]}`), n: info.count }), `${n(p.tokens[type])} tokens`));
     }

@@ -20,6 +20,7 @@ export const DEFAULTS = Object.freeze({
         maxTokens: 150,
     },
     compress: {
+        auto: true, // 到期就自動壓縮
         l1PerL2: 10,
         l2PerL3: 10,
         ratioMin: 30,
