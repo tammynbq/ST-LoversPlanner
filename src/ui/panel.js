@@ -164,6 +164,7 @@ export function openPanel(tab) {
         lastFocus = document.activeElement;
         document.body.appendChild(overlay);
         document.addEventListener('keydown', onKeydown, true);
+        showOnTopLayer();
     }
     render();
     panel.querySelector('[data-action="close"]')?.focus();
@@ -223,6 +224,21 @@ function createShell() {
     panel.addEventListener('toggle', onToggle, true);
 
     applyTauriSurface();
+}
+
+/**
+ * 一般 SillyTavern（特別是手機上的美化主題）：主題的上方工具列常常 z-index 比我們高，或用了會讓
+ * position: fixed 失效的 transform，結果大視窗只露出標題列。改放進瀏覽器的「最上層」（popover），
+ * 不管主題怎麼設都會在最上面。TauriTavern 由宿主排版（applySurface），不用這個。
+ */
+function showOnTopLayer() {
+    if (isTauriTavern() || typeof overlay.showPopover !== 'function') return;
+    try {
+        if (!overlay.hasAttribute('popover')) overlay.setAttribute('popover', 'manual');
+        if (!overlay.matches(':popover-open')) overlay.showPopover();
+    } catch (e) {
+        console.warn(LOG_PREFIX, '無法放到最上層，改用一般疊放', e);
+    }
 }
 
 /** TauriTavern 手機版：讓宿主幫忙處理瀏海、系統列和鍵盤。 */

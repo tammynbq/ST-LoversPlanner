@@ -24,6 +24,7 @@ node tests/check.test.mjs /tmp/shots
 node tests/calendar.test.mjs /tmp/shots
 node tests/levels.test.mjs /tmp/shots
 node tests/memories.test.mjs /tmp/shots
+node tests/theme.test.mjs /tmp/shots
 ```
 
 - `skeleton.test.mjs`：骨架（入口、分頁、設定、三語、手機版）
@@ -38,6 +39,7 @@ node tests/memories.test.mjs /tmp/shots
 - `calendar.test.mjs`：行事曆
 - `levels.test.mjs`：無限層壓縮
 - `memories.test.mjs`：回憶錄、想起過去
+- `theme.test.mjs`：美化主題蓋住大視窗
 - `compress.test.mjs`：L2／L3 分層壓縮
 - `track.test.mjs`：記錄項目、人物新欄位、物件數量
 - `hide.test.mjs`：隱藏舊樓層、注入、強制彈窗
