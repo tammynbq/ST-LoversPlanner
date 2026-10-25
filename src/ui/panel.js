@@ -6,6 +6,8 @@ import { getPath, getSettings, isTracked, saveSettings, setPath } from '../setti
 import { currentLocale, detectHostLocale, LOCALE_NAMES, LOCALES, t } from '../i18n.js';
 import { getTemplate, isTemplateModified, resetTemplate, setTemplate, TEMPLATE_KEYS, TEMPLATE_VARS } from '../prompts.js';
 import { listModels, normalizeBaseUrl, testConnection } from '../api/custom.js';
+import { testEmbedding } from '../api/embed.js';
+import { warmVectors } from '../recall.js';
 import { errorText } from '../errors.js';
 import { getLastStats, onStatsChange, previewInjection } from '../hide.js';
 import { aiIndices, getChat, getEntry } from '../chat.js';
@@ -16,9 +18,9 @@ import {
 import { compressionDue, editChapter, editVolume, structure } from '../compress.js';
 import { actionsFor, hintFor, revealFloor, runAction, sceneHtml, STATUS_ICONS } from './message.js';
 import {
-    addNoteManual, changeQuantity, closedNotes, completeNoteManual, deleteNoteManual, NOTE_FIELDS, NOTE_TYPES,
+    addNoteManual, changeQuantity, closedNotes, completeNoteManual, deleteNoteManual, getNotes, NOTE_FIELDS, NOTE_TYPES,
     noteTitle, NUMBER_FIELDS,
-    notesOfType, onNotesChange, reopenNoteManual, resultLabel, typeLabel, updateNoteManual,
+    notesOfType, onNotesChange, pinNoteManual, reopenNoteManual, resultLabel, typeLabel, updateNoteManual,
 } from '../notes.js';
 import {
     CHAR_SCOPE_VALUES, CHAT_SCOPE_VALUES, characterName, getCharacterScope, getChatScope, SCOPE_KINDS,
@@ -52,6 +54,10 @@ const NUMBER_LIMITS = {
     'compress.ratioMin': [1, 100],
     'compress.ratioMax': [1, 100],
     'inject.depth': [0, 100],
+    'recall.recentFloors': [0, 20],
+    'recall.memoryTopK': [0, 20],
+    'recall.noteTopK': [0, 50],
+    'recall.threshold': [0, 100],
 };
 
 /** 成對的上下限：下限比上限大時，把上限拉到和下限一樣。 */
@@ -93,6 +99,8 @@ const view = {
         busy: false,
         status: null, // { type: 'ok' | 'error' | 'saved', text }
     },
+    // 向量模型：和自訂 API 一樣的草稿卡片。
+    vector: { draft: null, models: [], manual: false, showKey: false, busy: false, status: null },
 };
 
 let overlay = null;
@@ -126,10 +134,12 @@ export function closePanel() {
     document.removeEventListener('keydown', onKeydown, true);
     view.confirmReset = false;
     view.resetDone = false;
-    if (customDirty()) toast(t('set.custom.unsavedOnClose'), 'warning');
-    view.custom.draft = null;
-    view.custom.status = null;
-    view.custom.showKey = false;
+    if (customDirty() || customDirty('vector')) toast(t('set.custom.unsavedOnClose'), 'warning');
+    for (const which of ['custom', 'vector']) {
+        view[which].draft = null;
+        view[which].status = null;
+        view[which].showKey = false;
+    }
     view.notes.editing = null;
     view.notes.adding = null;
     view.notes.confirmClear = false;
@@ -247,7 +257,12 @@ function statsText() {
     const main = st.hiddenFloors
         ? t('panel.stats', { floors: st.hiddenFloors, raw: st.hiddenTokens.toLocaleString(), injected: st.injectedTokens.toLocaleString() })
         : t('panel.statsNoneHidden');
-    return st.unsummarized ? `${main}｜${t('panel.statsPending', { n: st.unsummarized })}` : main;
+    const extra = [];
+    if (st.notesSent !== null && st.notesSent !== undefined) extra.push(t('panel.statsNotes', { n: st.notesSent, total: st.notesTotal }));
+    if (st.memories) extra.push(t('panel.statsMemories', { n: st.memories }));
+    if (st.vector === 'error') extra.push(t('panel.statsVectorError'));
+    if (st.unsummarized) extra.push(t('panel.statsPending', { n: st.unsummarized }));
+    return [main, ...extra].join('｜');
 }
 
 function renderTabs() {
@@ -611,7 +626,8 @@ function noteForm(type, data, { id = null } = {}) {
 function noteActions(note) {
     const btn = (act, key, extra = '') =>
         `<button type="button" class="menu_button lp-btn lp-mini" data-action="${act}" data-id="${note.id}"${extra}>${esc(t(key))}</button>`;
-    const out = [btn('note-edit', 'notes.act.edit')];
+    const out = [btn('note-edit', 'notes.act.edit'),
+        btn('note-pin', note.pinned ? 'notes.act.unpin' : 'notes.act.pin', ` data-on="${Boolean(note.pinned)}" aria-pressed="${Boolean(note.pinned)}"`)];
     if (note.type === 'item') out.push(btn('note-complete', 'notes.act.used', ' data-result="used"'));
     if (note.type === 'todo') out.push(btn('note-complete', 'notes.act.done', ' data-result="done"'));
     if (note.type === 'promise' && note.state === 'active') {
@@ -648,7 +664,7 @@ function noteCard(note, query = '') {
         <button type="button" class="lp-row-head" data-action="fold" data-key="${esc(key)}" aria-expanded="${open}">
           <span class="lp-sum-chev" aria-hidden="true">${open ? '▾' : '▸'}</span>
           <span class="lp-note-title">${hl(noteTitle(note), query)}</span>
-          ${qtyTag}${broken}
+          ${note.pinned ? `<span class="lp-pin-tag" title="${esc(t('notes.pinned'))}" aria-label="${esc(t('notes.pinned'))}">📌</span>` : ''}${qtyTag}${broken}
           ${!open && sub ? `<span class="lp-row-preview">${hl(sub, query)}</span>` : ''}
         </button>`;
     if (!open) return `<div class="lp-note-card lp-folded${note.state === 'broken' ? ' lp-note-broken' : ''}" data-fold-key="${esc(key)}">${head}</div>`;
@@ -983,6 +999,31 @@ function renderSettings() {
       </div>
       <div class="lp-note">${esc(t('set.inject.note'))}</div>`;
 
+    const r = s.recall;
+    const vectorOn = r.vector.enabled;
+    const recall = `
+      ${checkbox('recall.notes', t('set.recall.notes'), true)}
+      <div class="lp-note">${esc(t('set.recall.notes.desc'))}</div>
+      ${r.notes ? `<div class="lp-row">${inline('set.recall.recent', { n: numberInput('recall.recentFloors', t('set.recall.recent.aria')) })}</div>` : ''}
+      ${checkbox('recall.memory', t('set.recall.memory'), true)}
+      <div class="lp-note">${esc(t('set.recall.memory.desc'))}</div>
+      ${r.memory ? `<div class="lp-row">${inline('set.recall.memoryTopK', { n: numberInput('recall.memoryTopK', t('set.recall.memoryTopK.aria')) })}</div>` : ''}
+      <div class="lp-track-group">
+        <span class="lp-label">${esc(t('set.vector.title'))}</span>
+        ${checkbox('recall.vector.enabled', t('set.vector.enabled'), true)}
+      </div>
+      <div class="lp-note">${esc(t('set.vector.desc'))}</div>
+      ${vectorOn ? `
+        <div class="lp-callout">${esc(t('set.vector.recommend'))}</div>
+        ${renderCustom('vector')}
+        <div class="lp-row">${inline('set.vector.threshold', { n: numberInput('recall.threshold', t('set.vector.threshold.aria')) })}</div>
+        ${r.notes ? `<div class="lp-row">${inline('set.vector.noteTopK', { n: numberInput('recall.noteTopK', t('set.vector.noteTopK.aria')) })}</div>` : ''}
+        <div class="lp-note">${esc(t('set.vector.thresholdNote'))}</div>
+        <div class="lp-row">
+          <button type="button" class="menu_button lp-btn" data-action="vector-warm"${view.vector.busy || !r.vector.url || !r.vector.model ? ' disabled' : ''}>${esc(t('set.vector.warm'))}</button>
+          <span class="lp-note">${esc(t('set.vector.warm.desc'))}</span>
+        </div>` : ''}`;
+
     const advanced = renderTemplates();
 
     return `<div class="lp-settings">
@@ -993,40 +1034,57 @@ function renderSettings() {
       ${section('compress', t('sec.compress'), t('sec.compress.hint'), compress)}
       ${section('hide', t('sec.hide'), t('sec.hide.hint'), hide)}
       ${section('scope', t('sec.scope'), t('sec.scope.hint'), scope)}
+      ${section('recall', t('sec.recall'), t(r.vector.enabled ? 'sec.recall.hint.vector' : 'sec.recall.hint'), recall)}
       ${section('inject', t('sec.inject'), t('sec.inject.hint'), inject)}
       ${section('advanced', t('sec.advanced'), t('sec.advanced.hint'), advanced)}
     </div>`;
 }
 
-// ===== 自訂 API =====
+// ===== 自訂 API／向量模型：同一種卡片 =====
+// 先改草稿，按「儲存」才寫進設定。which：'custom'（自訂 API）或 'vector'（向量模型）。
 
-function customDraft() {
-    if (!view.custom.draft) view.custom.draft = { ...getSettings().custom };
-    return view.custom.draft;
+function apiState(which) {
+    return view[which];
 }
 
-function customDirty() {
-    const d = view.custom.draft;
+function savedApi(which) {
+    const s = getSettings();
+    return which === 'vector' ? s.recall.vector : s.custom;
+}
+
+function customDraft(which = 'custom') {
+    const st = apiState(which);
+    if (!st.draft) {
+        const saved = savedApi(which);
+        st.draft = { url: saved.url ?? '', key: saved.key ?? '', model: saved.model ?? '' };
+    }
+    return st.draft;
+}
+
+function customDirty(which = 'custom') {
+    const d = apiState(which).draft;
     if (!d) return false;
-    const saved = getSettings().custom;
+    const saved = savedApi(which);
     return ['url', 'key', 'model'].some((k) => (d[k] ?? '') !== (saved[k] ?? ''));
 }
 
-function customStatusHtml() {
-    const c = view.custom;
+function customStatusHtml(which = 'custom') {
+    const c = apiState(which);
     if (c.busy) return `<span class="lp-note" role="status">${esc(t('set.custom.busy'))}</span>`;
     const parts = [];
     if (c.status) {
         const cls = c.status.type === 'error' ? 'lp-error-text' : 'lp-ok-text';
         parts.push(`<span class="${cls}" role="status">${esc(c.status.text)}</span>`);
     }
-    if (customDirty()) parts.push(`<span class="lp-warn-text">${esc(t('set.custom.dirty'))}</span>`);
+    if (customDirty(which)) parts.push(`<span class="lp-warn-text">${esc(t('set.custom.dirty'))}</span>`);
     return parts.join('');
 }
 
-function renderCustom() {
-    const c = view.custom;
-    const d = customDraft();
+function renderCustom(which = 'custom') {
+    const c = apiState(which);
+    const d = customDraft(which);
+    const id = (x) => `lp-${which}-${x}`;
+    const api = `data-api="${which}"`;
     let modelField;
     if (!c.manual && c.models.length) {
         // 已儲存的模型不在清單裡時也列出來，免得被默默換掉。
@@ -1036,48 +1094,49 @@ function renderCustom() {
             ...list.map((m) => `<option value="${esc(m)}"${m === d.model ? ' selected' : ''}>${esc(m)}</option>`),
             `<option value="__manual__">${esc(t('set.custom.manual'))}</option>`,
         ].join('');
-        modelField = `<select id="lp-custom-model" class="text_pole lp-grow" data-draft="model">${opts}</select>`;
+        modelField = `<select id="${id('model')}" class="text_pole lp-grow" data-draft="model" ${api}>${opts}</select>`;
     } else {
-        modelField = `<input id="lp-custom-model" type="text" class="text_pole lp-grow" data-draft="model" value="${esc(d.model)}" placeholder="${esc(t('set.custom.modelPlaceholder'))}" autocomplete="off" spellcheck="false">`;
+        const ph = which === 'vector' ? 'BAAI/bge-m3' : t('set.custom.modelPlaceholder');
+        modelField = `<input id="${id('model')}" type="text" class="text_pole lp-grow" data-draft="model" ${api} value="${esc(d.model)}" placeholder="${esc(ph)}" autocomplete="off" spellcheck="false">`;
     }
     const disabled = c.busy ? ' disabled' : '';
     return `
-      <div class="lp-card lp-custom">
-        <label class="lp-field" for="lp-custom-url"><span class="lp-label">${esc(t('set.custom.url'))}</span>
-          <input id="lp-custom-url" type="url" inputmode="url" class="text_pole" data-draft="url" value="${esc(d.url)}" placeholder="https://api.example.com/v1" autocomplete="off" spellcheck="false"></label>
+      <div class="lp-card lp-custom" data-api-card="${which}">
+        <label class="lp-field" for="${id('url')}"><span class="lp-label">${esc(t('set.custom.url'))}</span>
+          <input id="${id('url')}" type="url" inputmode="url" class="text_pole" data-draft="url" ${api} value="${esc(d.url)}" placeholder="https://api.example.com/v1" autocomplete="off" spellcheck="false"></label>
         <div class="lp-field">
-          <label class="lp-label" for="lp-custom-key">${esc(t('set.custom.key'))}</label>
+          <label class="lp-label" for="${id('key')}">${esc(t('set.custom.key'))}</label>
           <div class="lp-inline">
-            <input id="lp-custom-key" type="${c.showKey ? 'text' : 'password'}" class="text_pole lp-grow" data-draft="key" value="${esc(d.key)}" autocomplete="off" spellcheck="false">
-            <button type="button" class="menu_button lp-btn" data-action="toggle-key" aria-pressed="${c.showKey}">${esc(t(c.showKey ? 'set.custom.keyHide' : 'set.custom.keyShow'))}</button>
+            <input id="${id('key')}" type="${c.showKey ? 'text' : 'password'}" class="text_pole lp-grow" data-draft="key" ${api} value="${esc(d.key)}" autocomplete="off" spellcheck="false">
+            <button type="button" class="menu_button lp-btn" data-action="toggle-key" ${api} aria-pressed="${c.showKey}">${esc(t(c.showKey ? 'set.custom.keyHide' : 'set.custom.keyShow'))}</button>
           </div>
         </div>
         <div class="lp-field">
-          <label class="lp-label" for="lp-custom-model">${esc(t('set.custom.model'))}</label>
+          <label class="lp-label" for="${id('model')}">${esc(t('set.custom.model'))}</label>
           <div class="lp-inline">
             ${modelField}
-            <button type="button" class="menu_button lp-btn" data-action="fetch-models"${disabled}>${esc(t('set.custom.fetch'))}</button>
+            <button type="button" class="menu_button lp-btn" data-action="fetch-models" ${api}${disabled}>${esc(t('set.custom.fetch'))}</button>
           </div>
         </div>
         <div class="lp-row">
-          <button type="button" class="menu_button lp-btn" data-action="test-custom"${disabled}>${esc(t('set.custom.test'))}</button>
-          <button type="button" class="menu_button lp-btn lp-primary" data-action="save-custom"${disabled}>${esc(t('set.custom.save'))}</button>
-          <span class="lp-custom-status" data-role="custom-status">${customStatusHtml()}</span>
+          <button type="button" class="menu_button lp-btn" data-action="test-${which}"${disabled}>${esc(t('set.custom.test'))}</button>
+          <button type="button" class="menu_button lp-btn lp-primary" data-action="save-${which}"${disabled}>${esc(t('set.custom.save'))}</button>
+          <span class="lp-custom-status" data-role="${which}-status">${customStatusHtml(which)}</span>
         </div>
         <div class="lp-note lp-warn">${esc(t('set.custom.warn'))}</div>
       </div>`;
 }
 
 /** 跑一個連線動作：期間按鈕變灰、顯示「連接中」，結束後顯示結果。 */
-async function runCustom(task) {
-    const c = view.custom;
+async function runCustom(task, which = 'custom') {
+    const c = apiState(which);
     c.busy = true;
     c.status = null;
     render();
     try {
         c.status = { type: 'ok', text: await task() };
     } catch (e) {
-        console.warn(LOG_PREFIX, '自訂 API 連線失敗', e);
+        console.warn(LOG_PREFIX, which === 'vector' ? '向量模型連線失敗' : '自訂 API 連線失敗', e);
         c.status = { type: 'error', text: errorText(e) };
     } finally {
         c.busy = false;
@@ -1089,13 +1148,21 @@ function viaText(via) {
     return via === 'backend' ? t('set.custom.via') : '';
 }
 
-function fetchModels() {
+function fetchModels(which = 'custom') {
     return runCustom(async () => {
-        const { models, via } = await listModels(customDraft());
-        view.custom.models = models;
-        view.custom.manual = models.length === 0;
+        const { models: all, via } = await listModels(customDraft(which));
+        // 向量模型：名字裡有 embed／bge／e5 之類的排前面，比較好找。
+        const models = which === 'vector'
+            ? [...all.filter(isEmbeddingName), ...all.filter((m) => !isEmbeddingName(m))]
+            : all;
+        apiState(which).models = models;
+        apiState(which).manual = models.length === 0;
         return models.length ? t('set.custom.models', { n: models.length, via: viaText(via) }) : t('set.custom.noModels');
-    });
+    }, which);
+}
+
+function isEmbeddingName(m) {
+    return /embed|bge|e5-|gte|m3e|jina|nomic|minilm/i.test(m);
 }
 
 function testCustom() {
@@ -1107,14 +1174,30 @@ function testCustom() {
     });
 }
 
-function saveCustom() {
-    const d = customDraft();
+function testVector() {
+    return runCustom(async () => {
+        const { dims } = await testEmbedding(customDraft('vector'));
+        return t('set.vector.ok', { dims });
+    }, 'vector');
+}
+
+function saveCustom(which = 'custom') {
+    const d = customDraft(which);
     const s = getSettings();
-    s.custom = { url: normalizeBaseUrl(d.url), key: d.key.trim(), model: d.model.trim() };
+    const value = { url: normalizeBaseUrl(d.url).replace(/\/embeddings$/, ''), key: d.key.trim(), model: d.model.trim() };
+    if (which === 'vector') Object.assign(s.recall.vector, value);
+    else s.custom = value;
     saveSettings();
-    view.custom.draft = { ...s.custom };
-    view.custom.status = { type: 'saved', text: t('set.custom.saved') };
+    apiState(which).draft = { ...value };
+    apiState(which).status = { type: 'saved', text: t('set.custom.saved') };
     render();
+}
+
+function warmUp() {
+    return runCustom(async () => {
+        const { total, fetched } = await warmVectors();
+        return t('set.vector.warmed', { total, fetched });
+    }, 'vector');
 }
 
 function renderTemplates() {
@@ -1180,19 +1263,34 @@ function onClick(e) {
             view.resetDone = true;
             render();
             return;
-        case 'toggle-key':
-            view.custom.showKey = !view.custom.showKey;
+        case 'toggle-key': {
+            const which = btn.dataset.api ?? 'custom';
+            view[which].showKey = !view[which].showKey;
             render();
-            panel.querySelector('[data-action="toggle-key"]')?.focus();
+            panel.querySelector(`[data-action="toggle-key"][data-api="${which}"]`)?.focus();
             return;
+        }
         case 'fetch-models':
-            fetchModels();
+            fetchModels(btn.dataset.api ?? 'custom');
             return;
         case 'test-custom':
             testCustom();
             return;
         case 'save-custom':
             saveCustom();
+            return;
+        case 'test-vector':
+            testVector();
+            return;
+        case 'save-vector':
+            saveCustom('vector');
+            return;
+        case 'vector-warm':
+            warmUp();
+            return;
+        case 'note-pin':
+            pinNoteManual(btn.dataset.id, btn.dataset.on !== 'true');
+            render();
             return;
         case 'sum-filter':
             view.sum.filter = btn.dataset.filter;
@@ -1410,17 +1508,18 @@ function onInput(e) {
     }
     if (el.dataset?.draft) {
         const field = el.dataset.draft;
+        const which = el.dataset.api ?? 'custom';
         if (field === 'model' && el.value === '__manual__') {
-            view.custom.manual = true;
-            customDraft().model = '';
+            view[which].manual = true;
+            customDraft(which).model = '';
             render();
-            panel.querySelector('#lp-custom-model')?.focus();
+            panel.querySelector(`#lp-${which}-model`)?.focus();
             return;
         }
-        customDraft()[field] = el.value;
-        view.custom.status = null;
-        const status = panel.querySelector('[data-role="custom-status"]');
-        if (status) status.innerHTML = customStatusHtml();
+        customDraft(which)[field] = el.value;
+        view[which].status = null;
+        const status = panel.querySelector(`[data-role="${which}-status"]`);
+        if (status) status.innerHTML = customStatusHtml(which);
         return;
     }
     if (el.dataset?.template) {
@@ -1464,15 +1563,52 @@ async function fillPreview() {
     if (sm.volumes) rows.push(row(t('preview.volumes', { n: sm.volumes }), `${n(p.tokens.volumes)} tokens`));
     if (sm.chapters) rows.push(row(t('preview.chapters', { n: sm.chapters }), `${n(p.tokens.chapters)} tokens`));
     rows.push(row(t('preview.summaries', { n: sm.floors }), `${n(p.tokens.floors)} tokens`));
+    if (p.parts.memories.count) rows.push(row(t('preview.memories', { n: p.parts.memories.count }), `${n(p.tokens.memories)} tokens`));
+    const sel = p.selection;
     for (const [type, info] of Object.entries(p.parts.notes)) {
-        rows.push(row(t('preview.notes', { kind: t(`kind.${KIND_KEY[type]}`), n: info.count }), `${n(p.tokens[type])} tokens`));
+        const label = sel?.filtered
+            ? t('preview.notesOf', { kind: t(`kind.${KIND_KEY[type]}`), n: info.count, total: info.total })
+            : t('preview.notes', { kind: t(`kind.${KIND_KEY[type]}`), n: info.count });
+        rows.push(row(label, `${n(p.tokens[type])} tokens`));
     }
     rows.push(row(t('preview.total'), `${n(p.tokens.total)} tokens`, ' lp-preview-total'));
     rows.push(row(t('preview.saved', { n: p.hiddenFloors }), `${n(p.tokens.hiddenRaw)} tokens`));
     body.innerHTML = `
       <div class="lp-note">${esc(t('preview.desc'))}</div>
       <div class="lp-preview-table">${rows.join('')}</div>
+      ${recallDetails(sel)}
       ${p.text ? `<details class="lp-preview-raw"><summary>${esc(t('preview.show'))}</summary><pre class="lp-preview-text">${esc(p.text)}</pre></details>` : ''}`;
+}
+
+/** 送出預覽：每條記事、每段回憶為什麼被選上（向量的話附上相似度）。 */
+function recallDetails(sel) {
+    if (!sel) return '';
+    const lines = [];
+    const vec = sel.vector === 'ok' ? t('preview.vector.ok')
+        : sel.vector === 'error' ? t('preview.vector.error', { error: sel.error })
+            : t('preview.vector.off');
+    lines.push(`<div class="lp-note${sel.vector === 'error' ? ' lp-warn-text' : ''}" data-role="preview-vector">${esc(vec)}</div>`);
+    const pct = (x) => `${Math.round(x * 100)}%`;
+    if (sel.filtered) {
+        const notes = getNotes().notes;
+        const items = [...sel.notes].map(([id, info]) => {
+            const note = notes.get(id);
+            if (!note) return '';
+            const why = t(`preview.why.${info.reason}`) + (info.score !== undefined ? ` ${pct(info.score)}` : '');
+            return `<li data-recall-note="${esc(id)}">${esc(typeLabel(note.type))}：${esc(noteTitle(note))} <span class="lp-note">（${esc(why)}）</span></li>`;
+        }).filter(Boolean);
+        const skipped = sel.total - sel.notes.size;
+        lines.push(`<div class="lp-label">${esc(t('preview.picked', { n: sel.notes.size, skipped }))}</div>`);
+        if (items.length) lines.push(`<ul class="lp-recall-list">${items.join('')}</ul>`);
+    }
+    if (sel.memories.length) {
+        const items = sel.memories.map((m) => {
+            const why = m.reason === 'vector' ? `${t('preview.why.vector')} ${pct(m.score)}` : t('preview.why.keyword');
+            return `<li data-recall-floor="${m.index}">${esc(t('preview.floor', { n: m.index }))} <span class="lp-note">（${esc(why)}）</span></li>`;
+        });
+        lines.push(`<div class="lp-label">${esc(t('preview.memories', { n: sel.memories.length }))}</div><ul class="lp-recall-list">${items.join('')}</ul>`);
+    }
+    return `<details class="lp-preview-raw" data-role="preview-recall"><summary>${esc(t('preview.why'))}</summary>${lines.join('')}</details>`;
 }
 
 function onToggle(e) {

@@ -109,6 +109,13 @@ function applyOp(state, op, floor) {
             state.set(op.id, { ...note, state: 'active', result: null, closedFloor: null, closedManual: false });
             return true;
         }
+        case 'pin': {
+            // 釘選：不管有沒有被提到，每次都送給角色（只有手動修改會有）。
+            const note = state.get(op.id);
+            if (!note) return false;
+            state.set(op.id, { ...note, pinned: Boolean(op.on) });
+            return true;
+        }
         case 'delete':
             return state.delete(op.id);
         default:
@@ -311,6 +318,10 @@ export function reopenNoteManual(id) {
     return pushManual({ op: 'reopen', id });
 }
 
+export function pinNoteManual(id, on) {
+    return pushManual({ op: 'pin', id, on: Boolean(on) });
+}
+
 export function deleteNoteManual(id) {
     return pushManual({ op: 'delete', id });
 }
@@ -358,18 +369,25 @@ export function describeOp(op, notes) {
  * 記事清單文字：只列進行中（含被打破的約定），已完成的不列，省 token。
  * withIds：給摘要模型看時要有 id（它要引用）；注入給角色看時不需要。
  */
-export function formatNotesForPrompt(notes, { withIds = true, types = null, emptyText = t('prompt.noNotes') } = {}) {
+export function formatNotesForPrompt(notes, { withIds = true, types = null, only = null, emptyText = t('prompt.noNotes') } = {}) {
     const lines = [];
     for (const n of notes.values()) {
         if (n.state === 'done' || !isTracked(n.type)) continue;
         if (types && !types.includes(n.type)) continue;
-        const parts = NOTE_FIELDS[n.type]
-            .filter((f) => n.data[f])
-            .map((f) => `${t(`field.${n.type}.${f}`)}：${n.data[f]}`);
+        // only：只列這些 id（「只送相關的記事」挑出來的）。
+        if (only && !only.has(n.id)) continue;
         const flag = n.state === 'broken' ? `｜${resultLabel('broken')}` : '';
-        lines.push(`${withIds ? `[${n.id}] ` : ''}${typeLabel(n.type)}｜${parts.join('｜')}${flag}`);
+        lines.push(`${withIds ? `[${n.id}] ` : ''}${noteLine(n)}${flag}`);
     }
     return lines.length ? lines.join('\n') : emptyText;
+}
+
+/** 一條記事的內容（不含 id、狀態）。向量也用這段文字來算。 */
+export function noteLine(n) {
+    const parts = NOTE_FIELDS[n.type]
+        .filter((f) => n.data[f])
+        .map((f) => `${t(`field.${n.type}.${f}`)}：${n.data[f]}`);
+    return `${typeLabel(n.type)}｜${parts.join('｜')}`;
 }
 
 export function initNotes() {

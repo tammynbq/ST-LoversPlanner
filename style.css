@@ -593,3 +593,8 @@
 .lp-result-title { font-weight: 600; }
 .lp-result-sub { color: var(--lp-muted); font-size: 0.9em; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .lp-icon-btn.lp-on { color: var(--lp-accent); }
+
+/* ===== 只送相關的＋回憶召回 ===== */
+.lp-pin-tag { font-size: 0.85em; flex: none; }
+.lp-recall-list { margin: 0.2em 0 0.5em; padding-left: 1.3em; }
+.lp-recall-list li { margin: 0.1em 0; overflow-wrap: anywhere; }

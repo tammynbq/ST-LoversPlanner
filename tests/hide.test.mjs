@@ -42,7 +42,12 @@ let r = await run('normal');
 check('hides covered floors and their user messages', r.kept.join() === 'd5,d6,d7,d8,d9', r.kept.join());
 check('injection placed right before kept raw floors', r.injection.position === 1 && r.injection.depth === 5, JSON.stringify({ p: r.injection.position, d: r.injection.depth }));
 check('injection has scene lines in order', /［第0天｜咖啡店｜沈言］第0層的摘要\n［第2天｜咖啡店｜沈言］第2層的摘要\n［第4天/.test(r.injection.value), r.injection.value);
+// 預設只送相關的記事：手鍊沒被提到，不送。
+check('unmentioned item not sent by default', !r.injection.value.includes('銀色手鍊'), r.injection.value);
+await page.evaluate(() => { SillyTavern.getContext().extensionSettings.lovers_planner.recall.notes = false; });
+r = await run('normal');
 check('injection has notes without ids', r.injection.value.includes('物件｜名稱：銀色手鍊') && !r.injection.value.includes('i_test01'));
+await page.evaluate(() => { SillyTavern.getContext().extensionSettings.lovers_planner.recall.notes = true; });
 check('system role', r.injection.role === 0);
 check('chat itself untouched', await page.evaluate(() => window.__chat.length === 10 && window.__chat[0].mes === 'AI0 的內容'));
 
@@ -196,7 +201,7 @@ await page.click('[data-tab="summary"]');
 await page.click('details[data-preview] > summary');
 await page.waitForSelector('.lp-preview-row');
 const rows = await page.$$eval('.lp-preview-row', (r) => r.map((x) => x.textContent.replace(/\s+/g, ' ').trim()));
-check('preview rows: summaries, four note kinds, total, saved', rows.length === 7 && rows[0].startsWith('單層摘要') && rows[2].startsWith('物件（0 條）') && rows[6].startsWith('不送出的原文'), JSON.stringify(rows));
+check('preview rows: summaries, four note kinds, total, saved', rows.length === 7 && rows[0].startsWith('單層摘要') && rows[2].startsWith('物件（') && rows[6].startsWith('不送出的原文'), JSON.stringify(rows));
 check('preview line', (await page.textContent('[data-role="preview-line"]')).includes('tokens'));
 const injected = await page.evaluate(() => window.__runInterceptor('normal'));
 await page.click('.lp-preview-raw > summary');

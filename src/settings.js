@@ -47,6 +47,16 @@ export const DEFAULTS = Object.freeze({
         promises: 'copy',
         todos: 'none',
     },
+    // 只送相關的記事＋回憶召回（第 6 步）。
+    recall: {
+        notes: true, // 只送相關的人物／物件／約定／待辦（關掉＝全部都送）
+        recentFloors: 3, // 最近幾個 AI 樓層出場、變動過的記事也送
+        memory: true, // 從已壓縮成章的舊樓層裡，挑相關的單層摘要一起送
+        memoryTopK: 3,
+        noteTopK: 5, // 向量最多再補幾條記事
+        threshold: 45, // 向量相似度門檻（%）
+        vector: { enabled: false, url: '', key: '', model: '' },
+    },
     inject: {
         // 'before_recent' 放在保留原文的最新幾層前面（推薦）| 'in_chat' 聊天中依深度 | 'in_prompt' | 'before_prompt'
         position: 'before_recent',

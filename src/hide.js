@@ -13,6 +13,7 @@ import { countTokens } from './llm.js';
 import { sceneLine } from './lines.js';
 import { enqueue, enqueueCompress, floorState, isActive, pendingCount, setHolding, waitForIdle } from './summarize.js';
 import { compressionDue, structure } from './compress.js';
+import { selectRelevant } from './recall.js';
 
 /** 保留原文的 AI 樓層數（規格：最新 2 個）。 */
 export const KEEP_AI = 2;
@@ -69,14 +70,15 @@ export function estimateTokens(text) {
 }
 
 
-/** 注入的文字：被隱藏樓層的摘要（依序）＋目前的記事。 */
 /**
  * 注入內容拆成幾塊（大視窗的「送出預覽」用來分別算 token）：
  * { summaries: { floors, chapters, volumes, text, parts: { volumes, chapters, floors } },
- *   notes: { character|item|promise|todo: { count, text } } }
+ *   memories: { count, text },
+ *   notes: { character|item|promise|todo: { count, total, text } } }
  * 前情摘要依故事順序排：有效的卷 → 沒進卷（或卷過期）的有效章 → 沒被有效章涵蓋的單層摘要。
+ * selection：recall.js 挑出來的記事和回憶；沒給（或沒在挑）就送全部進行中的記事。
  */
-export function injectionParts(hidden) {
+export function injectionParts(hidden, selection = null) {
     const st = structure();
     const rows = []; // { at: 最早的樓層, line, kind }
     for (const v of st.volumes) {
@@ -98,12 +100,15 @@ export function injectionParts(hidden) {
     const lines = rows.map((r) => r.line);
     const byKind = (kind) => rows.filter((r) => r.kind === kind).map((r) => r.line).join('\n');
     const notes = getNotes().notes;
+    const only = selection?.filtered ? new Set(selection.notes.keys()) : null;
     const byType = {};
     for (const type of NOTE_TYPES) {
         if (!isTracked(type)) continue;
-        const count = [...notes.values()].filter((n) => n.type === type && n.state !== 'done').length;
-        byType[type] = { count, text: count ? formatNotesForPrompt(notes, { withIds: false, types: [type], emptyText: '' }) : '' };
+        const list = [...notes.values()].filter((n) => n.type === type && n.state !== 'done');
+        const count = only ? list.filter((n) => only.has(n.id)).length : list.length;
+        byType[type] = { count, total: list.length, text: count ? formatNotesForPrompt(notes, { withIds: false, types: [type], only, emptyText: '' }) : '' };
     }
+    const memories = selection?.memories ?? [];
     return {
         summaries: {
             floors: rows.filter((r) => r.kind === 'floors').length,
@@ -112,42 +117,50 @@ export function injectionParts(hidden) {
             text: lines.join('\n'),
             parts: { volumes: byKind('volumes'), chapters: byKind('chapters'), floors: byKind('floors') },
         },
+        memories: { count: memories.length, text: memories.map((m) => m.line).join('\n') },
         notes: byType,
     };
 }
 
-/** 注入的文字：被隱藏樓層的摘要（依序）＋目前的記事。 */
-export function buildInjection(hidden) {
-    const { summaries, notes } = injectionParts(hidden);
+/** 注入的文字：前情摘要（依序）＋相關回憶＋記事。 */
+export function buildInjection(hidden, selection = null) {
+    return textOf(injectionParts(hidden, selection));
+}
+
+function textOf({ summaries, memories, notes }) {
     const noteText = Object.values(notes).map((n) => n.text).filter(Boolean).join('\n');
-    if (!summaries.text && !noteText) return '';
+    if (!summaries.text && !memories.text && !noteText) return '';
     const parts = [t('inject.intro')];
     if (summaries.text) parts.push(`${t('inject.summaries')}\n${summaries.text}`);
+    if (memories.text) parts.push(`${t('inject.memories')}\n${memories.text}`);
     if (noteText) parts.push(`${t('inject.notes')}\n${noteText}`);
     return parts.join('\n\n');
 }
 
 /**
  * 「現在送出的話」會注入什麼、省下多少（大視窗預覽用；token 用酒館的分詞器算）。
- * 回傳 { hiddenFloors, parts, text, tokens: { summaries, character…, total, hiddenRaw } }。
+ * 回傳 { hiddenFloors, parts, selection, text, tokens: { summaries, memories, character…, total, hiddenRaw } }。
  */
 export async function previewInjection() {
-    const { hidden } = computeHidden();
-    const parts = injectionParts(hidden);
-    const text = buildInjection(hidden);
+    const { hidden, keepFrom } = computeHidden();
+    const selection = await selectRelevant({ keepFrom, preview: true });
+    const parts = injectionParts(hidden, selection);
+    const text = textOf(parts);
     const chat = getChat();
     const hiddenRaw = [...hidden].sort((a, b) => a - b).map((i) => chat[i]?.mes ?? '').join('\n');
     const sp = parts.summaries.parts;
+    const count = async (x) => (x ? await countTokens(x) : 0);
     const tokens = {
-        summaries: parts.summaries.text ? await countTokens(parts.summaries.text) : 0,
-        volumes: sp.volumes ? await countTokens(sp.volumes) : 0,
-        chapters: sp.chapters ? await countTokens(sp.chapters) : 0,
-        floors: sp.floors ? await countTokens(sp.floors) : 0,
-        total: text ? await countTokens(text) : 0,
-        hiddenRaw: hiddenRaw ? await countTokens(hiddenRaw) : 0,
+        summaries: await count(parts.summaries.text),
+        volumes: await count(sp.volumes),
+        chapters: await count(sp.chapters),
+        floors: await count(sp.floors),
+        memories: await count(parts.memories.text),
+        total: await count(text),
+        hiddenRaw: await count(hiddenRaw),
     };
-    for (const [type, n] of Object.entries(parts.notes)) tokens[type] = n.text ? await countTokens(n.text) : 0;
-    return { hiddenFloors: [...hidden].filter((i) => isAiMessage(chat[i])).length, parts, text, tokens };
+    for (const [type, n] of Object.entries(parts.notes)) tokens[type] = await count(n.text);
+    return { hiddenFloors: [...hidden].filter((i) => isAiMessage(chat[i])).length, parts, selection, text, tokens };
 }
 
 function setInjection(text, position, depth) {
@@ -288,7 +301,14 @@ export async function interceptor(coreChat, contextSize, abort, type) {
             return;
         }
 
-        const text = buildInjection(hidden);
+        // 挑出相關的記事和回憶（向量出錯會自動改用關鍵字，不會擋住生成）。
+        let selection = null;
+        try {
+            selection = await selectRelevant({ keepFrom, limit });
+        } catch (e) {
+            console.warn(LOG_PREFIX, '挑選相關記事失敗，這次送全部記事', e);
+        }
+        const text = buildInjection(hidden, selection);
         const s = getSettings();
         let position = PROMPT_TYPE.IN_CHAT;
         let depth = Number(s.inject.depth) || 0;
@@ -316,6 +336,10 @@ export async function interceptor(coreChat, contextSize, abort, type) {
             hiddenTokens,
             injectedTokens: estimateTokens(text),
             unsummarized,
+            notesSent: selection?.filtered ? selection.notes.size : null,
+            notesTotal: selection?.total ?? 0,
+            memories: selection?.memories.length ?? 0,
+            vector: selection?.vector ?? 'off',
         });
         console.debug(LOG_PREFIX, '攔截器完成', lastStats);
     } catch (e) {

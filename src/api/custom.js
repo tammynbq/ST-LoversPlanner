@@ -28,7 +28,7 @@ export function normalizeBaseUrl(url) {
         .replace(/\/(chat\/completions|completions|models)$/, '');
 }
 
-function authHeaders(key) {
+export function authHeaders(key) {
     return key ? { Authorization: `Bearer ${key}` } : {};
 }
 
@@ -45,7 +45,7 @@ function backendHeaders() {
     return { 'Content-Type': 'application/json' };
 }
 
-async function fetchJson(url, options) {
+export async function fetchJson(url, options) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
     let res;
