@@ -685,3 +685,14 @@
 .lp-mem-content { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.5; }
 .lp-mem-form { display: flex; flex-direction: column; gap: 0.4em; padding: 0.6em 0.7em; }
 .lp-version { font-weight: 400; opacity: 0.7; margin-left: 0.3em; }
+
+/* ===== 摘要分頁：多選 ===== */
+.lp-bulk { position: sticky; top: 0; z-index: 2; box-shadow: 0 -16px 0 var(--lp-bg); display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; background: var(--lp-bg); border: 1px solid var(--lp-accent); border-radius: 8px; }
+.lp-bulk .lp-row { flex-wrap: wrap; gap: 6px; align-items: center; }
+.lp-bulk .lp-num { width: 5.5em; }
+.lp-floor-row.lp-pickable .lp-row-head { gap: 8px; }
+.lp-floor-row.lp-picked { border-color: var(--lp-accent); background: color-mix(in srgb, var(--lp-accent) 12%, transparent); }
+.lp-pick-box { flex: none; width: 1.15em; height: 1.15em; display: inline-flex; align-items: center; justify-content: center; border: 1.5px solid var(--lp-muted); border-radius: 4px; font-size: 0.85em; line-height: 1; }
+.lp-picked .lp-pick-box { border-color: var(--lp-accent); background: var(--lp-accent); color: var(--lp-bg); }
+.lp-bulk-range > summary { cursor: pointer; color: var(--lp-muted); font-size: 0.9em; }
+.lp-bulk-range[open] > summary { margin-bottom: 6px; }

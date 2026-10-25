@@ -149,7 +149,12 @@ export function dueChapterFloors(st = structure()) {
     const chat = getChat();
     const picked = [];
     for (let i = 0; i < keepFrom; i++) {
-        if (!isAiMessage(chat[i]) || st.claimed.has(i)) continue;
+        if (!isAiMessage(chat[i])) continue;
+        // 已經在某一章裡（例如使用者多選壓的）：斷開，不要跨過它和後面的樓層湊成一章。
+        if (st.claimed.has(i)) {
+            picked.length = 0;
+            continue;
+        }
         const state = floorState(i);
         if (state === 'skip') continue;
         // 粗略補建的樓層沒有單層摘要，不能拿來合併。
@@ -158,6 +163,33 @@ export function dueChapterFloors(st = structure()) {
         if (picked.length === n) return picked;
     }
     return null;
+}
+
+/**
+ * 使用者多選的樓層能不能壓成一章（v0.12.6，使用者要求）。
+ * 要至少 2 層、都已摘要（粗略補建的不行）、都還不在任何章裡，而且是連續的：
+ * 中間沒選到的樓層只能是「跳過」的，或已經在別的章裡。
+ * 回傳 { floors } 或 { error: 'few' | 'state' | 'claimed' | 'gap' }。
+ */
+export function checkManualChapter(indices, st = structure()) {
+    const chat = getChat();
+    const floors = [...new Set(indices)].filter((i) => isAiMessage(chat[i])).sort((a, b) => a - b);
+    if (floors.length < 2) return { error: 'few' };
+    if (floors.some((i) => st.claimed.has(i))) return { error: 'claimed' };
+    if (floors.some((i) => floorState(i) !== 'ok' || getEntry(i)?.coarse)) return { error: 'state' };
+    const picked = new Set(floors);
+    for (let i = floors[0]; i < floors[floors.length - 1]; i++) {
+        if (!isAiMessage(chat[i]) || picked.has(i) || st.claimed.has(i)) continue;
+        if (floorState(i) !== 'skip') return { error: 'gap' };
+    }
+    return { floors };
+}
+
+/** 把多選的樓層排進佇列壓成一章。回傳 checkManualChapter 的結果。 */
+export function compressSelected(indices) {
+    const res = checkManualChapter(indices);
+    if (res.floors) enqueueCompress({ floors: res.floors });
+    return res;
 }
 
 /**
@@ -326,6 +358,13 @@ async function compressVolume(children, existing = null, level = existing?.level
  */
 export async function runCompression(target) {
     if (!isActive()) return;
+    if (target?.floors) {
+        // 使用者多選的：排隊的時候可能已經變了，再檢查一次。
+        const res = checkManualChapter(target.floors);
+        if (res.floors) await compressChapter(res.floors);
+        else toast(t(`bulk.compress.${res.error}`), 'warning');
+        return;
+    }
     if (target) {
         const st = structure();
         const ch = st.chapters.find((c) => c.data.id === target);

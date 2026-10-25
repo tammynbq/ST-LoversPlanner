@@ -27,9 +27,9 @@ import { getLastStats, onStatsChange, previewInjection } from '../hide.js';
 import { aiIndices, chatKey, getChat, getEntry } from '../chat.js';
 import { hl, isExpanded, isSectionOpen, matches, setExpanded, setSectionOpen, terms, toggleExpanded, toggleSection } from './fold.js';
 import {
-    cancelQueue, enqueue, enqueueCompress, floorState, isActive, onSummaryChange, pendingCount, unsummarizedIndices,
+    cancelQueue, enqueue, enqueueCompress, floorState, isActive, onSummaryChange, pendingCount, skipFloor, unskipFloor, unsummarizedIndices,
 } from '../summarize.js';
-import { compressionDue, deleteChapter, digestLabel, editChapter, editVolume, structure } from '../compress.js';
+import { checkManualChapter, compressSelected, compressionDue, deleteChapter, digestLabel, editChapter, editVolume, structure } from '../compress.js';
 import { actionsFor, eventLabel, hintFor, revealFloor, runAction, sceneHtml, STATUS_ICONS } from './message.js';
 import {
     addManualEvent, buildCalendar, CAL_TYPES, calendarOn, calTracked, dayInfo, monthGrid, monthTitle, onCalendarChange,
@@ -59,7 +59,7 @@ function visibleTabs() {
         return true;
     });
 }
-const SUMMARY_FILTERS = ['all', 'none', 'fail', 'stale', 'skip'];
+const SUMMARY_FILTERS = ['all', 'none', 'ok', 'fail', 'stale', 'skip'];
 const SUMMARY_PAGE = 100;
 
 /** 數字欄位的範圍。 */
@@ -114,6 +114,13 @@ const view = {
         confirmBackfill: false,
         previewOpen: false,
         editing: null, // 正在編輯的章／卷 id
+        // 多選（使用者要求）：選了哪些樓層、是哪個聊天選的、「重新摘要」要不要再按一次確認。
+        select: false,
+        picked: new Set(),
+        pickChat: null,
+        confirmRedo: false,
+        range: { from: null, to: null },
+        rangeOpen: false,
     },
     // 各分頁的篩選字串，以及總搜尋。
     query: { summary: '', characters: '', items: '', notes: '', done: '', memories: '' },
@@ -434,6 +441,17 @@ function summaryRow(index, state, query = '') {
     const summary = state === 'skip' ? '' : (entry?.summary ?? '');
     const hint = hintFor(index, state);
     const key = floorKey(index);
+    if (view.sum.select) {
+        // 多選時：點一下就選取／取消，不展開。
+        const on = view.sum.picked.has(index);
+        return `<div class="lp-floor-row lp-folded lp-pickable${on ? ' lp-picked' : ''}" data-fold-key="${esc(key)}">
+          <button type="button" class="lp-row-head" data-action="sum-pick" data-index="${index}" aria-pressed="${on}">
+            <span class="lp-pick-box" aria-hidden="true">${on ? '✓' : ''}</span>
+            <span class="lp-floor-no">#${index}</span>
+            ${badge(state)}
+            <span class="lp-row-preview">${hl(summary || hint, query)}</span>
+          </button></div>`;
+    }
     const open = isExpanded(key) || Boolean(query);
     const head = `
         <button type="button" class="lp-row-head" data-action="fold" data-key="${esc(key)}" aria-expanded="${open}">
@@ -469,6 +487,136 @@ function searchBox(scope, placeholderKey = 'search.placeholder') {
       </label>`;
 }
 
+// ===== 摘要分頁：多選 =====
+
+/** 目前列出來的樓層（照篩選和搜尋），「全選」和「選一段」只選這些。 */
+function listedFloors() {
+    const query = view.query.summary;
+    return aiIndices().filter((i) => matchesFilter(floorState(i), view.sum.filter) && (!query || matches(floorText(i), query)));
+}
+
+/** 選到的樓層裡，每個動作能用在哪幾層。 */
+function bulkGroups(picked) {
+    const g = { summarize: [], redo: [], skip: [], unskip: [] };
+    for (const i of [...picked].sort((a, b) => a - b)) {
+        const state = floorState(i);
+        const coarse = Boolean(getEntry(i)?.coarse);
+        if (['none', 'fail', 'stale'].includes(state)) g.summarize.push(i);
+        if (state === 'ok' && !coarse) g.redo.push(i);
+        if (['none', 'ok', 'stale', 'fail'].includes(state) && !coarse) g.skip.push(i);
+        if (state === 'skip') g.unskip.push(i);
+    }
+    return g;
+}
+
+function bulkBar() {
+    const picked = view.sum.picked;
+    const g = bulkGroups(picked);
+    const manual = checkManualChapter([...picked]);
+    const listed = listedFloors();
+    const btn = (action, label, n, { primary = false, disabled = !n } = {}) =>
+        `<button type="button" class="menu_button lp-btn${primary ? ' lp-primary' : ''}" data-action="${action}"${disabled ? ' disabled' : ''}>${esc(label)}</button>`;
+    const num = (key, label) =>
+        `<input type="number" class="text_pole lp-num" data-bulk="${key}" min="0" step="1" value="${view.sum.range[key] ?? ''}" aria-label="${esc(label)}">`;
+    const redoLabel = view.sum.confirmRedo ? t('bulk.redo.confirm', { n: g.redo.length }) : t('bulk.redo', { n: g.redo.length });
+    // 只列出用得上的動作（手機上多選列才不會太高）；選了 2 層以上一定顯示「壓縮成一章」，不能壓時說原因。
+    const acts = [
+        g.summarize.length && btn('bulk-summarize', t('bulk.summarize', { n: g.summarize.length }), g.summarize.length, { primary: true }),
+        g.redo.length && btn('bulk-redo', redoLabel, g.redo.length),
+        g.skip.length && btn('bulk-skip', t('bulk.skip', { n: g.skip.length }), g.skip.length),
+        g.unskip.length && btn('bulk-unskip', t('bulk.unskip', { n: g.unskip.length }), g.unskip.length),
+        picked.size >= 2 && btn('bulk-compress', t('bulk.compress', { n: manual.floors?.length ?? picked.size }), 0, { disabled: !manual.floors }),
+    ].filter(Boolean);
+    const why = picked.size >= 2 && manual.error ? `<div class="lp-note" data-role="bulk-why">${esc(t(`bulk.compress.${manual.error}`))}</div>` : '';
+    const warn = getSettings().source === 'main' && g.summarize.length >= 10 ? `<div class="lp-callout lp-warn">${esc(t('bulk.mainWarn'))}</div>` : '';
+    return `
+      <div class="lp-card lp-bulk" data-role="bulk">
+        <div class="lp-row">
+          <span class="lp-label" data-role="bulk-count">${esc(t(picked.size ? 'bulk.count' : 'bulk.hint', { n: picked.size }))}</span>
+          <span class="lp-spacer"></span>
+          ${btn('bulk-all', t('bulk.all', { n: listed.length }), listed.length)}
+          ${btn('bulk-none', t('bulk.none'), picked.size)}
+        </div>
+        <details class="lp-bulk-range" data-role="bulk-range"${view.sum.rangeOpen ? ' open' : ''}>
+          <summary>${esc(t('bulk.range.title'))}</summary>
+          <div class="lp-row">${inline('bulk.range', { from: num('from', t('bulk.from')), to: num('to', t('bulk.to')) })}
+            ${btn('bulk-range', t('bulk.range.pick'), 1)}</div>
+        </details>
+        ${acts.length ? `<div class="lp-row lp-bulk-acts">${acts.join('')}</div>` : ''}
+        ${why}
+        ${warn}
+      </div>`;
+}
+
+/** 多選的按鈕。回傳 true 表示處理了。 */
+function onBulkAction(action) {
+    const sum = view.sum;
+    const g = bulkGroups(sum.picked);
+    const done = (key, n) => {
+        sum.picked.clear();
+        sum.confirmRedo = false;
+        if (n) toast(t(key, { n }), 'success');
+        render();
+    };
+    switch (action) {
+        case 'sum-select':
+            sum.select = !sum.select;
+            sum.picked.clear();
+            sum.confirmRedo = false;
+            render();
+            return true;
+        case 'bulk-all':
+            for (const i of listedFloors()) sum.picked.add(i);
+            sum.confirmRedo = false;
+            render();
+            return true;
+        case 'bulk-none':
+            sum.picked.clear();
+            sum.confirmRedo = false;
+            render();
+            return true;
+        case 'bulk-range': {
+            const { from, to } = sum.range;
+            const lo = Math.min(from ?? 0, to ?? Infinity);
+            const hi = Math.max(from ?? 0, to ?? Infinity);
+            for (const i of listedFloors()) if (i >= lo && i <= hi) sum.picked.add(i);
+            sum.confirmRedo = false;
+            render();
+            return true;
+        }
+        case 'bulk-summarize':
+            for (const i of g.summarize) enqueue(i);
+            done('bulk.done.summarize', g.summarize.length);
+            return true;
+        case 'bulk-redo':
+            // 會蓋掉手改過的摘要：第一次按只是問，再按一次才做。
+            if (!sum.confirmRedo) {
+                sum.confirmRedo = true;
+                render();
+                return true;
+            }
+            for (const i of g.redo) enqueue(i);
+            done('bulk.done.summarize', g.redo.length);
+            return true;
+        case 'bulk-skip':
+            for (const i of g.skip) skipFloor(i);
+            done('bulk.done.skip', g.skip.length);
+            return true;
+        case 'bulk-unskip':
+            for (const i of g.unskip) unskipFloor(i);
+            done('bulk.done.unskip', g.unskip.length);
+            return true;
+        case 'bulk-compress': {
+            const res = compressSelected([...sum.picked]);
+            if (res.floors) done('bulk.done.compress', res.floors.length);
+            else toast(t(`bulk.compress.${res.error}`), 'warning');
+            return true;
+        }
+        default:
+            return false;
+    }
+}
+
 function renderSummaryTab() {
     // 停用、群組聊天、沒開聊天時，上方的提示已經說明了。
     if (!isActive()) return '';
@@ -476,6 +624,12 @@ function renderSummaryTab() {
     if (!all.length) return `<div class="lp-wip">${esc(t('sum.empty'))}</div>`;
 
     const states = new Map(all.map((i) => [i, floorState(i)]));
+    // 換了聊天就清掉選取；選到的樓層不見了（刪掉訊息）也拿掉。
+    if (view.sum.pickChat !== chatKey()) {
+        view.sum.picked.clear();
+        view.sum.pickChat = chatKey();
+    }
+    for (const i of view.sum.picked) if (!states.has(i)) view.sum.picked.delete(i);
     const chips = SUMMARY_FILTERS.map((f) => {
         const n = all.filter((i) => matchesFilter(states.get(i), f)).length;
         const on = view.sum.filter === f;
@@ -546,9 +700,11 @@ function renderSummaryTab() {
         <div class="lp-row">
           <div class="lp-chips">${chips}</div>
           <span class="lp-spacer"></span>
+          <button type="button" class="menu_button lp-btn" data-action="sum-select" aria-pressed="${view.sum.select}">${esc(t(view.sum.select ? 'sum.select.done' : 'sum.select'))}</button>
           <button type="button" class="menu_button lp-btn" data-action="sum-sort">${esc(t(view.sum.newest ? 'sum.sort.newest' : 'sum.sort.oldest'))}</button>
         </div>
         ${queueArea}
+        ${view.sum.select ? bulkBar() : ''}
         <div class="lp-floor-list">${rows}</div>
         ${more}
       </div>`;
@@ -2136,6 +2292,25 @@ function onClick(e) {
         case 'sum-act':
             onSummaryAction(Number(btn.dataset.index), btn.dataset.act);
             return;
+        case 'sum-pick': {
+            const i = Number(btn.dataset.index);
+            if (view.sum.picked.has(i)) view.sum.picked.delete(i);
+            else view.sum.picked.add(i);
+            view.sum.confirmRedo = false;
+            render();
+            return;
+        }
+        case 'sum-select':
+        case 'bulk-all':
+        case 'bulk-none':
+        case 'bulk-range':
+        case 'bulk-summarize':
+        case 'bulk-redo':
+        case 'bulk-skip':
+        case 'bulk-unskip':
+        case 'bulk-compress':
+            onBulkAction(btn.dataset.action);
+            return;
         case 'sum-stop':
             if (getCatchup()) pauseCatchup();
             else cancelQueue();
@@ -2354,6 +2529,11 @@ function onInput(e) {
         if (out) out.textContent = cleanForSummary(el.value);
         return;
     }
+    if (el.dataset?.bulk) {
+        const n = Math.round(Number(el.value));
+        view.sum.range[el.dataset.bulk] = Number.isFinite(n) && el.value !== '' ? n : null;
+        return;
+    }
     if (el.dataset?.cu) {
         const n = Math.round(Number(el.value));
         view.catchup[el.dataset.cu] = Number.isFinite(n) && el.value !== '' ? n : null;
@@ -2477,6 +2657,10 @@ function onToggle(e) {
     }
     if (e.target?.dataset && 'preview' in e.target.dataset) {
         view.sum.previewOpen = e.target.open;
+        return;
+    }
+    if (e.target?.dataset?.role === 'bulk-range') {
+        view.sum.rangeOpen = e.target.open;
         return;
     }
     if (e.target?.dataset?.role === 'cu-tags') {
