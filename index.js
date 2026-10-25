@@ -11,6 +11,7 @@ import { initAttention } from './src/ui/attention.js';
 import { mountSettingsDrawer, mountWandEntry, relabelEntries } from './src/ui/entry.js';
 import { initMessageBlocks, renderAllBlocks } from './src/ui/message.js';
 import { refreshPanel, setPanelHooks } from './src/ui/panel.js';
+import { initUpdateWatch } from './src/update.js';
 
 function onSettingChanged(path) {
     if (path === 'language') relabelEntries();
@@ -38,6 +39,7 @@ async function start() {
     initAttention();
     initMessageBlocks();
     renderAllBlocks();
+    initUpdateWatch();
 
     const c = ctx();
     if (c?.eventSource && c.eventTypes) {

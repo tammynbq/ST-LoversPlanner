@@ -69,6 +69,9 @@ const DICT = {
         'sec.advanced.hint': '提示詞模板',
 
         'set.enabled': '啟用戀人手帳',
+        'set.update.autoReload': '更新後自動重新整理',
+        'set.update.note': '在擴充管理更新戀人手帳後，等生成和摘要都完成、大視窗關上，就自動重新整理頁面，換成新版。輸入框裡還沒送出的字會保留。',
+        'update.reloading': '戀人手帳已更新到 v{version}，等手邊的事做完就自動重新整理。',
         'set.language': '介面語言',
         'set.language.auto': '跟隨酒館（目前：{name}）',
         'set.language.note': '摘要和記事也會用這個語言寫。',
@@ -427,6 +430,9 @@ const DICT = {
         'sec.advanced.hint': '提示词模板',
 
         'set.enabled': '启用恋人手帐',
+        'set.update.autoReload': '更新后自动刷新',
+        'set.update.note': '在扩展管理更新恋人手帐后，等生成和摘要都完成、大窗口关上，就自动刷新页面，换成新版。输入框里还没发送的字会保留。',
+        'update.reloading': '恋人手帐已更新到 v{version}，等手头的事做完就自动刷新。',
         'set.language': '界面语言',
         'set.language.auto': '跟随酒馆（当前：{name}）',
         'set.language.note': '摘要和记事也会用这个语言写。',
@@ -785,6 +791,9 @@ const DICT = {
         'sec.advanced.hint': 'Prompt templates',
 
         'set.enabled': "Enable Lover's Planner",
+        'set.update.autoReload': 'Reload automatically after an update',
+        'set.update.note': "After Lover's Planner is updated in the extension manager, the page reloads once generation and summaries are done and the main window is closed, so the new version is used. Unsent text in the input box is kept.",
+        'update.reloading': "Lover's Planner was updated to v{version}; the page will reload when you're idle.",
         'set.language': 'Language',
         'set.language.auto': 'Follow SillyTavern (now: {name})',
         'set.language.note': 'Summaries and notes are written in this language too.',

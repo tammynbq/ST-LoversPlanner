@@ -61,6 +61,8 @@ export const DEFAULTS = Object.freeze({
         // 預填硅基流動和推薦模型（使用者要求），只要自己填 Key。
         vector: { enabled: false, url: VECTOR_URL, key: '', model: VECTOR_MODEL },
     },
+    // 擴充更新後自動重新整理頁面（等生成、摘要做完）。
+    update: { autoReload: true },
     inject: {
         // 'before_recent' 放在保留原文的最新幾層前面（推薦）| 'in_chat' 聊天中依深度 | 'in_prompt' | 'before_prompt'
         position: 'before_recent',

@@ -948,6 +948,8 @@ function renderSettings() {
 
     const general = `
       ${checkbox('enabled', t('set.enabled'), true)}
+      ${checkbox('update.autoReload', t('set.update.autoReload'))}
+      <div class="lp-note">${esc(t('set.update.note'))}</div>
       <div class="lp-row">
         <label class="lp-label" for="lp-lang">${esc(t('set.language'))}</label>
         ${select('language', 'lp-lang', [['auto', t('set.language.auto', { name: hostName })], ...LOCALES.map((l) => [l, LOCALE_NAMES[l]])], true)}

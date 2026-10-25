@@ -100,7 +100,7 @@ export function cancelQueue() {
     notify(null);
 }
 
-function mainBusy() {
+export function mainBusy() {
     return mainBusySince > 0 && Date.now() - mainBusySince < MAIN_BUSY_TIMEOUT_MS;
 }
 
