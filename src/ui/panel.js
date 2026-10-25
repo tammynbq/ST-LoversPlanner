@@ -27,7 +27,7 @@ import { hl, isExpanded, isSectionOpen, matches, setExpanded, setSectionOpen, te
 import {
     cancelQueue, enqueue, enqueueCompress, floorState, isActive, onSummaryChange, pendingCount, unsummarizedIndices,
 } from '../summarize.js';
-import { compressionDue, deleteChapter, editChapter, editVolume, structure } from '../compress.js';
+import { compressionDue, deleteChapter, digestLabel, editChapter, editVolume, structure } from '../compress.js';
 import { actionsFor, eventLabel, hintFor, revealFloor, runAction, sceneHtml, STATUS_ICONS } from './message.js';
 import {
     addManualEvent, buildCalendar, CAL_TYPES, calendarOn, calTracked, dayInfo, monthGrid, monthTitle, onCalendarChange,
@@ -67,6 +67,11 @@ const NUMBER_LIMITS = {
     'summary.maxTokens': [1, 4000],
     'compress.l1PerL2': [2, 100],
     'compress.l2PerL3': [2, 100],
+    'compress.higherPer': [2, 100],
+    'compress.capL3': [0, 4000],
+    'compress.capL4': [0, 4000],
+    'compress.capL5': [0, 4000],
+    'compress.capMore': [0, 4000],
     'compress.ratioMin': [1, 100],
     'compress.ratioMax': [1, 100],
     'inject.depth': [0, 100],
@@ -812,6 +817,17 @@ function chapterGroup(c, states) {
     return `<div class="lp-group">${groupHead(id, t('chapter.label', { n: c.number }), 'L2', rangeText(c.indices), t('chapter.meta', { n: c.indices.length }), c.state)}${body}</div>`;
 }
 
+function volumeGroup(v, states) {
+    const id = v.data.id;
+    const indices = v.chapters.flatMap((c) => c.indices);
+    const kids = [...v.children].sort((a, b) => (view.sum.newest ? b.number - a.number : a.number - b.number));
+    const body = groupOpen(id)
+        ? `<div class="lp-group-body">${digestCard('volume', v.data, v.state)}${kids.map((x) => (v.level === 3 ? chapterGroup(x, states) : volumeGroup(x, states))).join('')}</div>`
+        : '';
+    const meta = v.level === 3 ? t('volume.meta', { n: v.children.length }) : t('level.meta', { n: v.children.length, floors: indices.filter((i) => i >= 0).length });
+    return `<div class="lp-group">${groupHead(id, digestLabel(v.level, v.number), `L${v.level}`, rangeText(indices), meta, v.state)}${body}</div>`;
+}
+
 function digestText(label, data) {
     return [label, data.summary, data.time, data.location].filter(Boolean).join(' ');
 }
@@ -821,10 +837,10 @@ function renderSummarySearch(states, query) {
     const st = structure();
     const blocks = [];
     for (const v of st.volumes) {
-        const label = t('volume.label', { n: v.number });
+        const label = digestLabel(v.level, v.number);
         if (!matches(digestText(label, v.data), query)) continue;
         const indices = v.chapters.flatMap((c) => c.indices).filter((i) => i >= 0);
-        blocks.push({ at: Math.min(...indices, Infinity), html: `<div class="lp-group" data-fold-key="group:${esc(v.data.id)}"><div class="lp-group-label">${esc(label)} <span class="lp-kind-tag">L3</span> <span class="lp-note">${esc(rangeText(indices))}</span></div>${digestCard('volume', v.data, v.state, query)}</div>` });
+        blocks.push({ at: Math.min(...indices, Infinity), html: `<div class="lp-group" data-fold-key="group:${esc(v.data.id)}"><div class="lp-group-label">${esc(label)} <span class="lp-kind-tag">L${v.level}</span> <span class="lp-note">${esc(rangeText(indices))}</span></div>${digestCard('volume', v.data, v.state, query)}</div>` });
     }
     for (const c of st.chapters) {
         const label = t('chapter.label', { n: c.number });
@@ -862,17 +878,11 @@ function renderTree(states) {
         if (st.claimedChapters.has(c.data.id)) continue;
         blocks.push({ at: Math.min(...c.indices.filter((i) => i >= 0), Infinity), html: chapterGroup(c, states) });
     }
+    // 卷以上：只列最上層的（沒被更高一層收進去的），點開一層一層往下。
     for (const v of st.volumes) {
-        const id = v.data.id;
+        if (st.claimedVolumes.has(v.data.id)) continue;
         const indices = v.chapters.flatMap((c) => c.indices);
-        const chapters = [...v.chapters].sort((a, b) => (view.sum.newest ? b.number - a.number : a.number - b.number));
-        const body = groupOpen(id)
-            ? `<div class="lp-group-body">${digestCard('volume', v.data, v.state)}${chapters.map((c) => chapterGroup(c, states)).join('')}</div>`
-            : '';
-        blocks.push({
-            at: Math.min(...indices.filter((i) => i >= 0), Infinity),
-            html: `<div class="lp-group">${groupHead(id, t('volume.label', { n: v.number }), 'L3', rangeText(indices), t('volume.meta', { n: v.chapters.length }), v.state)}${body}</div>`,
-        });
+        blocks.push({ at: Math.min(...indices.filter((i) => i >= 0), Infinity), html: volumeGroup(v, states) });
     }
     blocks.sort((a, b) => (view.sum.newest ? b.at - a.at : a.at - b.at));
     return blocks.map((b) => b.html).join('');
@@ -1124,7 +1134,7 @@ function renderGlobalSearch() {
     const st = structure();
     const digests = [];
     for (const v of st.volumes) {
-        const label = t('volume.label', { n: v.number });
+        const label = digestLabel(v.level, v.number);
         if (matches(digestText(label, v.data), query)) digests.push(resultButton({ tab: 'summary', key: `group:${v.data.id}`, title: label, sub: v.data.summary, query }));
     }
     for (const c of st.chapters) {
@@ -1414,7 +1424,10 @@ function renderSettings() {
       ${compressAuto}
       <div class="lp-row">${inline('set.compress.l2', { n: numberInput('compress.l1PerL2', 'L1 → L2') })}</div>
       <div class="lp-row">${inline('set.compress.l3', { n: numberInput('compress.l2PerL3', 'L2 → L3') })}</div>
+      <div class="lp-row">${inline('set.compress.higher', { n: numberInput('compress.higherPer', 'L3 → L4+') })}</div>
       <div class="lp-row">${inline('set.compress.ratio', { min: numberInput('compress.ratioMin', 'min %'), max: numberInput('compress.ratioMax', 'max %') })}</div>
+      <div class="lp-row">${inline('set.compress.caps', { l3: numberInput('compress.capL3', 'L3 cap'), l4: numberInput('compress.capL4', 'L4 cap'), l5: numberInput('compress.capL5', 'L5 cap'), more: numberInput('compress.capMore', 'L6+ cap') })}</div>
+      <div class="lp-note">${esc(t('set.compress.capsNote'))}</div>
       <div class="lp-note">${esc(t('set.compress.note'))}</div>`;
 
     const hide = `

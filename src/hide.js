@@ -12,7 +12,7 @@ import { formatNotesForPrompt, getNotes, NOTE_TYPES } from './notes.js';
 import { countTokens } from './llm.js';
 import { sceneLine } from './lines.js';
 import { enqueue, enqueueCompress, floorState, isActive, pendingCount, setHolding, waitForIdle } from './summarize.js';
-import { compressionDue, structure } from './compress.js';
+import { compressionDue, digestLabel, structure } from './compress.js';
 import { selectRelevant } from './recall.js';
 import { recapLines } from './carry.js';
 import { calendarInjection } from './calendar.js';
@@ -92,9 +92,10 @@ export function injectionParts(hidden, selection = null) {
     const st = structure();
     const rows = []; // { at: 最早的樓層, line, kind }
     for (const v of st.volumes) {
-        if (v.state !== 'ok') continue;
+        // 只送最上層有效的：被有效的更高一層涵蓋的卷就不送了。
+        if (v.state !== 'ok' || st.coveredVolumes.has(v.data.id)) continue;
         const first = Math.min(...v.chapters.flatMap((c) => c.indices).filter((i) => i >= 0));
-        rows.push({ at: first, kind: 'volumes', line: sceneLine({ ...v.data, characters: [] }, t('volume.label', { n: v.number })) });
+        rows.push({ at: first, kind: 'volumes', line: sceneLine({ ...v.data, characters: [] }, digestLabel(v.level, v.number)) });
     }
     for (const c of st.chapters) {
         if (c.state !== 'ok' || st.coveredChapters.has(c.data.id)) continue;

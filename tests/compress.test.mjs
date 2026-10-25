@@ -113,7 +113,7 @@ await page.click('#lp_wand_entry');
 await page.click('details[data-preview] > summary');
 await page.waitForSelector('.lp-preview-row');
 const prow = await page.$$eval('.lp-preview-row', (r) => r.map((x) => x.textContent.replace(/\s+/g, ' ').trim()));
-check('preview lists volumes, chapters, floors', prow[0].startsWith('卷總結（1 卷）') && prow[1].startsWith('章節總結（2 章）') && prow[2].startsWith('單層摘要（1 層）'), JSON.stringify(prow.slice(0, 3)));
+check('preview lists volumes, chapters, floors', prow[0].startsWith('卷以上的總結（1 份）') && prow[1].startsWith('章節總結（2 章）') && prow[2].startsWith('單層摘要（1 層）'), JSON.stringify(prow.slice(0, 3)));
 await page.keyboard.press('Escape');
 
 // 7. 生成前先壓好：拿掉所有章和卷，送出時攔截器先壓縮完才注入

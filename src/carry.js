@@ -21,7 +21,7 @@ import { errorText } from './errors.js';
 import { aiIndices, chatKey, getChat, getEntry, isUserMessage } from './chat.js';
 import { getNotes, invalidateNotes, NOTE_TYPES, noteTitle, onNotesChange, setNotesBase, setNotesSync } from './notes.js';
 import { sceneLine } from './lines.js';
-import { structure } from './compress.js';
+import { digestLabel, structure } from './compress.js';
 import { isActive, onSummaryChange } from './summarize.js';
 import {
     characterKey, getCharacterScope, getChatScope, SCOPE_KINDS, setCharacterScope, setChatScope,
@@ -142,9 +142,9 @@ function ownSummaryLines() {
     const st = structure();
     const rows = [];
     for (const v of st.volumes) {
-        if (v.state !== 'ok') continue;
+        if (v.state !== 'ok' || st.coveredVolumes.has(v.data.id)) continue;
         const first = Math.min(...v.chapters.flatMap((c) => c.indices).filter((i) => i >= 0));
-        rows.push({ at: first, line: sceneLine({ ...v.data, characters: [] }, t('volume.label', { n: v.number })) });
+        rows.push({ at: first, line: sceneLine({ ...v.data, characters: [] }, digestLabel(v.level, v.number)) });
     }
     for (const c of st.chapters) {
         if (c.state !== 'ok' || st.coveredChapters.has(c.data.id)) continue;

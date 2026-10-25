@@ -16,7 +16,7 @@ import { parseJsonLenient } from './json.js';
 import { cleanForSummary } from './filter.js';
 import { aiIndices, floorSource, getChat, getEntry } from './chat.js';
 import { completeNoteManual, deleteNoteManual, getNotes, NOTE_FIELDS, noteTitle, updateNoteManual } from './notes.js';
-import { compressionDue, structure } from './compress.js';
+import { compressionDue, digestLabel, structure } from './compress.js';
 import { enqueue, enqueueCompress, floorState, unsummarizedIndices } from './summarize.js';
 import { getCatchup, resumeCatchup } from './catchup.js';
 import { condenseRecap, getRecap } from './carry.js';
@@ -82,7 +82,7 @@ export function runChecks() {
         if (c.state === 'stale' || c.state === 'fail') out.push(issue(`chapter-${c.state}`, 'error', { target: c.data.id, n: c.number, autoFix: true }));
     }
     for (const v of st.volumes) {
-        if (v.state === 'stale' || v.state === 'fail') out.push(issue(`volume-${v.state}`, 'error', { target: v.data.id, n: v.number, autoFix: true }));
+        if (v.state === 'stale' || v.state === 'fail') out.push(issue(`volume-${v.state}`, 'error', { target: v.data.id, n: v.number, label: digestLabel(v.level, v.number), autoFix: true }));
     }
     if (s.compress && compressionDue()) out.push(issue('compressDue', 'warn', { autoFix: true }));
     const cu = getCatchup();

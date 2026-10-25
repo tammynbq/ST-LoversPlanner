@@ -3,7 +3,9 @@
 // 存在 chat_metadata.lovers_planner：
 //   chapters: [{ id, members: [send_date…], memberIdx: [index…], memberAts: [entry.at…],
 //                time, location, summary, status: 'ok'|'fail', error?, at, manual? }]
-//   volumes:  [{ id, chapterIds: [id…], chapterAts: [chapter.at…], time, location, summary, status, error?, at, manual? }]
+//   volumes:  [{ id, level, chapterIds: [id…], chapterAts: [at…], time, location, summary, status, error?, at, manual? }]
+//             level 3＝卷（成員是章）；level 4＝部、5 以上＝紀（成員是下一層的 volume）。沒有 level 的是舊資料，當作 3。
+//             chapterIds／chapterAts 名字沿用舊的，存的是「下一層成員」的 id 和 at。
 // 用 send_date 認樓層（刪掉訊息後索引會位移）；memberIdx 只是找不到時的提示。
 // 成員的摘要被改過（entry.at 變了）、不再是「已摘要」或訊息不見了，那一章就是「過期」；
 // 過期的章不注入，改回注入那幾層的單層摘要。卷也一樣。
@@ -88,16 +90,29 @@ export function structure() {
     chapters.forEach((c, k) => { c.number = k + 1; });
     const byId = new Map(chapters.map((c) => [c.data.id, c]));
 
-    const volumes = getVolumes().map((data) => {
-        const list = (data.chapterIds ?? []).map((id) => byId.get(id));
-        let state = data.status === 'fail' ? 'fail' : 'ok';
-        if (state === 'ok') {
-            const broken = list.some((c, k) => !c || c.state !== 'ok' || c.data.at !== data.chapterAts?.[k]);
-            if (broken) state = 'stale';
-        }
-        return { data, chapters: list.filter(Boolean), state, number: 0 };
-    }).sort((a, b) => (a.chapters[0]?.number ?? Infinity) - (b.chapters[0]?.number ?? Infinity));
-    volumes.forEach((v, k) => { v.number = k + 1; });
+    // 卷以上：由低到高一層一層算，成員是下一層（章或較低層的卷）。
+    const all = getVolumes().map((data) => ({ data, level: Math.max(3, Number(data.level) || 3) }));
+    const levels = [...new Set(all.map((x) => x.level))].sort((a, b) => a - b);
+    const volById = new Map();
+    const volumes = [];
+    for (const level of levels) {
+        const list = all.filter((x) => x.level === level).map(({ data }) => {
+            const children = (data.chapterIds ?? []).map((id) => (level === 3 ? byId.get(id) : volById.get(id)));
+            let state = data.status === 'fail' ? 'fail' : 'ok';
+            if (state === 'ok') {
+                const broken = children.some((c, k) => !c || c.state !== 'ok' || c.data.at !== data.chapterAts?.[k]);
+                if (broken) state = 'stale';
+            }
+            const kids = children.filter(Boolean);
+            // chapters：底下所有的章（舊程式碼用 v.chapters 找樓層範圍）。
+            const chapters = level === 3 ? kids : kids.flatMap((c) => c.chapters);
+            return { data, level, children: kids, chapters, state, number: 0 };
+        });
+        const first = (v) => Math.min(...v.chapters.flatMap((c) => c.indices).filter((i) => i >= 0), Infinity);
+        list.sort((a, b) => first(a) - first(b));
+        list.forEach((v, k) => { v.number = k + 1; volById.set(v.data.id, v); });
+        volumes.push(...list);
+    }
 
     const covered = new Set();
     const claimed = new Set();
@@ -108,15 +123,23 @@ export function structure() {
             if (c.state === 'ok') covered.add(i);
         }
     }
+    // 章被有效的卷涵蓋；卷被有效的更高一層涵蓋（注入時只送最上層有效的）。
     const coveredChapters = new Set();
     const claimedChapters = new Set();
+    const coveredVolumes = new Set();
+    const claimedVolumes = new Set();
     for (const v of volumes) {
-        for (const c of v.chapters) {
-            claimedChapters.add(c.data.id);
-            if (v.state === 'ok') coveredChapters.add(c.data.id);
+        for (const c of v.children) {
+            if (v.level === 3) {
+                claimedChapters.add(c.data.id);
+                if (v.state === 'ok') coveredChapters.add(c.data.id);
+            } else {
+                claimedVolumes.add(c.data.id);
+                if (v.state === 'ok') coveredVolumes.add(c.data.id);
+            }
         }
     }
-    return { chapters, volumes, covered, claimed, coveredChapters, claimedChapters };
+    return { chapters, volumes, covered, claimed, coveredChapters, claimedChapters, coveredVolumes, claimedVolumes };
 }
 
 /** 到期要壓成一章的樓層：從最舊的未壓縮樓層開始，連續 N 層已摘要（跳過的不算、遇到沒摘要好的就停）。 */
@@ -137,17 +160,40 @@ export function dueChapterFloors(st = structure()) {
     return null;
 }
 
-/** 到期要壓成一卷的章：從最舊的未入卷章開始，連續 M 章有效。 */
-export function dueVolumeChapters(st = structure()) {
-    const m = Number(getSettings().compress.l2PerL3) || 10;
-    const picked = [];
-    for (const c of st.chapters) {
-        if (st.claimedChapters.has(c.data.id)) continue;
-        if (c.state !== 'ok') return null;
-        picked.push(c);
-        if (picked.length === m) return picked;
+/**
+ * 到期要往上壓一層的：從 L3 開始，找最低一層「連續 N 個有效、還沒被收進上一層」的成員。
+ * 回傳 { level: 要產生的層級, items } 或 null。L3 每 l2PerL3 章一卷；L4 以上每 higherPer 個一組。
+ */
+export function dueVolumeGroup(st = structure()) {
+    const c = getSettings().compress;
+    const maxLevel = Math.max(3, ...st.volumes.map((v) => v.level)) + 1;
+    for (let level = 3; level <= maxLevel; level++) {
+        const m = level === 3 ? (Number(c.l2PerL3) || 5) : (Number(c.higherPer) || 5);
+        const pool = level === 3
+            ? st.chapters.filter((x) => !st.claimedChapters.has(x.data.id))
+            : st.volumes.filter((v) => v.level === level - 1 && !st.claimedVolumes.has(v.data.id));
+        const picked = [];
+        for (const x of pool) {
+            if (x.state !== 'ok') break;
+            picked.push(x);
+            if (picked.length === m) return { level, items: picked };
+        }
     }
     return null;
+}
+
+/** 舊名字：到期要壓成一卷的章（只看 L3）。 */
+export function dueVolumeChapters(st = structure()) {
+    const due = dueVolumeGroup(st);
+    return due?.level === 3 ? due.items : null;
+}
+
+/** 卷以上的標籤：第 n 卷／第 n 部／第 n 紀。 */
+export function digestLabel(level, n) {
+    if (level <= 3) return t('volume.label', { n });
+    if (level === 4) return t('level.label.4', { n });
+    if (level === 5) return t('level.label.5', { n });
+    return t('level.label.more', { n, level });
 }
 
 function rangeOf(values) {
@@ -169,13 +215,25 @@ function placesOf(values) {
     return set.length > 4 ? `${set[0]} … ${set[set.length - 1]}` : set.join('、');
 }
 
-/** 壓縮後的目標字數：原文字數 × 壓縮比例（上下限平均）。 */
-function targetLength(text) {
+/** 每一層的上限（tokens）：L2 沒有上限（只看比例），L3、L4、L5、更高各自可調。 */
+function capTokens(level) {
+    const c = getSettings().compress;
+    if (level <= 2) return 0;
+    const v = level === 3 ? c.capL3 : level === 4 ? c.capL4 : level === 5 ? c.capL5 : c.capMore;
+    return Math.max(0, Number(v) || 0);
+}
+
+/** 壓縮後的目標字數：原文字數 × 壓縮比例（上下限平均），再受這一層的上限限制。 */
+export function targetLength(text, level = 2) {
     const c = getSettings().compress;
     const ratio = (Number(c.ratioMin) + Number(c.ratioMax)) / 200 || 0.35;
     const zh = currentLocale().startsWith('zh');
     const units = zh ? text.replace(/\s/g, '').length : text.split(/\s+/).filter(Boolean).length;
-    return Math.max(20, Math.round((units * ratio) / 10) * 10);
+    let target = units * ratio;
+    const cap = capTokens(level);
+    // tokens 換成字數：中文約 1.15 字／token，英文約 0.75 字／token（用使用者的聊天實測的比例）。
+    if (cap) target = Math.min(target, cap * (zh ? 1.15 : 0.75));
+    return Math.max(20, Math.round(target / 10) * 10);
 }
 
 /** 壓縮模型的回覆：要的是純文字；包在 ```、或回了 {"summary": …} 也接受。 */
@@ -195,9 +253,9 @@ function fill(template, vars) {
     return template.replace(/\{\{(\w+)\}\}/g, (m, key) => (key in vars ? String(vars[key]) : m));
 }
 
-async function callModel(templateKey, varName, text) {
+async function callModel(templateKey, varName, text, level = 2) {
     const c = ctx();
-    const length = targetLength(text);
+    const length = targetLength(text, level);
     const prompt = fill(getTemplate(templateKey), { [varName]: text, length, char: c?.name2 ?? '', user: c?.name1 ?? '' });
     const raw = await generateText(prompt, { maxTokens: Math.max(1500, length * 3) });
     return parsePlain(raw);
@@ -238,22 +296,24 @@ async function compressChapter(indices, existing = null) {
     }
 }
 
-/** 把這幾章壓成一卷。 */
-async function compressVolume(chapters, existing = null) {
-    const text = chapters.map((c) => sceneLine({ ...c.data, characters: [] }, t('chapter.label', { n: c.number }))).join('\n');
+/** 把這幾個成員（章，或下一層的卷）壓成 level 層的一個總結。 */
+async function compressVolume(children, existing = null, level = existing?.level ?? 3) {
+    const childLabel = (x) => (level === 3 ? t('chapter.label', { n: x.number }) : digestLabel(level - 1, x.number));
+    const text = children.map((x) => sceneLine({ ...x.data, characters: [] }, childLabel(x))).join('\n');
     const base = {
-        id: existing?.id ?? newId('vol'),
-        chapterIds: chapters.map((c) => c.data.id),
-        chapterAts: chapters.map((c) => c.data.at),
-        time: rangeOf(chapters.map((c) => c.data.time)),
-        location: placesOf(chapters.map((c) => c.data.location)),
+        id: existing?.id ?? newId(level === 3 ? 'vol' : `l${level}`),
+        level,
+        chapterIds: children.map((x) => x.data.id),
+        chapterAts: children.map((x) => x.data.at),
+        time: rangeOf(children.map((x) => x.data.time)),
+        location: placesOf(children.map((x) => x.data.location)),
     };
     try {
-        const summary = await callModel('l3', 'chapters', text);
+        const summary = await callModel('l3', 'chapters', text, level);
         upsert('volumes', { ...base, summary, status: 'ok', at: Date.now() });
         return true;
     } catch (e) {
-        console.warn(LOG_PREFIX, '壓縮成卷失敗', e);
+        console.warn(LOG_PREFIX, `壓縮成 L${level} 失敗`, e);
         if (existing) upsert('volumes', { ...existing, status: 'fail', error: errorText(e), at: Date.now() });
         else toast(t('compress.failed', { error: errorText(e) }), 'error');
         return false;
@@ -283,23 +343,23 @@ export async function runCompression(target) {
         }
         const vol = st.volumes.find((v) => v.data.id === target);
         if (vol) {
-            const alive = vol.chapters.filter((c) => c.state === 'ok');
-            if (alive.length) await compressVolume(alive, vol.data);
+            const alive = vol.children.filter((c) => c.state === 'ok');
+            if (alive.length) await compressVolume(alive, { ...vol.data, level: vol.level }, vol.level);
             else deleteVolume(target);
         }
         return;
     }
-    // 一次最多壓 20 次，避免意外的無限迴圈。
-    for (let k = 0; k < 20; k++) {
+    // 一次最多壓 50 次，避免意外的無限迴圈（補建很長的聊天時，一次會有很多章要往上壓）。
+    for (let k = 0; k < 50; k++) {
         const st = structure();
         const floors = dueChapterFloors(st);
         if (floors) {
             if (!(await compressChapter(floors))) return;
             continue;
         }
-        const chapters = dueVolumeChapters(st);
-        if (chapters) {
-            if (!(await compressVolume(chapters))) return;
+        const due = dueVolumeGroup(st);
+        if (due) {
+            if (!(await compressVolume(due.items, null, due.level))) return;
             continue;
         }
         return;
@@ -309,7 +369,7 @@ export async function runCompression(target) {
 /** 有沒有到期要壓縮的。 */
 export function compressionDue() {
     const st = structure();
-    return Boolean(dueChapterFloors(st) || dueVolumeChapters(st));
+    return Boolean(dueChapterFloors(st) || dueVolumeGroup(st));
 }
 
 /** 補建（catchup.js）直接寫好的一章。 */

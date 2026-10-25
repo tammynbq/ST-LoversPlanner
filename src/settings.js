@@ -25,12 +25,20 @@ export const DEFAULTS = Object.freeze({
     // 摘要時跳過的內容（只影響送去摘要的文字）。tags：自訂要跳過的標籤；only：只看這些標籤裡的內容；
     // keep：內建清單裡、但使用者選了「要讀」的標籤。
     filter: { thinking: true, status: true, html: true, tags: '', only: '', keep: '' },
+    // 分層壓縮（2026-10-25 依真實聊天紀錄的測試改，見 SPEC 2.3）：
+    // L2 每 l1PerL2 層一章（只看比例）；L3 每 l2PerL3 章一卷；L4 以上每 higherPer 個一組，沒有層數上限。
+    // capL3／capL4／capL5／capMore：各層的長度上限（tokens），越高層越短，越舊的越粗。
     compress: {
         auto: true, // 到期就自動壓縮
         l1PerL2: 10,
-        l2PerL3: 10,
+        l2PerL3: 5,
+        higherPer: 5,
         ratioMin: 30,
         ratioMax: 40,
+        capL3: 200,
+        capL4: 400,
+        capL5: 500,
+        capMore: 600,
     },
     // 要記錄哪些：沒勾的不會要求模型摘要、不顯示、也不注入（已經記下的資料保留）。
     track: {
@@ -89,7 +97,7 @@ export const DEFAULTS = Object.freeze({
     // 每張角色卡自己的資料，key 是角色卡頭像檔名：{ [avatar]: { scope } }
     characters: {},
     // 設定格式的版本，用來做一次性的轉換。
-    settingsVersion: 4,
+    settingsVersion: 5,
 });
 
 function isPlainObject(v) {
@@ -153,6 +161,10 @@ export function initSettings() {
     if (saved && !(saved.settingsVersion >= 4)) {
         const v = s.recall.vector;
         if (!v.url && !v.model) Object.assign(v, { url: VECTOR_URL, model: VECTOR_MODEL });
+    }
+    // v4 → v5：L3 改成每 5 章一卷（測試結果）。還是舊預設 10 的才換。
+    if (saved && !(saved.settingsVersion >= 5)) {
+        if (s.compress.l2PerL3 === 10) s.compress.l2PerL3 = DEFAULTS.compress.l2PerL3;
     }
     s.settingsVersion = DEFAULTS.settingsVersion;
     // 舊版的 'auto' 就是現在的 'before'。
