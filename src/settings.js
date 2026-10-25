@@ -61,6 +61,8 @@ export const DEFAULTS = Object.freeze({
         // 預填硅基流動和推薦模型（使用者要求），只要自己填 Key。
         vector: { enabled: false, url: VECTOR_URL, key: '', model: VECTOR_MODEL },
     },
+    // 帶到新聊天的摘要：'condense' 請模型濃縮成一段 | 'raw' 原樣帶過去。recapLength：濃縮成大約幾個字。
+    carry: { recapMode: 'condense', recapLength: 400 },
     // 擴充更新後自動重新整理頁面（等生成、摘要做完）。
     update: { autoReload: true },
     inject: {

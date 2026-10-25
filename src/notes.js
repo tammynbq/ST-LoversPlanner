@@ -202,30 +202,68 @@ function floorOps(index) {
     return e.ops;
 }
 
+// 基底記事（第 7 步，carry.js 提供）：從別的聊天帶來的、或和同角色其他聊天即時共用的記事。
+// 重播時先放進基底，再套用這個聊天自己的變化。基底記事有 updatedAt：
+// 比它舊的變化代表「已經算進去了或被更新的蓋過了」，跳過（以最新的修改為準）。
+let baseProvider = null;
+let syncHook = null;
+
+/** fn() → [{ id, type, data, state, result, pinned, updatedAt, source? }] */
+export function setNotesBase(fn) {
+    baseProvider = fn;
+}
+
+/** fn(result)：完整重播後呼叫（carry.js 用來把共用的記事寫回去）。 */
+export function setNotesSync(fn) {
+    syncHook = fn;
+}
+
 /**
- * 依序重播，回傳 { notes: Map, perFloor: Map<index, [{ op, k, valid }]> }。
+ * 依序重播，回傳 { notes: Map, perFloor: Map<index, [{ op, k, valid }]>, touched: Map<id, 時間> }。
  * upTo：只重播到這個樓層之前（不含），而且不套用手動修改；用來替某一層組提示詞。
+ * touched：每條記事最後一次被這個聊天改動的時間（共用時用來判斷誰比較新）。
  */
 export function replay({ upTo = Infinity } = {}) {
     const state = new Map();
     const perFloor = new Map();
+    const touched = new Map();
+    const baseAt = new Map();
+    let base = [];
+    try { base = baseProvider?.() ?? []; } catch (e) { console.error(e); }
+    for (const n of base) {
+        if (!n?.id || !NOTE_TYPES.includes(n.type)) continue;
+        state.set(n.id, {
+            id: n.id, type: n.type, data: { ...n.data }, state: n.state ?? 'active', result: n.result ?? null,
+            pinned: Boolean(n.pinned), createdFloor: null, updatedFloor: null, closedFloor: null,
+            manual: false, carried: true, source: n.source ?? null,
+        });
+        baseAt.set(n.id, Number(n.updatedAt) || 0);
+    }
+    // 回傳 true 表示有效（或已經算在基底裡）。
+    const apply = (op, floor, at) => {
+        if (baseAt.has(op.id) && (Number(at) || 0) <= baseAt.get(op.id)) return true;
+        const ok = applyOp(state, op, floor);
+        if (ok && op.id) touched.set(op.id, Math.max(touched.get(op.id) ?? 0, Number(at) || 0));
+        return ok;
+    };
     const chat = getChat();
     const end = Math.min(chat.length, upTo);
     for (let i = 0; i < end; i++) {
         if (!isAiMessage(chat[i])) continue;
         const ops = floorOps(i);
         if (!ops) continue;
+        const at = getEntry(i)?.at ?? 0;
         const list = [];
         ops.forEach((op, k) => {
-            const valid = !op.undone && applyOp(state, op, i);
+            const valid = !op.undone && apply(op, i, at);
             list.push({ op, k, valid });
         });
         perFloor.set(i, list);
     }
     if (upTo === Infinity) {
-        for (const op of manualOps()) applyOp(state, op, null);
+        for (const op of manualOps()) apply(op, null, op.at);
     }
-    return { notes: state, perFloor };
+    return { notes: state, perFloor, touched };
 }
 
 let cache = null;
@@ -248,7 +286,10 @@ function emitNotesChange() {
 }
 
 export function getNotes() {
-    if (!cache) cache = replay();
+    if (!cache) {
+        cache = replay();
+        try { syncHook?.(cache); } catch (e) { console.error(e); }
+    }
     return cache;
 }
 

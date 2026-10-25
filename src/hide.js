@@ -14,6 +14,7 @@ import { sceneLine } from './lines.js';
 import { enqueue, enqueueCompress, floorState, isActive, pendingCount, setHolding, waitForIdle } from './summarize.js';
 import { compressionDue, structure } from './compress.js';
 import { selectRelevant } from './recall.js';
+import { recapLines } from './carry.js';
 
 /** 保留原文的 AI 樓層數（規格：最新 2 個）。 */
 export const KEEP_AI = 2;
@@ -97,6 +98,9 @@ export function injectionParts(hidden, selection = null) {
         if (e?.status === 'ok' && e.summary) rows.push({ at: i, kind: 'floors', line: sceneLine(e) });
     }
     rows.sort((a, b) => a.at - b.at);
+    // 前情提要（從別的聊天帶來的、或即時共用的）放在最前面。
+    const recap = recapLines();
+    rows.unshift(...recap.map((line) => ({ at: -1, kind: 'recap', line })));
     const lines = rows.map((r) => r.line);
     const byKind = (kind) => rows.filter((r) => r.kind === kind).map((r) => r.line).join('\n');
     const notes = getNotes().notes;
@@ -114,8 +118,9 @@ export function injectionParts(hidden, selection = null) {
             floors: rows.filter((r) => r.kind === 'floors').length,
             chapters: rows.filter((r) => r.kind === 'chapters').length,
             volumes: rows.filter((r) => r.kind === 'volumes').length,
+            recap: recap.length,
             text: lines.join('\n'),
-            parts: { volumes: byKind('volumes'), chapters: byKind('chapters'), floors: byKind('floors') },
+            parts: { recap: byKind('recap'), volumes: byKind('volumes'), chapters: byKind('chapters'), floors: byKind('floors') },
         },
         memories: { count: memories.length, text: memories.map((m) => m.line).join('\n') },
         notes: byType,
@@ -152,6 +157,7 @@ export async function previewInjection() {
     const count = async (x) => (x ? await countTokens(x) : 0);
     const tokens = {
         summaries: await count(parts.summaries.text),
+        recap: await count(sp.recap),
         volumes: await count(sp.volumes),
         chapters: await count(sp.chapters),
         floors: await count(sp.floors),

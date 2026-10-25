@@ -12,6 +12,7 @@ import { mountSettingsDrawer, mountWandEntry, relabelEntries } from './src/ui/en
 import { initMessageBlocks, renderAllBlocks } from './src/ui/message.js';
 import { refreshPanel, setPanelHooks } from './src/ui/panel.js';
 import { initUpdateWatch } from './src/update.js';
+import { initCarry, onChatOpened } from './src/carry.js';
 
 function onSettingChanged(path) {
     if (path === 'language') relabelEntries();
@@ -36,10 +37,13 @@ async function start() {
     initSummarizer();
     initHiding();
     initCompression();
+    initCarry();
     initAttention();
     initMessageBlocks();
     renderAllBlocks();
     initUpdateWatch();
+    // 啟動時已經開著的聊天，也走一次「打開聊天」的流程。
+    onChatOpened().catch((e) => console.error(LOG_PREFIX, e));
 
     const c = ctx();
     if (c?.eventSource && c.eventTypes) {

@@ -1,7 +1,7 @@
 // 記憶範圍：
 //   角色的共同設定（套用到這個角色之後開的所有新聊天）：'none' 不帶 | 'copy' 複製帶走 | 'share' 即時共用
 //   本視窗的設定（只影響目前這個聊天）：'inherit' 跟隨角色 | 'own' 獨立 | 'share' 即時共用
-// 實際的帶走／共用在第 6 步才會生效，這裡先負責存取設定。
+// 這裡只負責存取設定；實際的帶走／共用在 carry.js。
 
 import { ctx, MODULE } from './util.js';
 import { DEFAULTS, getSettings, saveSettings } from './settings.js';

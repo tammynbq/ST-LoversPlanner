@@ -8,10 +8,14 @@ import { getTemplate, isTemplateModified, resetTemplate, setTemplate, TEMPLATE_K
 import { listModels, normalizeBaseUrl, testConnection } from '../api/custom.js';
 import { testEmbedding } from '../api/embed.js';
 import { warmVectors } from '../recall.js';
+import {
+    changeCharacterScope, changeChatScope, condenseRecap, deleteRecap, editRecap, effectiveScope, getLinkedSummary,
+    getRecap, importFrom, lastCarry, onCarryChange, otherSnapshots, restoreRecapRaw, setSummarySource, undoCarry,
+} from '../carry.js';
 import { errorText } from '../errors.js';
 import { getLastStats, onStatsChange, previewInjection } from '../hide.js';
 import { aiIndices, getChat, getEntry } from '../chat.js';
-import { hl, isExpanded, isSectionOpen, matches, setExpanded, terms, toggleExpanded, toggleSection } from './fold.js';
+import { hl, isExpanded, isSectionOpen, matches, setExpanded, setSectionOpen, terms, toggleExpanded, toggleSection } from './fold.js';
 import {
     cancelQueue, enqueue, enqueueCompress, floorState, isActive, onSummaryChange, pendingCount, unsummarizedIndices,
 } from '../summarize.js';
@@ -24,7 +28,6 @@ import {
 } from '../notes.js';
 import {
     CHAR_SCOPE_VALUES, CHAT_SCOPE_VALUES, characterName, getCharacterScope, getChatScope, SCOPE_KINDS,
-    setCharacterScope, setChatScope,
 } from '../scope.js';
 
 const TABS = ['summary', 'characters', 'items', 'notes', 'done', 'settings'];
@@ -58,6 +61,7 @@ const NUMBER_LIMITS = {
     'recall.memoryTopK': [0, 20],
     'recall.noteTopK': [0, 50],
     'recall.threshold': [0, 100],
+    'carry.recapLength': [50, 4000],
 };
 
 /** 成對的上下限：下限比上限大時，把上限拉到和下限一樣。 */
@@ -99,6 +103,8 @@ const view = {
         busy: false,
         status: null, // { type: 'ok' | 'error' | 'saved', text }
     },
+    // 從其他聊天匯入：選哪個聊天、帶哪些。
+    imp: { src: null, kinds: null, result: null },
     // 向量模型：和自訂 API 一樣的草稿卡片。
     vector: { draft: null, models: [], manual: false, showKey: false, busy: false, status: null },
 };
@@ -425,6 +431,7 @@ function renderSummaryTab() {
     return `
       <div class="lp-summary">
         ${preview}
+        ${recapCard()}
         ${searchBox('summary')}
         <div class="lp-row">
           <div class="lp-chips">${chips}</div>
@@ -435,6 +442,58 @@ function renderSummaryTab() {
         <div class="lp-floor-list">${rows}</div>
         ${more}
       </div>`;
+}
+
+// ===== 摘要分頁：前情提要 =====
+
+function recapCard() {
+    const recap = getRecap();
+    const linked = getLinkedSummary();
+    if (!recap && !linked) return '';
+    const open = isSectionOpen('recap');
+    const out = [];
+    if (recap) {
+        const busy = recap.status === 'busy';
+        const status = busy ? `<span class="lp-badge lp-st-busy">${esc(t('recap.busy'))}</span>`
+            : recap.status === 'fail' ? `<span class="lp-badge lp-st-fail">${esc(t('recap.fail'))}</span>`
+                : `<span class="lp-badge lp-st-ok">${esc(t(recap.mode === 'condensed' ? 'recap.condensed' : 'recap.raw'))}</span>`;
+        let body;
+        if (view.sum.editing === 'recap') {
+            body = `<textarea class="text_pole lp-sum-editor" data-digest-text aria-label="${esc(t('act.edit'))}">${esc(recap.text)}</textarea>
+              <div class="lp-sum-actions">
+                <button type="button" class="menu_button lp-btn lp-primary" data-action="recap-save">${esc(t('act.save'))}</button>
+                <button type="button" class="menu_button lp-btn" data-action="digest-cancel">${esc(t('act.cancel'))}</button>
+              </div>`;
+        } else {
+            const btn = (act, key, primary = false, disabled = false) => `<button type="button" class="menu_button lp-btn${primary ? ' lp-primary' : ''}" data-action="${act}"${disabled ? ' disabled' : ''}>${esc(t(key))}</button>`;
+            body = `<div class="lp-recap-text">${esc(recap.text)}</div>
+              ${recap.status === 'fail' ? `<div class="lp-error-text">${esc(recap.error ?? '')}</div>` : ''}
+              <div class="lp-sum-actions">
+                ${btn('recap-edit', 'act.edit', false, busy)}
+                ${btn('recap-condense', 'recap.condense', recap.status === 'fail', busy)}
+                ${recap.mode === 'condensed' && recap.raw ? btn('recap-raw', 'recap.useRaw', false, busy) : ''}
+                ${lastCarry() ? btn('carry-undo', 'carry.undo', false, busy) : btn('recap-delete', 'recap.delete', false, busy)}
+              </div>`;
+        }
+        out.push(`<div class="lp-recap" data-role="recap">
+            <div class="lp-row"><span class="lp-label">${esc(t('recap.from', { chat: recap.source ?? '—' }))}</span>${status}</div>
+            ${body}
+          </div>`);
+    }
+    if (linked) {
+        const text = linked.missing ? `<div class="lp-note">${esc(t('recap.linkMissing'))}</div>`
+            : linked.lines.length ? `<div class="lp-recap-text">${linked.lines.map(esc).join('<br>')}</div>`
+                : `<div class="lp-note">${esc(t('recap.linkEmpty'))}</div>`;
+        out.push(`<div class="lp-recap lp-recap-linked" data-role="recap-linked">
+            <div class="lp-row"><span class="lp-label">${esc(t('recap.linked', { chat: linked.source }))}</span><span class="lp-badge">${esc(t('recap.readonly'))}</span></div>
+            ${text}
+          </div>`);
+    }
+    return `
+      <details class="lp-sec" data-recap${open ? ' open' : ''}>
+        <summary><span class="lp-sec-title">📌 ${esc(t('recap.title'))}</span><span class="lp-sec-hint">${esc(t('recap.hint'))}</span></summary>
+        <div class="lp-sec-body">${out.join('')}</div>
+      </details>`;
 }
 
 // ===== 摘要分頁：卷 → 章 → 各層 =====
@@ -580,6 +639,7 @@ function scheduleRefresh() {
 }
 onSummaryChange(scheduleRefresh);
 onNotesChange(scheduleRefresh);
+onCarryChange(scheduleRefresh);
 // 每次送出後更新標題列的統計（不整頁重畫）。
 onStatsChange(() => {
     const el = isPanelOpen() ? panel.querySelector('.lp-stats') : null;
@@ -597,7 +657,8 @@ function floorLink(index, key) {
 
 function noteTrace(note) {
     const parts = [];
-    parts.push(note.createdFloor === null ? esc(t('notes.manualAdd')) : floorLink(note.createdFloor, 'notes.created'));
+    if (note.carried && note.createdFloor === null) parts.push(esc(t(note.source ? 'notes.carried' : 'notes.shared', { chat: note.source ?? '' })));
+    else parts.push(note.createdFloor === null ? esc(t('notes.manualAdd')) : floorLink(note.createdFloor, 'notes.created'));
     if (note.updatedFloor !== null && note.updatedFloor !== note.createdFloor) parts.push(floorLink(note.updatedFloor, 'notes.updated'));
     if (note.state !== 'active') {
         parts.push(note.closedFloor === null ? esc(t('notes.closedManual')) : floorLink(note.closedFloor, 'notes.closed'));
@@ -897,8 +958,64 @@ function renderScope() {
         <div class="lp-scope-title">${esc(t('set.scope.chat'))}</div>
         <div class="lp-note">${esc(t('set.scope.chat.note'))}</div>
         ${scopeTable('chat', CHAT_SCOPE_VALUES, getChatScope())}
+        ${summarySourcePicker()}
       </div>
-      <div class="lp-note">${esc(t('set.scope.later'))}</div>`;
+      <div class="lp-scope-block">
+        <div class="lp-scope-title">${esc(t('set.carry.title'))}</div>
+        ${radio('lp-recap-mode', 'carry.recapMode', 'condense', t('set.carry.condense'))}
+        ${radio('lp-recap-mode', 'carry.recapMode', 'raw', t('set.carry.raw'))}
+        ${getSettings().carry.recapMode === 'condense' ? `<div class="lp-row">${inline('set.carry.length', { n: numberInput('carry.recapLength', t('set.carry.length.aria')) })}</div>` : ''}
+        <div class="lp-note">${esc(t('set.carry.note'))}</div>
+      </div>
+      ${importBlock()}`;
+}
+
+/** 摘要設成即時共用時：選要讀哪個聊天的摘要。 */
+function summarySourcePicker() {
+    if (effectiveScope('summary') !== 'share') return '';
+    const linked = getLinkedSummary();
+    const list = otherSnapshots();
+    if (!list.length) return `<div class="lp-note">${esc(t('set.scope.noSource'))}</div>`;
+    const opts = list.map((x) => `<option value="${esc(x.id)}"${linked?.source === x.id ? ' selected' : ''}>${esc(snapshotLabel(x))}</option>`).join('');
+    return `<div class="lp-row"><label class="lp-label" for="lp-sum-src">${esc(t('set.scope.source'))}</label>
+      <select id="lp-sum-src" class="text_pole lp-select" data-role="summary-source">${linked?.source ? '' : `<option value="">—</option>`}${opts}</select></div>`;
+}
+
+function snapshotLabel(x) {
+    const date = x.at ? new Date(x.at).toLocaleString() : '';
+    return t('import.option', { chat: x.id, floors: x.floors ?? 0, notes: x.notes?.length ?? 0, date });
+}
+
+/** 從其他聊天匯入。 */
+function importBlock() {
+    const list = otherSnapshots();
+    const imp = view.imp;
+    if (!imp.kinds) {
+        const cs = getCharacterScope();
+        imp.kinds = new Set(SCOPE_KINDS.filter((k) => cs[k] !== 'none'));
+    }
+    if (!list.some((x) => x.id === imp.src)) imp.src = list[0]?.id ?? null;
+    const undo = lastCarry() ? `<div class="lp-row"><span class="lp-note">${esc(t('import.last', { chat: lastCarry().source }))}</span>
+      <button type="button" class="menu_button lp-btn" data-action="carry-undo">${esc(t('carry.undo'))}</button></div>` : '';
+    let body;
+    if (!list.length) {
+        body = `<div class="lp-note">${esc(t('import.none'))}</div>`;
+    } else {
+        const opts = list.map((x) => `<option value="${esc(x.id)}"${x.id === imp.src ? ' selected' : ''}>${esc(snapshotLabel(x))}</option>`).join('');
+        const kinds = SCOPE_KINDS.map((k) => `<label class="lp-check"><input type="checkbox" data-import-kind="${k}"${imp.kinds.has(k) ? ' checked' : ''}><span>${esc(t(`kind.${k}`))}</span></label>`).join('');
+        body = `
+          <div class="lp-row"><select class="text_pole lp-select lp-grow" data-role="import-src" aria-label="${esc(t('import.title'))}">${opts}</select></div>
+          <div class="lp-track-group">${kinds}</div>
+          <div class="lp-row"><button type="button" class="menu_button lp-btn lp-primary" data-action="import-run">${esc(t('import.run'))}</button>
+          ${imp.result ? `<span class="lp-ok-text" role="status">${esc(imp.result)}</span>` : ''}</div>`;
+    }
+    return `
+      <div class="lp-scope-block" data-role="import">
+        <div class="lp-scope-title">${esc(t('import.title'))}</div>
+        <div class="lp-note">${esc(t('import.desc'))}</div>
+        ${body}
+        ${undo}
+      </div>`;
 }
 
 // ===== 設定頁 =====
@@ -1290,6 +1407,43 @@ function onClick(e) {
         case 'vector-warm':
             warmUp();
             return;
+        case 'import-run': {
+            if (!view.imp.src) return;
+            const kinds = Object.fromEntries(SCOPE_KINDS.map((k) => [k, view.imp.kinds.has(k) ? 'copy' : 'none']));
+            importFrom(view.imp.src, kinds).then((r) => {
+                view.imp.result = r ? t('import.done', { notes: r.notes, summary: r.summary ? t('import.withRecap') : '' }) : '';
+                if (isPanelOpen()) render();
+            });
+            return;
+        }
+        case 'carry-undo':
+            undoCarry();
+            view.imp.result = null;
+            toast(t('carry.undone'), 'info');
+            render();
+            return;
+        case 'recap-edit':
+            view.sum.editing = 'recap';
+            render();
+            panel.querySelector('[data-digest-text]')?.focus();
+            return;
+        case 'recap-save':
+            editRecap(panel.querySelector('[data-digest-text]')?.value ?? '');
+            view.sum.editing = null;
+            render();
+            return;
+        case 'recap-condense':
+            condenseRecap();
+            render();
+            return;
+        case 'recap-raw':
+            restoreRecapRaw();
+            render();
+            return;
+        case 'recap-delete':
+            deleteRecap();
+            render();
+            return;
         case 'note-pin':
             pinNoteManual(btn.dataset.id, btn.dataset.on !== 'true');
             render();
@@ -1467,8 +1621,23 @@ function onChange(e) {
     const el = e.target;
     if (el.dataset?.scope) {
         if (!el.checked) return;
-        if (el.dataset.scope === 'char') setCharacterScope(el.dataset.kind, el.value);
-        else setChatScope(el.dataset.kind, el.value);
+        if (el.dataset.scope === 'char') changeCharacterScope(el.dataset.kind, el.value);
+        else changeChatScope(el.dataset.kind, el.value);
+        render();
+        return;
+    }
+    if (el.dataset?.role === 'summary-source') {
+        setSummarySource(el.value);
+        render();
+        return;
+    }
+    if (el.dataset?.role === 'import-src') {
+        view.imp.src = el.value;
+        return;
+    }
+    if (el.dataset?.importKind) {
+        if (el.checked) view.imp.kinds.add(el.dataset.importKind);
+        else view.imp.kinds.delete(el.dataset.importKind);
         return;
     }
     const path = el.dataset?.path;
@@ -1562,6 +1731,7 @@ async function fillPreview() {
     const row = (label, value, cls = '') => `<div class="lp-preview-row${cls}"><span>${esc(label)}</span><span class="lp-preview-num">${esc(value)}</span></div>`;
     const sm = p.parts.summaries;
     const rows = [];
+    if (sm.recap) rows.push(row(t('preview.recap'), `${n(p.tokens.recap)} tokens`));
     if (sm.volumes) rows.push(row(t('preview.volumes', { n: sm.volumes }), `${n(p.tokens.volumes)} tokens`));
     if (sm.chapters) rows.push(row(t('preview.chapters', { n: sm.chapters }), `${n(p.tokens.chapters)} tokens`));
     rows.push(row(t('preview.summaries', { n: sm.floors }), `${n(p.tokens.floors)} tokens`));
@@ -1614,6 +1784,10 @@ function recallDetails(sel) {
 }
 
 function onToggle(e) {
+    if (e.target?.dataset && 'recap' in e.target.dataset) {
+        setSectionOpen('recap', e.target.open);
+        return;
+    }
     if (e.target?.dataset && 'preview' in e.target.dataset) {
         view.sum.previewOpen = e.target.open;
         return;
