@@ -7,7 +7,7 @@
 import { ctx, LOG_PREFIX, MODULE, toast } from './util.js';
 import { getSettings, isTracked } from './settings.js';
 import { t } from './i18n.js';
-import { floorStatus, getChat, getEntry, isAiMessage, isUserMessage, lastAiIndex } from './chat.js';
+import { floorStatus, getChat, getEntry, isAiMessage, isHiddenByUser, isUserMessage, lastAiIndex } from './chat.js';
 import { formatNotesForPrompt, getNotes, NOTE_TYPES } from './notes.js';
 import { countTokens } from './llm.js';
 import { sceneLine } from './lines.js';
@@ -49,22 +49,27 @@ export function computeHidden(limit = getChat().length) {
     const chat = getChat();
     const ai = [];
     for (let i = 0; i < limit; i++) if (isAiMessage(chat[i])) ai.push(i);
+    // 「保留最新 2 層原文」只算沒被使用者隱藏的（隱藏的原文本來就不會送）。
+    const visible = ai.filter((i) => !isHiddenByUser(chat[i]));
     const hidden = new Set();
     const attention = [];
     let unsummarized = 0;
-    if (ai.length <= KEEP_AI) return { hidden, keepFrom: 0, attention, unsummarized };
-
-    const keepFrom = ai[ai.length - KEEP_AI - 1] + 1;
-    let prevAi = -1;
     let cached = null;
     const st = () => (cached ??= structure());
+    const keepFrom = visible.length > KEEP_AI ? visible[visible.length - KEEP_AI - 1] + 1 : 0;
+    // 使用者自己隱藏、而且已經摘要的樓層：就算在最新幾層裡，也要送它的摘要。
+    for (const f of ai) if (f >= keepFrom && isHiddenByUser(chat[f]) && isCovered(f, st)) hidden.add(f);
+    if (visible.length <= KEEP_AI) return { hidden, keepFrom: 0, attention, unsummarized };
+
+    let prevAi = -1;
     for (const f of ai) {
         if (f >= keepFrom) break;
         if (isCovered(f, st)) {
             hidden.add(f);
             // 這層前面的使用者發言（到上一個 AI 樓層為止）跟著隱藏。
             for (let i = prevAi + 1; i < f; i++) if (isUserMessage(chat[i])) hidden.add(i);
-        } else {
+        } else if (!isHiddenByUser(chat[f])) {
+            // 使用者自己隱藏的原文本來就不會送，沒摘要也不用提醒。
             const s = floorStatus(f);
             if (s === 'fail' || s === 'stale') attention.push(f);
             else unsummarized++;
@@ -170,7 +175,8 @@ export async function previewInjection() {
     const parts = injectionParts(hidden, selection);
     const text = textOf(parts);
     const chat = getChat();
-    const hiddenRaw = [...hidden].sort((a, b) => a - b).map((i) => chat[i]?.mes ?? '').join('\n');
+    // 使用者自己隱藏的原文本來就不會送，不算進「省下的」。
+    const hiddenRaw = [...hidden].filter((i) => !isHiddenByUser(chat[i])).sort((a, b) => a - b).map((i) => chat[i]?.mes ?? '').join('\n');
     const sp = parts.summaries.parts;
     const count = async (x) => (x ? await countTokens(x) : 0);
     const tokens = {

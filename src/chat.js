@@ -12,12 +12,21 @@ export function chatKey() {
     return c?.getCurrentChatId?.() ?? c?.chatId ?? null;
 }
 
+/**
+ * 使用者自己隱藏的訊息（/hide、訊息上的眼睛按鈕，或其他隱藏插件）：酒館一樣標成 is_system，
+ * 但它本來是一般的對話。酒館真正的系統訊息（說明、旁白、註解…）會在 extra.type 寫是哪一種。
+ * 這種訊息照樣算樓層，摘要也照樣送（使用者要求）；只是原文本來就不會送給角色。
+ */
+export function isHiddenByUser(m) {
+    return Boolean(m) && Boolean(m.is_system) && (Boolean(m.is_user) || !m.extra?.type);
+}
+
 export function isAiMessage(m) {
-    return Boolean(m) && !m.is_user && !m.is_system && typeof m.mes === 'string';
+    return Boolean(m) && !m.is_user && (!m.is_system || isHiddenByUser(m)) && typeof m.mes === 'string';
 }
 
 export function isUserMessage(m) {
-    return Boolean(m) && m.is_user && !m.is_system && typeof m.mes === 'string';
+    return Boolean(m) && m.is_user && typeof m.mes === 'string';
 }
 
 /** 所有 AI 樓層的索引，由舊到新。 */
@@ -50,6 +59,24 @@ export function hashText(text) {
  * 一層 AI 回覆對應的原文：它前面的使用者發言（往前找到上一個 AI 回覆為止）＋這則回覆。
  * hash 一律包含使用者發言，這樣切換「包含使用者發言」時不會讓所有摘要都變成過期。
  */
+/**
+ * v0.12.4 以前的算法：隱藏的訊息整個略過。那時候在有隱藏訊息的聊天裡摘要的樓層，
+ * hash 是這樣算的；比對時兩種都接受，才不會因為改版全部變成「過期」。
+ */
+function legacyHash(index) {
+    const chat = getChat();
+    const ai = chat[index];
+    const visible = (m) => m && !m.is_system && typeof m.mes === 'string';
+    const users = [];
+    for (let i = index - 1; i >= 0; i--) {
+        const m = chat[i];
+        if (!visible(m)) continue;
+        if (!m.is_user) break;
+        users.unshift(m);
+    }
+    return hashText([...users.map((u) => u.mes), ai?.mes ?? ''].join('\u0000'));
+}
+
 export function floorSource(index) {
     const chat = getChat();
     const ai = chat[index];
@@ -107,6 +134,6 @@ export function floorStatus(index) {
     if (!e) return 'none';
     if (e.status === 'skip') return 'skip';
     if (e.status === 'fail') return 'fail';
-    if (e.status === 'ok') return e.hash === floorSource(index).hash ? 'ok' : 'stale';
+    if (e.status === 'ok') return e.hash === floorSource(index).hash || e.hash === legacyHash(index) ? 'ok' : 'stale';
     return 'none';
 }
