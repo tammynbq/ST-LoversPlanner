@@ -11,7 +11,7 @@ const TIMEOUT_MS = 30000;
 
 export class ApiError extends Error {
     /**
-     * @param {'need_url'|'need_custom'|'no_main'|'http'|'network'|'timeout'|'bad_response'|'empty'|'parse'} code
+     * @param {'need_url'|'need_custom'|'no_main'|'http'|'network'|'timeout'|'bad_response'|'empty'|'empty_notice'|'parse'} code
      */
     constructor(code, message = '', status = 0) {
         super(message || code);
