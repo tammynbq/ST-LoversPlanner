@@ -109,6 +109,28 @@ const inside = await page.$$eval(`[data-group="${l6}"] ~ .lp-group-body > .lp-gr
 check('L6 opens into L5 eras', inside.length === 2 && inside.every((x) => x.includes('紀')), JSON.stringify(inside));
 await page.screenshot({ path: `${OUT}/levels-tree.png` });
 
+// 篩選「失敗」「過期」也算章和卷（使用者回報：第 1 部失敗、上面還是 0）
+await page.evaluate(async () => {
+  const { writeSummary } = await import('/src/summarize.js');
+  writeSummary(2, { summary: 'L1-2（改過）' }); // 第 1 章過期 → 上面一路過期
+  const meta = SillyTavern.getContext().chatMetadata.lovers_planner;
+  const v = meta.volumes.find((x) => (x.level ?? 3) === 4);
+  v.status = 'fail';
+  v.error = '連線中斷';
+});
+await page.click('[data-tab="summary"]');
+const chipNum = async (f) => Number((await page.textContent(`[data-action="sum-filter"][data-filter="${f}"]`)).match(/(\d+)\s*$/)[1]);
+const staleN = await chipNum('stale');
+const failN = await chipNum('fail');
+check('stale chip counts digests', staleN >= 3, String(staleN));
+check('fail chip counts digests', failN === 1, String(failN));
+await page.click('[data-action="sum-filter"][data-filter="fail"]');
+const failRows = await page.$$eval('[data-digest-row]', (els) => els.map((e) => e.textContent.replace(/\s+/g, ' ')));
+check('fail filter lists the failed part', failRows.length === 1 && failRows[0].includes('部') && failRows[0].includes('連線中斷') && failRows[0].includes('重新壓縮'), JSON.stringify(failRows));
+await page.click('[data-action="sum-filter"][data-filter="stale"]');
+check('stale filter lists stale digests', (await page.$$('[data-digest-row]')).length === staleN);
+await page.click('[data-action="sum-filter"][data-filter="all"]');
+
 // 設定頁
 await page.click('[data-tab="settings"]');
 await page.click('details[data-sec="compress"] > summary');

@@ -639,8 +639,10 @@ function renderSummaryTab() {
         view.sum.pickChat = chatKey();
     }
     for (const i of view.sum.picked) if (!states.has(i)) view.sum.picked.delete(i);
+    // 「失敗」「過期」也算章、卷、部（以前只算單層，章或卷失敗了上面還是 0）。
+    const digests = digestsByState();
     const chips = SUMMARY_FILTERS.map((f) => {
-        const n = all.filter((i) => matchesFilter(states.get(i), f)).length;
+        const n = all.filter((i) => matchesFilter(states.get(i), f)).length + (digests[f]?.length ?? 0);
         const on = view.sum.filter === f;
         return `<button type="button" class="lp-chip${on ? ' lp-on' : ''}" data-action="sum-filter" data-filter="${f}" aria-pressed="${on}">${esc(t(`sum.filter.${f}`))} ${n}</button>`;
     }).join('');
@@ -686,8 +688,9 @@ function renderSummaryTab() {
     } else if (view.sum.filter === 'all') {
         rows = renderTree(states);
     } else {
-        rows = shown.length
-            ? shown.map((i) => summaryRow(i, states.get(i))).join('')
+        const groups = (digests[view.sum.filter] ?? []).map(digestRow).join('');
+        rows = shown.length || groups
+            ? groups + shown.map((i) => summaryRow(i, states.get(i))).join('')
             : `<div class="lp-wip">${esc(t('sum.emptyFilter'))}</div>`;
         more = list.length > shown.length
             ? `<button type="button" class="menu_button lp-btn lp-more" data-action="sum-more">${esc(t('sum.more', { n: list.length - shown.length }))}</button>`
@@ -1244,6 +1247,25 @@ function volumeGroup(v, states) {
         : '';
     const meta = v.level === 3 ? t('volume.meta', { n: v.children.length }) : t('level.meta', { n: v.children.length, floors: indices.filter((i) => i >= 0).length });
     return `<div class="lp-group">${groupHead(id, digestLabel(v.level, v.number), `L${v.level}`, rangeText(indices), meta, v.state)}${body}</div>`;
+}
+
+/** 失敗、過期的章和卷（含部、紀…），高的層級在前：{ fail: [...], stale: [...] }。 */
+function digestsByState() {
+    const st = structure();
+    const out = { fail: [], stale: [] };
+    const items = [
+        ...[...st.volumes].sort((a, b) => b.level - a.level || a.number - b.number).map((v) => ({ kind: 'volume', label: digestLabel(v.level, v.number), level: v.level, data: v.data, state: v.state, indices: v.chapters.flatMap((c) => c.indices) })),
+        ...st.chapters.map((c) => ({ kind: 'chapter', label: t('chapter.label', { n: c.number }), level: 2, data: c.data, state: c.state, indices: c.indices })),
+    ];
+    for (const x of items) if (out[x.state]) out[x.state].push(x);
+    return out;
+}
+
+/** 篩選「失敗」「過期」時列出的一個章或卷（標題＋總結卡片，可以直接重新壓縮）。 */
+function digestRow(x) {
+    return `<div class="lp-group" data-fold-key="group:${esc(x.data.id)}" data-digest-row="${esc(x.data.id)}">
+      <div class="lp-group-label">${esc(x.label)} <span class="lp-kind-tag">L${x.level}</span> <span class="lp-note">${esc(rangeText(x.indices))}</span></div>
+      ${digestCard(x.kind, x.data, x.state)}</div>`;
 }
 
 function digestText(label, data) {
