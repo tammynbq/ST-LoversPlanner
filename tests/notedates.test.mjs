@@ -125,6 +125,40 @@ await page.screenshot({ path: `${OUT}/notedates.png` });
 // 編輯：預定日期是日期輸入框
 await page.click('[data-action="note-edit"]');
 check('due field is a date input', await page.getAttribute('[data-note-field="due"]', 'type') === 'date');
+await page.click('[data-action="note-cancel"]');
+
+// ===== 5. 和行事曆合在一起：月曆在上面、點日期看那天的約定／待辦、快到期篩選 =====
+check('calendar on top of the same tab', await page.evaluate(() => {
+  const cal = document.querySelector('.lp-calendar');
+  const sec = document.querySelector('.lp-note-section');
+  return Boolean(cal && sec && (cal.compareDocumentPosition(sec) & Node.DOCUMENT_POSITION_FOLLOWING));
+}));
+check('no separate calendar tab', !(await page.$('[data-tab="calendar"]')));
+check('due marks on the grid', (await page.textContent('[data-date="2026-10-28"]')).includes('🤝') && (await page.textContent('[data-date="2026-10-25"]')).includes('📝'));
+await page.click('[data-date="2026-10-28"]');
+check('day shows planned promises', (await page.textContent('[data-role="cal-day-due"]')).includes('小红书'));
+await page.click('[data-date="2026-10-21"]');
+const made = await page.textContent('[data-role="cal-day-made"]');
+check('day shows what was promised that day', made.includes('打包两碗') && made.includes('明年秋天'), made);
+await page.click('[data-role="cal-day-made"] [data-action="cal-note"]:has-text("明年秋天")');
+check('tap opens the card below', await page.isVisible('[data-fold-key="note:p_c"] [data-action="note-edit"]'));
+const visible = () => page.$$eval('.lp-note-section .lp-note-title', (els) => els.map((e) => e.textContent.trim()));
+await page.click('[data-action="note-filter"][data-filter="soon"]');
+let v = await visible();
+check('soon filter', v.length === 2 && v.includes('去小红书收藏的牛肉面店') && v.includes('订温泉'), v.join(' / '));
+check('soon chip counts', (await page.textContent('[data-action="note-filter"][data-filter="soon"]')).includes('7 天內到期 2'));
+await page.click('[data-action="note-filter"][data-filter="late"]');
+v = await visible();
+check('overdue filter', v.length === 1 && v[0] === '明天早上回程路上打包两碗牛肉面', v.join(' / '));
+await page.click('[data-action="note-filter"][data-filter="nodate"]');
+v = await visible();
+check('no-date filter', v.length === 1 && v[0] === '明年秋天办婚礼', v.join(' / '));
+await page.screenshot({ path: `${OUT}/planner.png`, fullPage: true });
+await page.click('[data-action="note-filter"][data-filter="all"]');
+await page.click('[data-action="fold-sec"][data-key="sec:calendar"]');
+check('calendar folds', !(await page.$('.lp-cal-grid')) && await page.isVisible('[data-role="calendar"] .lp-sec-toggle'));
+await page.click('[data-action="fold-sec"][data-key="sec:calendar"]');
+check('calendar unfolds', await page.isVisible('.lp-cal-grid'));
 
 const missing = await page.evaluate(async () => (await import('/src/i18n.js')).missingKeys());
 check('i18n keys complete', !missing.length, JSON.stringify(missing));

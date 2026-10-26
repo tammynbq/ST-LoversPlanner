@@ -131,7 +131,7 @@ check('injection without items and time', !r.injection.value.includes('下品靈
 // 4. 取消勾選全部記事 → 提示詞沒有 ops、沒有記事清單
 await openSettings();
 for (const k of ['character', 'promise', 'todo']) await page.click(`input[data-path="track.${k}"]`);
-check('notes tabs and done tab hidden', (await page.$$eval('.lp-tab', (b) => b.map((x) => x.dataset.tab).join())) === 'summary,memories,calendar,settings');
+check('notes tabs and done tab hidden (calendar stays in the planner tab)', (await page.$$eval('.lp-tab', (b) => b.map((x) => x.dataset.tab).join())) === 'summary,notes,memories,settings');
 await page.keyboard.press('Escape');
 await page.evaluate(() => { window.__generateRaw = async ({ prompt }) => { window.__lastPrompt = prompt; return '{"location":"丹房","summary":"只有摘要"}'; }; });
 await summarize(2);

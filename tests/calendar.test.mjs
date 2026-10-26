@@ -113,7 +113,7 @@ const block = await page.evaluate(async () => {
 check('block shows date and events', block.includes('2025-03-04') && block.includes('03-08 去看海') && block.includes('生理期結束'), block);
 
 // ===== 5. 月曆畫面 =====
-await openPanel('calendar');
+await openPanel('notes'); // 行事曆和約定／待辦在同一個分頁
 check('calendar tab shows March', (await page.textContent('[data-role="cal-title"]')).includes('3'));
 check('status shows today', (await page.textContent('[data-role="cal-status"]')).includes('2025-03-05'));
 check('today highlighted', Boolean(await page.$('[data-date="2025-03-05"].lp-cal-today')));
@@ -163,7 +163,9 @@ check('editor has date field', hasDate === '2025-03-05', String(hasDate));
 await page.click('[data-tab="settings"]');
 await page.click('details[data-sec="calendar"] > summary');
 await page.uncheck('input[data-path="calendar.enabled"]');
-check('tab hidden when off', !(await page.$('[data-tab="calendar"]')));
+await page.click('[data-tab="notes"]');
+check('calendar hidden when off', !(await page.$('.lp-calendar')) && await page.isVisible('[data-role="note-filters"]'));
+await page.click('[data-tab="settings"]');
 r = await page.evaluate(() => window.__runInterceptor('normal'));
 check('not injected when off', !r.injection.value.includes('行事曆'));
 const off = await page.evaluate(async () => (await import('/src/summarize.js')).buildL1Prompt(9));

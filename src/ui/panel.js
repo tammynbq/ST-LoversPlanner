@@ -45,7 +45,8 @@ import {
     CHAR_SCOPE_VALUES, CHAT_SCOPE_VALUES, characterName, getCharacterScope, getChatScope, SCOPE_KINDS,
 } from '../scope.js';
 
-const TABS = ['summary', 'characters', 'items', 'notes', 'memories', 'calendar', 'done', 'settings'];
+// 「行事曆／約定」：行事曆和約定、待辦合成一個分頁（v0.12.9，使用者要求），分頁的 key 沿用 notes。
+const TABS = ['summary', 'characters', 'items', 'notes', 'memories', 'done', 'settings'];
 
 /** 每個分頁放哪些記事類型（記事分頁＝約定＋待辦）。 */
 const TAB_TYPES = { characters: ['character'], items: ['item'], notes: ['promise', 'todo'] };
@@ -53,9 +54,9 @@ const TAB_TYPES = { characters: ['character'], items: ['item'], notes: ['promise
 /** 目前看得到的分頁：沒勾選記錄的類型，對應的分頁就不顯示。 */
 function visibleTabs() {
     return TABS.filter((tab) => {
+        if (tab === 'notes') return TAB_TYPES.notes.some(isTracked) || calendarOn();
         if (TAB_TYPES[tab]) return TAB_TYPES[tab].some(isTracked);
         if (tab === 'done') return ['item', 'promise', 'todo'].some(isTracked);
-        if (tab === 'calendar') return calendarOn();
         if (tab === 'memories') return memoriesOn();
         return true;
     });
@@ -108,6 +109,7 @@ const view = {
         adding: null, // 正在新增的類型
         confirmClear: false,
         sort: 'due', // 約定／待辦的排序：due 預定日期、newest／oldest 約定日期
+        filter: 'all', // 約定／待辦只看：all 全部、soon 快到期、late 過期、nodate 沒有日期
     },
     sum: {
         filter: 'all',
@@ -405,9 +407,10 @@ function renderTab() {
         case 'summary': return renderSummaryTab();
         case 'characters':
         case 'items':
-        case 'notes':
             return renderNotesTab(TAB_TYPES[view.tab].filter(isTracked));
-        case 'calendar': return renderCalendarTab();
+        case 'notes':
+            // 月曆在最上面，下面是約定、待辦。
+            return `${calendarOn() ? renderCalendarTab() : ''}${renderNotesTab(TAB_TYPES.notes.filter(isTracked))}`;
         case 'memories': return renderMemoriesTab();
         case 'done': return renderDoneTab();
         case 'settings': return renderSettings();
@@ -784,6 +787,12 @@ function renderCalendarTab() {
     const month = view.cal.month ?? (cal.today ?? new Date().toISOString().slice(0, 10)).slice(0, 7);
     view.cal.month = month;
     const { pad, days } = monthGrid(month);
+    const dueByDate = new Map();
+    for (const n of datedNotes()) {
+        if (n.state !== 'active' || !n.due) continue;
+        if (!dueByDate.has(n.due)) dueByDate.set(n.due, []);
+        dueByDate.get(n.due).push(n);
+    }
     const head = Array.from({ length: 7 }, (_, k) => weekdayName(`2023-01-0${k + 1}`, 'narrow')); // 2023-01-01 是星期日
     const cells = [];
     for (let k = 0; k < pad; k++) cells.push('<span class="lp-cal-cell lp-cal-empty" aria-hidden="true"></span>');
@@ -794,8 +803,12 @@ function renderCalendarTab() {
         if (info.intimacy) marks.push(`<span class="lp-cal-mark" aria-hidden="true">💕${info.intimacy > 1 ? info.intimacy : ''}</span>`);
         if (info.plans.length) marks.push('<span class="lp-cal-mark" aria-hidden="true">📌</span>');
         if (info.anniversaries.length) marks.push('<span class="lp-cal-mark" aria-hidden="true">🎂</span>');
+        // 這天預定要做的約定／待辦（進行中的）。
+        const due = dueByDate.get(d) ?? [];
+        if (due.some((n) => n.type === 'promise')) marks.push('<span class="lp-cal-mark" aria-hidden="true">🤝</span>');
+        if (due.some((n) => n.type === 'todo')) marks.push('<span class="lp-cal-mark" aria-hidden="true">📝</span>');
         const cls = ['lp-cal-cell', d === cal.today ? 'lp-cal-today' : '', d === view.cal.selected ? 'lp-on' : '', info.period === 'actual' ? 'lp-cal-period' : ''].filter(Boolean).join(' ');
-        const label = [d, ...info.items.map(eventLabel), info.period === 'predicted' ? t('cal.predicted') : ''].filter(Boolean).join('，');
+        const label = [d, ...info.items.map(eventLabel), ...due.map(noteTitle), info.period === 'predicted' ? t('cal.predicted') : ''].filter(Boolean).join('，');
         cells.push(`<button type="button" class="${cls}" data-action="cal-day" data-date="${d}" aria-label="${esc(label)}" aria-pressed="${d === view.cal.selected}">
             <span class="lp-cal-num">${Number(d.slice(8))}</span><span class="lp-cal-marks">${marks.join('')}</span></button>`);
     }
@@ -808,7 +821,37 @@ function renderCalendarTab() {
         ${cal.today ? `<button type="button" class="menu_button lp-btn" data-action="cal-today">${esc(t('cal.gotoToday'))}</button>` : ''}
       </div>`;
     const grid = `<div class="lp-cal-grid" role="grid">${head.map((h) => `<span class="lp-cal-head">${esc(h)}</span>`).join('')}${cells.join('')}</div>`;
-    return `<div class="lp-calendar">${calendarStatus(cal)}${nav}${grid}${calendarDay(cal)}</div>`;
+    // 月曆可以收起來（和約定、待辦同一頁，收起來比較快滑到下面）。收起時只留標題和今天。
+    const open = isSectionOpen('sec:calendar');
+    const toggle = `<div class="lp-row"><button type="button" class="lp-sec-toggle" data-action="fold-sec" data-key="sec:calendar" aria-expanded="${open}">
+        <span class="lp-sum-chev" aria-hidden="true">${open ? '▾' : '▸'}</span>
+        <span class="lp-scope-title">${esc(t('tab.calendar'))}</span>
+        ${!open && cal.today ? `<span class="lp-note">${esc(t('cal.todayIs', { date: cal.today, weekday: weekdayName(cal.today, 'long') }))}</span>` : ''}
+      </button></div>`;
+    return `<div class="lp-calendar" data-role="calendar">${toggle}${open ? `${calendarStatus(cal)}${nav}${grid}${calendarDay(cal)}` : ''}</div>`;
+}
+
+/** 有勾選的約定／待辦（含已完成），附上日期：[{ ...note, made, due }]。 */
+function datedNotes() {
+    const types = TAB_TYPES.notes.filter(isTracked);
+    return [...getNotes().notes.values()]
+        .filter((n) => types.includes(n.type))
+        .map((n) => ({ ...n, ...noteDates(n), note: n }));
+}
+
+/** 選了某一天：預定在這天、在這天約定的約定／待辦。點了就打開下面那一條（已完成的到「已完成」分頁）。 */
+function dayNotes(d) {
+    const list = datedNotes();
+    const group = (key, items) => {
+        if (!items.length) return '';
+        const rows = items.map((x) => {
+            const icon = x.type === 'promise' ? '🤝' : '📝';
+            const state = x.state === 'active' ? '' : `<span class="lp-note">（${esc(resultLabel(x.result ?? x.state))}）</span>`;
+            return `<li class="lp-cal-item"><button type="button" class="lp-link" data-action="cal-note" data-id="${esc(x.id)}" data-done="${x.state === 'done'}">${icon} ${esc(noteTitle(x))}</button>${state}</li>`;
+        }).join('');
+        return `<div class="lp-label">${esc(t(key))}</div><ul class="lp-recall-list" data-role="${key === 'cal.notes.due' ? 'cal-day-due' : 'cal-day-made'}">${rows}</ul>`;
+    };
+    return group('cal.notes.due', list.filter((x) => x.due === d)) + group('cal.notes.made', list.filter((x) => x.made === d));
 }
 
 /** 上方的狀態：今天、生理期、接下來的事。 */
@@ -856,7 +899,8 @@ function calendarDay(cal) {
     return `
       <div class="lp-card lp-cal-day" data-role="cal-day">
         <div class="lp-scope-title">${esc(`${d}（${weekdayName(d, 'long')}）`)}</div>
-        ${rows.length ? `<ul class="lp-recall-list">${rows.join('')}</ul>` : `<div class="lp-note">${esc(t('cal.empty'))}</div>`}
+        ${rows.length ? `<ul class="lp-recall-list">${rows.join('')}</ul>` : ''}
+        ${dayNotes(d) || (rows.length ? '' : `<div class="lp-note">${esc(t('cal.empty'))}</div>`)}
         ${types.length ? `<div class="lp-row">${typeSel}${fields}<button type="button" class="menu_button lp-btn lp-primary" data-action="cal-add">${esc(t('cal.add'))}</button></div>` : ''}
         ${cal.removedCount ? `<div class="lp-row"><span class="lp-note">${esc(t('cal.removedN', { n: cal.removedCount }))}</span><button type="button" class="menu_button lp-btn lp-mini" data-action="cal-restore">${esc(t('cal.restore'))}</button></div>` : ''}
       </div>`;
@@ -1188,7 +1232,7 @@ function renderTree(states) {
 
 let summaryRefreshTimer = null;
 function canAutoRefresh() {
-    if (!isPanelOpen() || !(view.check.open || ['summary', 'notes', 'done', 'calendar', 'memories'].includes(view.tab))) return false;
+    if (!isPanelOpen() || !(view.check.open || ['summary', 'notes', 'done', 'memories'].includes(view.tab))) return false;
     // 正在填表單（記事、章／卷總結、回憶）時不重畫，免得打到一半的字不見。
     return !(view.notes.editing || view.notes.adding || view.sum.editing || view.mem.editing || view.mem.adding);
 }
@@ -1374,16 +1418,18 @@ function renderNotesTab(types = NOTE_TYPES) {
     const today = storyToday();
     const roles = types.includes('character') ? leadRoles() : null;
     const dated = types.includes('promise') || types.includes('todo');
+    if (!types.length) return '';
     const sections = types.map((type) => {
         // 進行中的在前，被打破的約定在後。
         const all = sortNotes(notesOfType(type)).sort((a, b) => (a.state === 'broken') - (b.state === 'broken'));
-        const list = query ? all.filter((n) => matches(noteText(n), query)) : all;
+        const shown = dated && (type === 'promise' || type === 'todo') ? all.filter((n) => dueFilter(n, today)) : all;
+        const list = query ? shown.filter((n) => matches(noteText(n), query)) : shown;
         const hint = SECTION_HINT[type] ? `<span class="lp-note">${esc(t(SECTION_HINT[type]))}</span>` : '';
         const adding = view.notes.adding === type ? noteForm(type, {}) : '';
         const secKey = `sec:${type}`;
         // 搜尋時區塊一律打開，才看得到結果。
         const open = isSectionOpen(secKey) || Boolean(query) || Boolean(adding);
-        const count = query ? t('search.countOf', { n: list.length, total: all.length }) : t('notes.count', { n: all.length });
+        const count = query || list.length !== all.length ? t('search.countOf', { n: list.length, total: all.length }) : t('notes.count', { n: all.length });
         return `
           <section class="lp-note-section">
             <div class="lp-row">
@@ -1404,9 +1450,35 @@ function renderNotesTab(types = NOTE_TYPES) {
         ? `<div class="lp-wip">${esc(t('notes.empty'))}</div>` : '';
     const none = query && types.every((type) => !notesOfType(type).some((n) => matches(noteText(n), query)))
         ? `<div class="lp-wip">${esc(t('search.none'))}</div>` : '';
-    const sort = dated ? `<div class="lp-row lp-note-sort"><label class="lp-label" for="lp-note-sort">${esc(t('notes.sort'))}</label>
+    const ahead = Number(getSettings().calendar?.ahead) || 7;
+    const pool = dated ? types.flatMap((type) => notesOfType(type)) : [];
+    const chips = dated ? DUE_FILTERS.map((f) => {
+        const n = pool.filter((x) => dueFilter(x, today, f)).length;
+        const on = view.notes.filter === f;
+        return `<button type="button" class="lp-chip${on ? ' lp-on' : ''}" data-action="note-filter" data-filter="${f}" aria-pressed="${on}">${esc(t(`notes.filter.${f}`, { n: ahead }))} ${n}</button>`;
+    }).join('') : '';
+    const sort = dated ? `<div class="lp-row lp-note-sort"><div class="lp-chips" data-role="note-filters">${chips}</div><span class="lp-spacer"></span>
+        <label class="lp-label" for="lp-note-sort">${esc(t('notes.sort'))}</label>
         <select id="lp-note-sort" class="text_pole lp-select" data-role="note-sort">${['due', 'newest', 'oldest'].map((k) => `<option value="${k}"${view.notes.sort === k ? ' selected' : ''}>${esc(t(`notes.sort.${k}`))}</option>`).join('')}</select></div>` : '';
     return `${searchBox(view.tab)}${sort}${empty}${none}<div class="lp-notes-stack">${sections}</div>`;
+}
+
+const DUE_FILTERS = ['all', 'soon', 'late', 'nodate'];
+
+/**
+ * 約定／待辦的篩選（使用者要求）：soon 快到期（今天起 calendar.ahead 天內）、late 過期還沒完成、nodate 沒有預定日期。
+ * 被打破的約定只在「全部」裡。
+ */
+function dueFilter(note, today, filter = view.notes.filter) {
+    if (filter === 'all') return true;
+    if (note.state !== 'active') return false;
+    const { due } = noteDates(note);
+    if (filter === 'nodate') return !due;
+    if (!due || !today) return false;
+    const n = daysBetween(today, due);
+    if (filter === 'late') return n < 0;
+    if (filter === 'soon') return n >= 0 && n <= (Number(getSettings().calendar?.ahead) || 7);
+    return true;
 }
 
 /**
@@ -2192,6 +2264,27 @@ function onClick(e) {
             pinNoteManual(btn.dataset.id, btn.dataset.on !== 'true');
             render();
             return;
+        case 'note-filter':
+            view.notes.filter = btn.dataset.filter;
+            render();
+            return;
+        case 'cal-note': {
+            // 行事曆某一天的約定／待辦：打開下面那一條；已完成的到「已完成」分頁。
+            const id = btn.dataset.id;
+            if (btn.dataset.done === 'true') {
+                gotoResult({ tab: 'done', key: `done:${id}` });
+                return;
+            }
+            const note = getNotes().notes.get(id);
+            if (!note) return;
+            view.notes.filter = 'all';
+            view.query.notes = '';
+            setSectionOpen(`sec:${note.type}`, true);
+            setExpanded(`note:${id}`, true);
+            view.focusKey = `note:${id}`;
+            render();
+            return;
+        }
         case 'note-role':
             setRoleManual(btn.dataset.id, btn.dataset.roleSet || null);
             render();
