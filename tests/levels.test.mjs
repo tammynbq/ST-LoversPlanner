@@ -129,6 +129,22 @@ const failRows = await page.$$eval('[data-digest-row]', (els) => els.map((e) => 
 check('fail filter lists the failed part', failRows.length === 1 && failRows[0].includes('部') && failRows[0].includes('連線中斷') && failRows[0].includes('重新壓縮'), JSON.stringify(failRows));
 await page.click('[data-action="sum-filter"][data-filter="stale"]');
 check('stale filter lists stale digests', (await page.$$('[data-digest-row]')).length === staleN);
+// 保留現在的總結：失敗的部按一下就好，下面過期的也一起保留；不呼叫模型
+await page.evaluate(() => { window.__prompts.length = 0; });
+await page.click('[data-action="sum-filter"][data-filter="fail"]');
+await page.click('[data-digest-row] [data-action="digest-keep"]');
+const afterKeep = await page.evaluate(async () => {
+  const { structure } = await import('/src/compress.js');
+  const st = structure();
+  return { bad: [...st.chapters, ...st.volumes].filter((x) => x.state !== 'ok').map((x) => `${x.level ?? 2}:${x.state}`), calls: window.__prompts.length };
+});
+check('keep clears the part and the stale ones below it', afterKeep.calls === 0 && !afterKeep.bad.some((x) => x.startsWith('4:') || x.startsWith('3:') || x.startsWith('2:')), JSON.stringify(afterKeep));
+await page.click('[data-action="sum-filter"][data-filter="stale"]');
+const leftStale = await page.$$('[data-digest-row]');
+if (leftStale.length) await page.click('[data-action="digest-keep-all"]');
+check('keep all clears the rest', (await page.$$('[data-digest-row]')).length === 0 && (await page.evaluate(() => window.__prompts.length)) === 0);
+const injKept = await page.evaluate(() => window.__runInterceptor('normal'));
+check('kept top level injected again', injKept.injection.value.includes('第 6 層・1'), injKept.injection.value.slice(0, 200));
 await page.click('[data-action="sum-filter"][data-filter="all"]');
 
 // 設定頁

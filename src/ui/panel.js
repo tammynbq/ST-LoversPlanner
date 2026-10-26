@@ -32,7 +32,7 @@ import {
 import { closedDateOf, noteDates, storyToday } from '../notedates.js';
 import { fillTitles, onTitleProgress, TITLE_BATCH, titleProgress } from '../titles.js';
 import { buildBackup, downloadBackup, importBackup, parseBackup, wipeChat } from '../backup.js';
-import { checkManualChapter, compressSelected, compressionDue, deleteChapter, digestLabel, editChapter, editVolume, structure } from '../compress.js';
+import { acceptAllDigests, acceptDigest, checkManualChapter, compressSelected, compressionDue, deleteChapter, digestLabel, editChapter, editVolume, structure } from '../compress.js';
 import { actionsFor, eventLabel, hintFor, revealFloor, runAction, sceneHtml, STATUS_ICONS } from './message.js';
 import {
     addManualEvent, buildCalendar, CAL_TYPES, calendarOn, calTracked, dayInfo, daysBetween, monthGrid, monthTitle, onCalendarChange,
@@ -688,7 +688,12 @@ function renderSummaryTab() {
     } else if (view.sum.filter === 'all') {
         rows = renderTree(states);
     } else {
-        const groups = (digests[view.sum.filter] ?? []).map(digestRow).join('');
+        const list = digests[view.sum.filter] ?? [];
+        const keepAll = list.some((x) => x.data.summary)
+            ? `<div class="lp-row" data-role="keep-all"><span class="lp-note">${esc(t('compress.keepAll.note'))}</span><span class="lp-spacer"></span>
+                <button type="button" class="menu_button lp-btn" data-action="digest-keep-all" data-state="${view.sum.filter}">${esc(t('compress.keepAll', { n: list.length }))}</button></div>`
+            : '';
+        const groups = keepAll + list.map(digestRow).join('');
         rows = shown.length || groups
             ? groups + shown.map((i) => summaryRow(i, states.get(i))).join('')
             : `<div class="lp-wip">${esc(t('sum.emptyFilter'))}</div>`;
@@ -1218,6 +1223,7 @@ function digestCard(kind, data, state, query = '') {
         ${data.summary ? `<div class="lp-sum-text">${hl(data.summary, query)}</div>` : ''}
         <div class="lp-sum-actions">
           <button type="button" class="menu_button lp-btn${state !== 'ok' ? ' lp-primary' : ''}" data-action="digest-redo" data-id="${esc(id)}">${esc(t('compress.redo'))}</button>
+          ${state !== 'ok' && data.summary ? `<button type="button" class="menu_button lp-btn" data-action="digest-keep" data-id="${esc(id)}" title="${esc(t('compress.keep.tip'))}">${esc(t('compress.keep'))}</button>` : ''}
           ${data.coarse ? `<button type="button" class="menu_button lp-btn" data-action="digest-refine" data-id="${esc(id)}">${esc(t('catchup.refine'))}</button>` : ''}
           <button type="button" class="menu_button lp-btn" data-action="digest-edit" data-id="${esc(id)}">${esc(t('act.edit'))}</button>
         </div>
@@ -2667,6 +2673,19 @@ function onClick(e) {
             enqueueCompress(btn.dataset.id);
             render();
             return;
+        case 'digest-keep': {
+            view.sum.editing = null;
+            const ok = acceptDigest(btn.dataset.id);
+            toast(t(ok ? 'compress.kept' : 'compress.keepFail'), ok ? 'success' : 'warning');
+            render();
+            return;
+        }
+        case 'digest-keep-all': {
+            const n = acceptAllDigests(btn.dataset.state);
+            toast(t('compress.keptAll', { n }), 'success');
+            render();
+            return;
+        }
         case 'digest-edit':
             view.sum.editing = btn.dataset.id;
             render();

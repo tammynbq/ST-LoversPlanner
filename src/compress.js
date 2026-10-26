@@ -533,6 +533,58 @@ export async function runCompression(target) {
     }
 }
 
+// ===== 保留現在的總結（v0.13.9，使用者要求：部的重新壓縮常常失敗） =====
+// 不呼叫模型，把「過期」「失敗」拿掉：總結內容不變，成員對到現在的樣子。
+// 章：成員只留現在還在、「已摘要」的樓層（跳過、刪掉的拿掉），memberAts 換成現在的。
+// 卷以上：下一層過期或失敗的也一起保留（一路往下），chapterAts 換成現在的。
+// 不改 at，所以上一層不會因此變過期。沒有總結內容的（第一次壓縮就失敗）不能保留。
+
+function acceptChapter(c) {
+    if (!c.data.summary) return false;
+    const keep = c.indices.map((i, k) => ({ i, k })).filter(({ i }) => i >= 0 && floorState(i) === 'ok');
+    if (!keep.length) return false;
+    c.data.members = keep.map(({ k }) => c.data.members[k]);
+    c.data.memberIdx = keep.map(({ i }) => i);
+    c.data.memberAts = keep.map(({ i }) => getEntry(i)?.at);
+    c.data.status = 'ok';
+    delete c.data.error;
+    return true;
+}
+
+function acceptVolume(v) {
+    if (!v.data.summary) return false;
+    const kids = v.children.filter((x) => x.state === 'ok' || (v.level === 3 ? acceptChapter(x) : acceptVolume(x)));
+    if (!kids.length) return false;
+    v.data.chapterIds = kids.map((x) => x.data.id);
+    v.data.chapterAts = kids.map((x) => x.data.at);
+    v.data.status = 'ok';
+    delete v.data.error;
+    return true;
+}
+
+/** 保留這個章或卷現在的總結（連同下面過期的）。回傳 true／false。 */
+export function acceptDigest(id) {
+    const st = structure();
+    const ch = st.chapters.find((c) => c.data.id === id);
+    const v = ch ? null : st.volumes.find((x) => x.data.id === id);
+    const ok = ch ? acceptChapter(ch) : v ? acceptVolume(v) : false;
+    if (ok) saveMeta();
+    return ok;
+}
+
+/** 全部保留：這個狀態（'stale'／'fail'）的章和卷，從最高層開始。回傳保留了幾個（含一起保留的下層）。 */
+export function acceptAllDigests(state) {
+    const before = structure();
+    const count = (st) => [...st.chapters, ...st.volumes].filter((x) => x.state === state).length;
+    const n0 = count(before);
+    for (const v of [...before.volumes].sort((a, b) => b.level - a.level)) {
+        const now = structure().volumes.find((x) => x.data.id === v.data.id);
+        if (now && now.state === state) acceptDigest(now.data.id);
+    }
+    for (const c of structure().chapters) if (c.state === state) acceptDigest(c.data.id);
+    return n0 - count(structure());
+}
+
 /** 有沒有到期要壓縮的。 */
 export function compressionDue() {
     const st = structure();
