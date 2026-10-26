@@ -29,15 +29,16 @@ import { hl, isExpanded, isSectionOpen, matches, setExpanded, setSectionOpen, te
 import {
     cancelQueue, enqueue, enqueueCompress, floorState, isActive, onSummaryChange, pendingCount, skipFloor, unskipFloor, unsummarizedIndices,
 } from '../summarize.js';
+import { noteDates, storyToday } from '../notedates.js';
 import { checkManualChapter, compressSelected, compressionDue, deleteChapter, digestLabel, editChapter, editVolume, structure } from '../compress.js';
 import { actionsFor, eventLabel, hintFor, revealFloor, runAction, sceneHtml, STATUS_ICONS } from './message.js';
 import {
-    addManualEvent, buildCalendar, CAL_TYPES, calendarOn, calTracked, dayInfo, monthGrid, monthTitle, onCalendarChange,
+    addManualEvent, buildCalendar, CAL_TYPES, calendarOn, calTracked, dayInfo, daysBetween, monthGrid, monthTitle, onCalendarChange,
     periodStatus, removeEvent, restoreRemoved, shiftMonth, upcoming, weekdayName,
 } from '../calendar.js';
 import {
     addNoteManual, changeQuantity, closedNotes, completeNoteManual, deleteNoteManual, getNotes, NOTE_FIELDS, NOTE_TYPES,
-    noteTitle, NUMBER_FIELDS,
+    DATE_FIELDS, noteTitle, NUMBER_FIELDS,
     notesOfType, onNotesChange, pinNoteManual, reopenNoteManual, resultLabel, typeLabel, updateNoteManual,
 } from '../notes.js';
 import {
@@ -106,6 +107,7 @@ const view = {
         editing: null, // 正在編輯的記事 id
         adding: null, // 正在新增的類型
         confirmClear: false,
+        sort: 'due', // 約定／待辦的排序：due 預定日期、newest／oldest 約定日期
     },
     sum: {
         filter: 'all',
@@ -1231,7 +1233,7 @@ function noteTrace(note) {
 function noteForm(type, data, { id = null } = {}) {
     const fields = NOTE_FIELDS[type].map((f, i) => {
         const num = NUMBER_FIELDS.has(f);
-        const attrs = num ? 'type="number" min="0" step="1" inputmode="numeric"' : 'type="text"';
+        const attrs = num ? 'type="number" min="0" step="1" inputmode="numeric"' : DATE_FIELDS.has(f) ? 'type="date"' : 'type="text"';
         return `
       <label class="lp-field"><span class="lp-label">${esc(t(`field.${type}.${f}`))}</span>
         <input ${attrs} class="text_pole" data-note-field="${f}" value="${esc(data?.[f] ?? '')}"${i === 0 ? ' data-autofocus' : ''}></label>`;
@@ -1266,17 +1268,49 @@ function noteText(note) {
     return [typeLabel(note.type), ...Object.values(note.data ?? {}), note.state !== 'active' ? resultLabel(note.result ?? note.state) : ''].filter(Boolean).join(' ');
 }
 
+/** 「10-21 週二・明天」：預定日期，和故事裡的今天差幾天。 */
+function dueText(due, today) {
+    if (!due) return '';
+    const md = `${due.slice(5)} ${weekdayName(due)}`;
+    if (!today) return md;
+    const n = daysBetween(today, due);
+    const rel = n === 0 ? t('notes.rel.today') : n === 1 ? t('notes.rel.tomorrow') : n > 0 ? t('notes.rel.in', { n }) : t('notes.rel.ago', { n: -n });
+    return `${md}・${rel}`;
+}
+
+/** 約定／待辦收起時標題旁邊的日期標籤（過了還沒完成的標成警告色）。 */
+function dueTag(note, today) {
+    const { due } = noteDates(note);
+    if (!due) return '';
+    const late = note.state === 'active' && today && due < today;
+    const soon = note.state === 'active' && today && due >= today && daysBetween(today, due) <= 1;
+    return `<span class="lp-badge lp-due-tag${late ? ' lp-st-fail' : soon ? ' lp-st-ok' : ''}">📅 ${esc(dueText(due, today))}</span>`;
+}
+
+/** 約定／待辦點開後的日期那一行：哪天約定的、預定哪天（推算的註明從哪裡算的）。 */
+function datesLine(note, today) {
+    const { made, due, guessed, from } = noteDates(note);
+    const parts = [];
+    if (made) parts.push(`<span class="lp-label">${esc(t(`notes.made.${note.type}`))}</span> ${esc(`${made}（${weekdayName(made)}）`)}`);
+    if (due) {
+        const how = guessed ? ` <span class="lp-note">${esc(from === 'when' ? t('notes.guessed.when', { text: note.data.when }) : t('notes.guessed.content'))}</span>` : '';
+        parts.push(`<span class="lp-label">${esc(t(`field.${note.type}.due`))}</span> ${esc(`${due}（${weekdayName(due)}）`)}${today ? ` <span class="lp-note">${esc(dueText(due, today).split('・')[1] ?? '')}</span>` : ''}${how}`);
+    }
+    return parts.length ? `<div class="lp-note-line lp-note-dates">${parts.join('<span class="lp-dot"> · </span>')}</div>` : '';
+}
+
 /** 收起時那一行的副標：人物顯示身份／關係，物件顯示在誰手上，約定顯示和誰、時間。 */
 function noteSub(note) {
     const d = note.data;
     if (note.type === 'character') return [d.identity, d.relation].filter(Boolean).join(' · ');
     if (note.type === 'item') return d.holder ?? '';
     if (note.type === 'promise') return [d.with, d.when].filter(Boolean).join(' · ');
+    if (note.type === 'todo') return d.when ?? '';
     return '';
 }
 
 /** 記事卡片：平常只顯示一行，點開才有全部欄位和按鈕。搜尋時符合的自動展開。 */
-function noteCard(note, query = '') {
+function noteCard(note, query = '', today = null) {
     if (view.notes.editing === note.id) return noteForm(note.type, note.data, { id: note.id });
     const key = `note:${note.id}`;
     const open = isExpanded(key) || Boolean(query);
@@ -1287,13 +1321,13 @@ function noteCard(note, query = '') {
         <button type="button" class="lp-row-head" data-action="fold" data-key="${esc(key)}" aria-expanded="${open}">
           <span class="lp-sum-chev" aria-hidden="true">${open ? '▾' : '▸'}</span>
           <span class="lp-note-title">${hl(noteTitle(note), query)}</span>
-          ${note.pinned ? `<span class="lp-pin-tag" title="${esc(t('notes.pinned'))}" aria-label="${esc(t('notes.pinned'))}">📌</span>` : ''}${qtyTag}${broken}
+          ${note.pinned ? `<span class="lp-pin-tag" title="${esc(t('notes.pinned'))}" aria-label="${esc(t('notes.pinned'))}">📌</span>` : ''}${qtyTag}${broken}${dueTag(note, today)}
           ${!open && sub ? `<span class="lp-row-preview">${hl(sub, query)}</span>` : ''}
         </button>`;
     if (!open) return `<div class="lp-note-card lp-folded${note.state === 'broken' ? ' lp-note-broken' : ''}" data-fold-key="${esc(key)}">${head}</div>`;
     const titleField = NOTE_FIELDS[note.type][0];
     const lines = NOTE_FIELDS[note.type]
-        .filter((f) => f !== titleField && !NUMBER_FIELDS.has(f) && note.data[f])
+        .filter((f) => f !== titleField && !NUMBER_FIELDS.has(f) && !DATE_FIELDS.has(f) && note.data[f])
         .map((f) => `<div class="lp-note-line"><span class="lp-label">${esc(t(`field.${note.type}.${f}`))}</span> ${hl(note.data[f], query)}</div>`)
         .join('');
     // 物件的數量：直接用 −／＋ 改。
@@ -1309,6 +1343,7 @@ function noteCard(note, query = '') {
         ${head}
         ${qty}
         ${lines}
+        ${datesLine(note, today)}
         ${noteTrace(note)}
         ${noteActions(note)}
       </div>`;
@@ -1317,9 +1352,11 @@ function noteCard(note, query = '') {
 function renderNotesTab(types = NOTE_TYPES) {
     if (!isActive()) return '';
     const query = view.query[view.tab] ?? '';
+    const today = storyToday();
+    const dated = types.includes('promise') || types.includes('todo');
     const sections = types.map((type) => {
         // 進行中的在前，被打破的約定在後。
-        const all = notesOfType(type).sort((a, b) => (a.state === 'broken') - (b.state === 'broken'));
+        const all = sortNotes(notesOfType(type)).sort((a, b) => (a.state === 'broken') - (b.state === 'broken'));
         const list = query ? all.filter((n) => matches(noteText(n), query)) : all;
         const hint = SECTION_HINT[type] ? `<span class="lp-note">${esc(t(SECTION_HINT[type]))}</span>` : '';
         const adding = view.notes.adding === type ? noteForm(type, {}) : '';
@@ -1340,14 +1377,36 @@ function renderNotesTab(types = NOTE_TYPES) {
               <button type="button" class="menu_button lp-btn lp-mini" data-action="note-add" data-type="${type}">${esc(t('notes.add'))}</button>
             </div>
             ${adding}
-            ${open ? `<div class="lp-card-grid">${list.map((n) => noteCard(n, query)).join('')}</div>` : ''}
+            ${open ? `<div class="lp-card-grid">${list.map((n) => noteCard(n, query, today)).join('')}</div>` : ''}
           </section>`;
     }).join('');
     const empty = types.every((type) => !notesOfType(type).length) && !view.notes.adding
         ? `<div class="lp-wip">${esc(t('notes.empty'))}</div>` : '';
     const none = query && types.every((type) => !notesOfType(type).some((n) => matches(noteText(n), query)))
         ? `<div class="lp-wip">${esc(t('search.none'))}</div>` : '';
-    return `${searchBox(view.tab)}${empty}${none}<div class="lp-notes-stack">${sections}</div>`;
+    const sort = dated ? `<div class="lp-row lp-note-sort"><label class="lp-label" for="lp-note-sort">${esc(t('notes.sort'))}</label>
+        <select id="lp-note-sort" class="text_pole lp-select" data-role="note-sort">${['due', 'newest', 'oldest'].map((k) => `<option value="${k}"${view.notes.sort === k ? ' selected' : ''}>${esc(t(`notes.sort.${k}`))}</option>`).join('')}</select></div>` : '';
+    return `${searchBox(view.tab)}${sort}${empty}${none}<div class="lp-notes-stack">${sections}</div>`;
+}
+
+/**
+ * 約定／待辦的排序（使用者要求）。人物、物件照原本的順序。
+ * due：有預定日期的照日期（過期的在最前面），沒有的排後面（照約定日期）；newest／oldest：照約定的日期（沒有就照樓層）。
+ */
+function sortNotes(list) {
+    if (!list.some((n) => n.type === 'promise' || n.type === 'todo')) return list;
+    const keyed = list.map((n, k) => {
+        const { made, due } = noteDates(n);
+        // 沒有故事日期時用樓層排（手動新增的放最後）。
+        const madeKey = `${made || '9999-99-99'}|${String(n.createdFloor ?? 1e9).padStart(10, '0')}|${String(k).padStart(6, '0')}`;
+        return { n, due, madeKey };
+    });
+    const by = {
+        due: (a, b) => (a.due ? 0 : 1) - (b.due ? 0 : 1) || (a.due || '').localeCompare(b.due || '') || a.madeKey.localeCompare(b.madeKey),
+        newest: (a, b) => b.madeKey.localeCompare(a.madeKey),
+        oldest: (a, b) => a.madeKey.localeCompare(b.madeKey),
+    }[view.notes.sort] ?? (() => 0);
+    return keyed.sort(by).map((x) => x.n);
 }
 
 // ===== 已完成分頁 =====
@@ -2442,6 +2501,11 @@ function onChange(e) {
         if (!el.checked) return;
         if (el.dataset.scope === 'char') changeCharacterScope(el.dataset.kind, el.value);
         else changeChatScope(el.dataset.kind, el.value);
+        render();
+        return;
+    }
+    if (el.dataset?.role === 'note-sort') {
+        view.notes.sort = el.value;
         render();
         return;
     }

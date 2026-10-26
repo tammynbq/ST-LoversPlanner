@@ -696,3 +696,10 @@
 .lp-picked .lp-pick-box { border-color: var(--lp-accent); background: var(--lp-accent); color: var(--lp-bg); }
 .lp-bulk-range > summary { cursor: pointer; color: var(--lp-muted); font-size: 0.9em; }
 .lp-bulk-range[open] > summary { margin-bottom: 6px; }
+
+/* ===== 約定／待辦的日期 ===== */
+.lp-due-tag { flex: none; white-space: nowrap; font-weight: normal; }
+.lp-note-dates { display: flex; flex-wrap: wrap; gap: 2px 6px; align-items: baseline; }
+.lp-note-dates .lp-dot { color: var(--lp-muted); }
+.lp-note-sort { gap: 8px; }
+.lp-note-sort .lp-select { width: auto; }

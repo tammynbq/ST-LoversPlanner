@@ -9,17 +9,23 @@ import { ctx, MODULE } from './util.js';
 import { t } from './i18n.js';
 import { isTracked } from './settings.js';
 import { getChat, getEntry, isAiMessage, saveChatSoon } from './chat.js';
+import { normDate } from './calendar.js';
+import { noteDates, storyToday } from './notedates.js';
 
 export const NOTE_TYPES = ['character', 'item', 'promise', 'todo'];
 
 export const NOTE_FIELDS = {
     character: ['name', 'identity', 'relation', 'appearance', 'outfit', 'status', 'likes', 'dislikes', 'note'],
     item: ['name', 'quantity', 'holder', 'status'],
-    promise: ['content', 'with', 'when'],
-    todo: ['content'],
+    // when：原文說的時間（「明天早上」「明年秋天」）；due：換算成哪一天（YYYY-MM-DD，要開行事曆才有故事日期）。
+    promise: ['content', 'with', 'when', 'due'],
+    todo: ['content', 'when', 'due'],
 };
 
 const ID_PREFIX = { character: 'c', item: 'i', promise: 'p', todo: 't' };
+
+/** 日期欄位（YYYY-MM-DD，輸入框用 date）。 */
+export const DATE_FIELDS = new Set(['due']);
 
 /** 數字欄位（輸入框用 number、可以用 −／＋ 調整）。 */
 export const NUMBER_FIELDS = new Set(['quantity']);
@@ -44,7 +50,7 @@ function cleanData(type, data) {
     for (const f of NOTE_FIELDS[type] ?? []) {
         const v = data[f];
         if (v === undefined || v === null) continue;
-        const s = String(v).trim().slice(0, MAX_FIELD);
+        const s = DATE_FIELDS.has(f) ? normDate(v) : String(v).trim().slice(0, MAX_FIELD);
         if (s) out[f] = s;
     }
     return out;
@@ -77,6 +83,8 @@ function applyOp(state, op, floor) {
             state.set(op.id, {
                 id: op.id, type: op.type, data, state: 'active', result: null,
                 createdFloor: at, updatedFloor: null, closedFloor: null, manual: floor === null,
+                // 手動新增的：新增當時的故事日期（樓層的看那一層的 date）。
+                ...(op.made ? { made: op.made } : {}),
             });
             return true;
         }
@@ -334,7 +342,8 @@ function pushManual(op) {
 export function addNoteManual(type, data) {
     const clean = cleanData(type, data);
     if (!NOTE_TYPES.includes(type) || !clean[TITLE_FIELD[type]]) return false;
-    return pushManual({ op: 'add', id: newNoteId(type), type, data: clean });
+    const made = type === 'promise' || type === 'todo' ? storyToday() : null;
+    return pushManual({ op: 'add', id: newNoteId(type), type, data: clean, ...(made ? { made } : {}) });
 }
 
 export function updateNoteManual(id, data) {
@@ -343,7 +352,8 @@ export function updateNoteManual(id, data) {
     // 清空的欄位也要寫進去（用空字串蓋掉）。
     const next = {};
     for (const f of NOTE_FIELDS[note.type]) {
-        const v = String(data?.[f] ?? '').trim().slice(0, MAX_FIELD);
+        const raw = String(data?.[f] ?? '').trim();
+        const v = DATE_FIELDS.has(f) ? normDate(raw) : raw.slice(0, MAX_FIELD);
         if (v !== (note.data[f] ?? '')) next[f] = v;
     }
     if (next[TITLE_FIELD[note.type]] === '') return false; // 標題不能清空
@@ -428,6 +438,10 @@ export function noteLine(n) {
     const parts = NOTE_FIELDS[n.type]
         .filter((f) => n.data[f])
         .map((f) => `${t(`field.${n.type}.${f}`)}：${n.data[f]}`);
+    // 約定／待辦：哪天約定的、推算出來的預定日期（模型沒寫 due 時）。
+    const { made, due, guessed } = noteDates(n);
+    if (guessed) parts.push(`${t(`field.${n.type}.due`)}：${due}`);
+    if (made) parts.push(`${t(`notes.made.${n.type}`)}：${made}`);
     return `${typeLabel(n.type)}｜${parts.join('｜')}`;
 }
 

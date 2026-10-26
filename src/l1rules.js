@@ -23,6 +23,7 @@ const TEXT = {
         promise: 'promise 是和別人的約定或承諾。履行用 complete 加 kept；被打破用 complete 加 broken。',
         todo: 'todo 是主角自己打算做的事。完成用 complete 加 done。',
         both: '同一件事不要同時記成 promise 和 todo。',
+        due: 'promise 和 todo 的 when 照原文寫（例如「明天早上」「明年秋天」）；due 是預定哪一天，用這一層的 date 換算成 YYYY-MM-DD（明天＝date 加一天，下週三、10月21日也換算好）。沒有確切哪一天就不寫 due。',
         noDup: '清單裡已經有的不要重複新增。沒有值得記的變化就讓 ops 是空陣列。',
         timeChapter: 'time：這一整段的故事內時間範圍（例如「第三天 → 第五天」）。完全無法判斷就留空字串。',
         locationChapter: 'location：這一整段主要的地點（有好幾個就用「、」分開）。',
@@ -55,6 +56,7 @@ const TEXT = {
         promise: 'promise 是和别人的约定或承诺。履行用 complete 加 kept；被打破用 complete 加 broken。',
         todo: 'todo 是主角自己打算做的事。完成用 complete 加 done。',
         both: '同一件事不要同时记成 promise 和 todo。',
+        due: 'promise 和 todo 的 when 照原文写（例如「明天早上」「明年秋天」）；due 是预定哪一天，用这一层的 date 换算成 YYYY-MM-DD（明天＝date 加一天，下周三、10月21日也换算好）。没有确切哪一天就不写 due。',
         noDup: '清单里已经有的不要重复新增。没有值得记的变化就让 ops 是空数组。',
         timeChapter: 'time：这一整段的故事内时间范围（例如「第三天 → 第五天」）。完全无法判断就留空字符串。',
         locationChapter: 'location：这一整段主要的地点（有好几个就用「、」分开）。',
@@ -87,6 +89,7 @@ const TEXT = {
         promise: 'promise is a commitment made with someone. Kept: complete + kept; broken: complete + broken.',
         todo: 'todo is something a lead plans to do. Finished: complete + done.',
         both: 'Never record the same thing as both a promise and a todo.',
+        due: 'For promise and todo, write when as the text says it (e.g. "tomorrow morning", "next autumn"); due is the planned day as YYYY-MM-DD, worked out from this floor\'s date (tomorrow = date + 1 day; also convert "next Wednesday", "October 21"). Leave out due if there is no specific day.',
         noDup: "Don't add anything that is already in the list. If nothing worth recording changed, leave ops as an empty array.",
         timeChapter: 'time: the span of story time this whole section covers (e.g. "day three → day five"). If impossible to tell, use an empty string.',
         locationChapter: 'location: the main places in this whole section (separate several with commas).',
@@ -139,6 +142,8 @@ export function buildL1Parts({ length, char, user, chapter = false, previousDate
         const sub = [fill(T.opsAdd, { types: types.join(T.sep) })];
         for (const type of types) sub.push(fill(T[type], vars));
         if (types.includes('promise') && types.includes('todo')) sub.push(T.both);
+        // 預定日期要靠故事日期換算，沒開行事曆就不要求。
+        if (cal && (types.includes('promise') || types.includes('todo'))) sub.push(T.due);
         sub.push(T.noDup);
         rules.push([T.ops, ...sub.map((x) => `   - ${x}`)].join('\n'));
     }
@@ -166,7 +171,8 @@ export function buildL1Parts({ length, char, user, chapter = false, previousDate
     if (types.length) {
         lines.push('  "summary": "…",', '  "ops": [');
         const ex = types.map((type) => {
-            const data = NOTE_FIELDS[type].map((f) => `"${f}": ${f === 'quantity' ? '1' : '"…"'}`).join(', ');
+            const fields = NOTE_FIELDS[type].filter((f) => f !== 'due' || cal);
+            const data = fields.map((f) => `"${f}": ${f === 'quantity' ? '1' : f === 'due' ? '"YYYY-MM-DD"' : '"…"'}`).join(', ');
             return `    { "op": "add", "type": "${type}", "data": { ${data} } }`;
         });
         ex.push('    { "op": "update", "id": "…", "data": { … } }');
