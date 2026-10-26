@@ -105,8 +105,46 @@ function findByTitle(state, type, title) {
 
 // ===== 套用一個變化 =====
 
-/** 對 state（Map）套用一個變化，回傳 true 表示有效。floor 是樓層索引，手動修改是 null。 */
-function applyOp(state, op, floor) {
+/** 兩條人物／物件是不是同一個（同類、名字一樣或互相包含；別稱也算）。 */
+function sameThing(a, b) {
+    if (a.type !== b.type || (a.type !== 'character' && a.type !== 'item')) return false;
+    const names = (n) => [noteTitle(n), ...String(n.data.alias ?? '').split(/[、,，/／;；]+/)]
+        .map((x) => String(x ?? '').trim().toLowerCase()).filter(Boolean);
+    const A = names(a);
+    const B = names(b);
+    return A.some((x) => B.some((y) => x === y || (x.length >= 2 && y.length >= 2 && (x.includes(y) || y.includes(x)))));
+}
+
+/**
+ * 刪掉一條人物／物件時，如果還有同一個人（同名的另一條，通常是合併重複記事留下的那條），
+ * 把被刪那條比較新的欄位併過去（v0.13.11 修：模型一直更新已經被合併掉的那條，更新全不見了）。
+ * 每個欄位比「最後一次改的時間」（fieldAt）。
+ */
+function absorb(state, gone) {
+    const keep = [...state.values()].find((n) => sameThing(n, gone));
+    if (!keep) return;
+    const data = { ...keep.data };
+    const fieldAt = { ...(keep.fieldAt ?? {}) };
+    for (const [f, v] of Object.entries(gone.data ?? {})) {
+        if (f === TITLE_FIELD[gone.type] || !v) continue;
+        const theirs = gone.fieldAt?.[f] ?? 0;
+        if (!data[f] || theirs > (fieldAt[f] ?? 0)) {
+            data[f] = v;
+            fieldAt[f] = theirs;
+        }
+    }
+    state.set(keep.id, { ...keep, data, fieldAt });
+}
+
+/** 每個欄位最後一次改的時間（樓層的用摘要的時間，手動的用修改的時間）。 */
+function stampFields(prev, data, stamp) {
+    const out = { ...(prev ?? {}) };
+    for (const f of Object.keys(data)) out[f] = stamp;
+    return out;
+}
+
+/** 對 state（Map）套用一個變化，回傳 true 表示有效。floor 是樓層索引，手動修改是 null。stamp：時間（比較新舊用）。 */
+function applyOp(state, op, floor, stamp = 0) {
     const at = floor ?? null;
     switch (op.op) {
         case 'add': {
@@ -114,7 +152,7 @@ function applyOp(state, op, floor) {
             const data = cleanData(op.type, op.data);
             if (!data[TITLE_FIELD[op.type]]) return false;
             state.set(op.id, {
-                id: op.id, type: op.type, data, state: 'active', result: null,
+                id: op.id, type: op.type, data, fieldAt: stampFields(null, data, stamp), state: 'active', result: null,
                 createdFloor: at, updatedFloor: null, closedFloor: null, manual: floor === null,
                 // 手動新增的：新增當時的故事日期（樓層的看那一層的 date）。
                 ...(op.made ? { made: op.made } : {}),
@@ -129,7 +167,7 @@ function applyOp(state, op, floor) {
             if (!Object.keys(data).length) return false;
             const merged = { ...note.data, ...data };
             for (const f of Object.keys(merged)) if (merged[f] === '') delete merged[f];
-            state.set(op.id, { ...note, data: merged, updatedFloor: at ?? note.updatedFloor });
+            state.set(op.id, { ...note, data: merged, fieldAt: stampFields(note.fieldAt, data, stamp), updatedFloor: at ?? note.updatedFloor });
             return true;
         }
         case 'complete': {
@@ -171,8 +209,13 @@ function applyOp(state, op, floor) {
             state.set(op.id, { ...note, pinned: Boolean(op.on) });
             return true;
         }
-        case 'delete':
-            return state.delete(op.id);
+        case 'delete': {
+            const gone = state.get(op.id);
+            if (!gone) return false;
+            state.delete(op.id);
+            absorb(state, gone);
+            return true;
+        }
         default:
             return false;
     }
@@ -295,11 +338,15 @@ export function replay({ upTo = Infinity } = {}) {
         });
         baseAt.set(n.id, Number(n.updatedAt) || 0);
     }
+    // 每條記事最後知道的類型和名字（刪掉之後，畫面上那一層的變化還認得出是哪一條）。
+    const known = new Map();
     // 回傳 true 表示有效（或已經算在基底裡）。
     const apply = (op, floor, at) => {
         if (baseAt.has(op.id) && (Number(at) || 0) <= baseAt.get(op.id)) return true;
-        const ok = applyOp(state, op, floor);
+        const ok = applyOp(state, op, floor, Number(at) || 0);
         if (ok && op.id) touched.set(op.id, Math.max(touched.get(op.id) ?? 0, Number(at) || 0));
+        const n = state.get(op.id);
+        if (n) known.set(op.id, { type: n.type, title: displayTitle(n) });
         return ok;
     };
     const chat = getChat();
@@ -318,8 +365,11 @@ export function replay({ upTo = Infinity } = {}) {
     }
     if (upTo === Infinity) {
         for (const op of manualOps()) apply(op, null, op.at);
+    } else {
+        // 替某一層組提示詞時：手動刪掉（含合併掉）的記事也拿掉，模型才不會一直更新它（v0.13.11 修）。
+        for (const op of manualOps()) if (op.op === 'delete') apply(op, null, op.at);
     }
-    return { notes: state, perFloor, touched };
+    return { notes: state, perFloor, touched, known };
 }
 
 let cache = null;
@@ -358,9 +408,9 @@ export function closedNotes() {
     return [...getNotes().notes.values()].filter((n) => n.state === 'done' && isTracked(n.type));
 }
 
-/** 一個變化屬於哪一類記事（新增的看 op.type，其他看它指向的記事）。 */
+/** 一個變化屬於哪一類記事（新增的看 op.type，其他看它指向的記事；記事刪掉了就看以前知道的）。 */
 export function opType(op, notes = getNotes().notes) {
-    return op.type ?? notes.get(op.id)?.type ?? null;
+    return op.type ?? notes.get(op.id)?.type ?? getNotes().known?.get(op.id)?.type ?? null;
 }
 
 /** 手動調整物件數量（−／＋）。 */
@@ -514,10 +564,13 @@ export function resultLabel(result) {
 }
 
 /** 把一個變化寫成一行給人看的文字。noteAfter 是套用後的記事（用來拿標題）。 */
-export function describeOp(op, notes) {
+export function describeOp(op, notes, known = getNotes().known) {
     const note = notes.get(op.id);
-    const type = op.type ?? note?.type;
-    const title = op.op === 'add' ? (op.data?.title || op.data?.[TITLE_FIELD[op.type]] || '') : displayTitle(note) || op.id;
+    const info = note ? null : known?.get(op.id);
+    const type = op.type ?? note?.type ?? info?.type;
+    // 指向的記事已經刪掉（或合併掉）：用以前知道的名字，並註明。
+    const gone = !note ? ` ${t('changes.deleted')}` : '';
+    const title = (op.op === 'add' ? (op.data?.title || op.data?.[TITLE_FIELD[op.type]] || '') : (note ? displayTitle(note) : info?.title) || op.id) + gone;
     if (op.op === 'add') return `＋ ${typeLabel(type)}：${title}`;
     if (op.op === 'complete') {
         const sym = op.result === 'broken' ? '✗' : '✓';
