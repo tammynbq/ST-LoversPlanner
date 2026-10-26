@@ -67,6 +67,9 @@ export const DEFAULTS = Object.freeze({
         start: '',
         inject: true,
         ahead: 7,
+        // 生理期推算（v0.13.2，使用者要求，預設關）：用記到的週期算「下次大約哪幾天」；ovulation：也推算排卵期。
+        predict: false,
+        ovulation: false,
     },
     // 回憶錄：auto＝摘要時讓模型挑值得珍藏的時刻；recall＝偶爾讓角色想起。
     // everyN：平均每幾回想起一次（隨機）；count：一次最多幾條；minAge：至少多少個 AI 樓層以前的才算回憶；

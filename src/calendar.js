@@ -220,10 +220,57 @@ export function buildCalendar() {
         if (nextStart && last >= nextStart) last = addDays(nextStart, -1);
         return { start, end: last, open: true };
     });
-    return { today, items, periods, removedCount: removed.size };
+    const cal = { today, items, periods, removedCount: removed.size, prediction: null };
+    if (s.predict && calTracked('period')) cal.prediction = predictPeriod(periods, Boolean(s.ovulation));
+    return cal;
 }
 
-/** 某一天的內容：{ items, plans, anniversaries, intimacy, period: 'actual'|null, periodDay, periodOpen }。 */
+// ===== 生理期推算（選項，預設關） =====
+
+/** 至少要記到幾次完整的週期（開始到下次開始）才推算。 */
+const MIN_CYCLES = 3;
+/** 用最近幾次週期。 */
+const RECENT_CYCLES = 6;
+/** 比這更短的間隔當成記錯（同一次記了兩個開始），不算。 */
+const MIN_GAP = 15;
+/** 排卵日 ≈ 下次生理期前 14 天；容易受孕的日子是排卵日前 5 天到排卵後 1 天。 */
+const LUTEAL = 14;
+/** 推算的範圍超過這麼多天，就不推排卵期（太不規律，推了也沒意義）。 */
+const OVULATION_MAX_SPREAD = 14;
+
+function median(list) {
+    const a = [...list].sort((x, y) => x - y);
+    const m = Math.floor(a.length / 2);
+    return a.length % 2 ? a[m] : Math.round((a[m - 1] + a[m]) / 2);
+}
+
+/**
+ * 範圍法：下次大約在「上次開始＋最近幾次裡最短的週期」到「＋最長的週期」之間（不給單一日期）。
+ * 很長的間隔（一季、半年）也算進去，範圍會變寬，本身就表示不確定。
+ * 回傳 null（資料不夠），或 { cycles, min, max, median, last, earliest, latest, fertile: { from, to } | null, spread }。
+ */
+export function predictPeriod(periods, ovulation = false) {
+    const starts = periods.map((p) => p.start);
+    const gaps = [];
+    for (let k = 1; k < starts.length; k++) {
+        const d = daysBetween(starts[k - 1], starts[k]);
+        if (d >= MIN_GAP) gaps.push(d);
+    }
+    if (gaps.length < MIN_CYCLES) return null;
+    const recent = gaps.slice(-RECENT_CYCLES);
+    const min = Math.min(...recent);
+    const max = Math.max(...recent);
+    const last = starts[starts.length - 1];
+    const earliest = addDays(last, min);
+    const latest = addDays(last, max);
+    const spread = max - min;
+    const fertile = ovulation && spread <= OVULATION_MAX_SPREAD
+        ? { from: addDays(earliest, -(LUTEAL + 5)), to: addDays(latest, -(LUTEAL - 1)) }
+        : null;
+    return { cycles: recent.length, min, max, median: median(recent), last, earliest, latest, fertile, spread, ovulationSkipped: ovulation && !fertile };
+}
+
+/** 某一天的內容：{ items, plans, anniversaries, intimacy, period: 'actual'|'predicted'|null, periodDay, periodOpen, fertile }。 */
 export function dayInfo(cal, date) {
     const md = date.slice(5);
     const on = cal.items.filter((x) => (x.type === 'anniversary' ? x.date === md : x.date === date));
@@ -235,12 +282,20 @@ export function dayInfo(cal, date) {
         period: null,
         periodDay: 0,
         periodOpen: false,
+        fertile: false,
     };
     const p = cal.periods.find((x) => date >= x.start && date <= x.end);
     if (p) {
         info.period = 'actual';
         info.periodDay = daysBetween(p.start, date) + 1;
         info.periodOpen = p.open;
+    }
+    // 推算（只有開了選項才有）：下次大約的範圍、排卵期。上次生理期還沒結束的日子不算。
+    const pred = cal.prediction;
+    if (pred && !p) {
+        const lastEnd = cal.periods[cal.periods.length - 1]?.end ?? '';
+        if (date >= pred.earliest && date <= pred.latest && date > lastEnd) info.period = 'predicted';
+        if (pred.fertile && date >= pred.fertile.from && date <= pred.fertile.to && date > lastEnd) info.fertile = true;
     }
     return info;
 }
@@ -268,9 +323,16 @@ export function upcoming(cal, ahead = Number(getSettings().calendar?.ahead) || 7
     return out.map((x) => ({ ...x, in: daysBetween(cal.today, x.date) })).sort((a, b) => a.date.localeCompare(b.date));
 }
 
+/** 開了推算、但資料還不夠推算時：上次開始後超過這麼多天沒來，也告訴角色（讓角色可以關心）。 */
+const LONG_ABSENCE = 60;
+
 /**
- * 今天的生理期狀態：{ kind: 'during', day, open } | { kind: 'last', date, days }（上次開始是哪天、幾天前）| null。
- * 不預測下一次。
+ * 今天的生理期狀態：
+ *   { kind: 'during', day, open }
+ *   { kind: 'last', date, days, soon?, late?, long?, fertile? }：上次開始是哪天、幾天前；
+ *     開了推算時：soon＝今天在推算的範圍附近（前 3 天起）、late＝比推算最晚的日子晚了幾天、fertile＝今天可能在排卵期；
+ *     資料不夠推算時：long＝上次之後已經超過 60 天沒來。
+ * | null
  */
 export function periodStatus(cal) {
     if (!calTracked('period') || !cal.today) return null;
@@ -279,7 +341,17 @@ export function periodStatus(cal) {
     const past = cal.periods.filter((x) => x.start <= cal.today);
     if (!past.length) return null;
     const last = past[past.length - 1].start;
-    return { kind: 'last', date: last, days: daysBetween(last, cal.today) };
+    const out = { kind: 'last', date: last, days: daysBetween(last, cal.today) };
+    if (!getSettings().calendar?.predict) return out;
+    const pred = cal.prediction;
+    if (pred) {
+        if (cal.today > pred.latest) out.late = daysBetween(pred.latest, cal.today);
+        else if (cal.today >= addDays(pred.earliest, -3)) out.soon = true;
+        if (info.fertile) out.fertile = true;
+    } else if (out.days > LONG_ABSENCE) {
+        out.long = true;
+    }
+    return out;
 }
 
 // ===== 送給角色的文字 =====
@@ -292,8 +364,15 @@ export function calendarInjection() {
     const user = ctx()?.name1 ?? '';
     const lines = [t('cal.inject.today', { date: cal.today, weekday: weekdayName(cal.today, 'long') })];
     const p = periodStatus(cal);
-    // 只在生理期中告訴角色（不預測、不提醒「快來了」）。
+    // 生理期中告訴角色第幾天；開了推算才說「可能快來了」「晚了」「排卵期」「很久沒來」（語氣都是不確定的）。
     if (p?.kind === 'during') lines.push(t('cal.inject.during', { user, day: p.day }));
+    else if (p?.kind === 'last') {
+        const pred = cal.prediction;
+        if (p.late) lines.push(t('cal.inject.late', { user, n: p.late, days: p.days }));
+        else if (p.soon) lines.push(t('cal.inject.soon', { user, from: pred.earliest.slice(5), to: pred.latest.slice(5) }));
+        else if (p.long) lines.push(t('cal.inject.long', { user, days: p.days }));
+        if (p.fertile) lines.push(t('cal.inject.fertile', { user }));
+    }
     const today = dayInfo(cal, cal.today);
     if (today.intimacy) lines.push(t('cal.inject.intimacy', { n: today.intimacy }));
     const list = upcoming(cal).filter((x) => x.kind !== 'period');

@@ -797,7 +797,8 @@ function renderCalendarTab() {
     for (const d of days) {
         const info = dayInfo(cal, d);
         const marks = [];
-        if (info.period) marks.push('<span class="lp-cal-mark" aria-hidden="true">🩸</span>');
+        if (info.period) marks.push(`<span class="lp-cal-mark${info.period === 'predicted' ? ' lp-cal-pred' : ''}" aria-hidden="true">🩸</span>`);
+        if (info.fertile) marks.push('<span class="lp-cal-mark lp-cal-pred" aria-hidden="true">🌸</span>');
         if (info.intimacy) marks.push(`<span class="lp-cal-mark" aria-hidden="true">💕${info.intimacy > 1 ? info.intimacy : ''}</span>`);
         if (info.plans.length) marks.push('<span class="lp-cal-mark" aria-hidden="true">📌</span>');
         if (info.anniversaries.length) marks.push('<span class="lp-cal-mark" aria-hidden="true">🎂</span>');
@@ -806,7 +807,8 @@ function renderCalendarTab() {
         if (due.some((n) => n.type === 'promise')) marks.push('<span class="lp-cal-mark" aria-hidden="true">🤝</span>');
         if (due.some((n) => n.type === 'todo')) marks.push('<span class="lp-cal-mark" aria-hidden="true">📝</span>');
         const cls = ['lp-cal-cell', d === cal.today ? 'lp-cal-today' : '', d === view.cal.selected ? 'lp-on' : '', info.period === 'actual' ? 'lp-cal-period' : ''].filter(Boolean).join(' ');
-        const label = [d, ...info.items.map(eventLabel), ...due.map(noteTitle), info.period ? t('cal.status.during', { day: info.periodDay }) : ''].filter(Boolean).join('，');
+        const label = [d, ...info.items.map(eventLabel), ...due.map(noteTitle), info.period === 'actual' ? t('cal.status.during', { day: info.periodDay }) : '',
+            info.period === 'predicted' ? t('cal.predicted') : '', info.fertile ? t('cal.fertile') : ''].filter(Boolean).join('，');
         cells.push(`<button type="button" class="${cls}" data-action="cal-day" data-date="${d}" aria-label="${esc(label)}" aria-pressed="${d === view.cal.selected}">
             <span class="lp-cal-num">${Number(d.slice(8))}</span><span class="lp-cal-marks">${marks.join('')}</span></button>`);
     }
@@ -859,6 +861,17 @@ function calendarStatus(cal) {
     const p = periodStatus(cal);
     if (p?.kind === 'during') lines.push(`<div>🩸 ${esc(t('cal.status.during', { day: p.day }))}${p.open ? ` <span class="lp-note">${esc(t('cal.status.open'))}</span>` : ''}</div>`);
     else if (p?.kind === 'last') lines.push(`<div class="lp-note">🩸 ${esc(t('cal.status.last', { date: p.date, days: p.days }))}</div>`);
+    // 推算（選項）：下次大約的範圍、晚了、很久沒來、排卵期。
+    const pred = cal.prediction;
+    if (pred && p?.kind !== 'during') {
+        lines.push(`<div data-role="cal-predict">🩸 ${esc(t('cal.status.predict', { from: pred.earliest, to: pred.latest, n: pred.cycles, min: pred.min, max: pred.max, median: pred.median }))}</div>`);
+        if (pred.fertile) lines.push(`<div class="lp-note">🌸 ${esc(t('cal.status.fertile', { from: pred.fertile.from, to: pred.fertile.to }))}</div>`);
+        else if (pred.ovulationSkipped) lines.push(`<div class="lp-note">🌸 ${esc(t('cal.status.fertileSkipped', { spread: pred.spread }))}</div>`);
+    } else if (getSettings().calendar?.predict && calTracked('period') && p?.kind !== 'during') {
+        lines.push(`<div class="lp-note" data-role="cal-predict">🩸 ${esc(t('cal.status.predictNeed'))}</div>`);
+    }
+    if (p?.late) lines.push(`<div class="lp-warn-text">🩸 ${esc(t('cal.status.late', { n: p.late }))}</div>`);
+    else if (p?.long) lines.push(`<div class="lp-warn-text">🩸 ${esc(t('cal.status.long', { days: p.days }))}</div>`);
     const list = upcoming(cal);
     if (list.length) {
         const items = list.map((x) => {
@@ -885,6 +898,8 @@ function calendarDay(cal) {
           <button type="button" class="menu_button lp-btn lp-mini lp-danger" data-action="cal-remove" data-source="${x.source}" ${ref}>${esc(t('cal.remove'))}</button></li>`;
     });
     if (info.period === 'actual' && !info.items.some((x) => x.type === 'period')) rows.push(`<li class="lp-note">🩸 ${esc(t('cal.status.during', { day: info.periodDay }))}${info.periodOpen ? ` ${esc(t('cal.status.open'))}` : ''}</li>`);
+    if (info.period === 'predicted') rows.push(`<li class="lp-note">🩸 ${esc(t('cal.predicted'))}</li>`);
+    if (info.fertile) rows.push(`<li class="lp-note">🌸 ${esc(t('cal.fertile'))}</li>`);
     const types = CAL_TYPES.filter(calTracked);
     const type = types.includes(view.cal.addType) ? view.cal.addType : types[0];
     let fields = '';
@@ -1899,7 +1914,9 @@ function renderSettings() {
         <label class="lp-field" for="lp-cal-start"><span class="lp-label">${esc(t('set.cal.start'))}</span>
           <input id="lp-cal-start" type="date" class="text_pole" data-path="calendar.start" value="${esc(c.start ?? '')}"></label>
         <div class="lp-note">${esc(t('set.cal.start.note'))}</div>
-        ${c.track.period ? `<div class="lp-note">${esc(t('set.cal.period.note'))}</div>` : ''}
+        ${c.track.period ? `<div class="lp-note">${esc(t('set.cal.period.note'))}</div>
+        ${checkbox('calendar.predict', t('set.cal.predict'), true)}
+        ${c.predict ? `${checkbox('calendar.ovulation', t('set.cal.ovulation'), true)}<div class="lp-note">${esc(t('set.cal.predict.note'))}</div>` : ''}` : ''}
         ${checkbox('calendar.inject', t('set.cal.inject'), true)}
         ${c.inject ? `<div class="lp-row">${inline('set.cal.ahead', { n: numberInput('calendar.ahead', t('set.cal.ahead.aria')) })}</div>` : ''}` : ''}`;
 

@@ -710,3 +710,4 @@
 .lp-tag-ref { color: var(--lp-ok); overflow-wrap: anywhere; }
 .lp-tag-full > summary { cursor: pointer; color: var(--lp-muted); font-size: 0.9em; }
 .lp-tag-full pre { max-height: 16em; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+.lp-cal-pred { opacity: 0.4; }
