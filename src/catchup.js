@@ -23,7 +23,7 @@ import {
 } from './summarize.js';
 import { saveChapter, setCoarseRedo } from './compress.js';
 import { estimateTokens } from './hide.js';
-import { cleanForSummary, extractTheater, scanTags, tagMode } from './filter.js';
+import { cleanForSummary, extractRef, extractTheater, scanTags, tagMode } from './filter.js';
 import { calendarOn, cleanEvents, normDate } from './calendar.js';
 import { cleanKeepsakes, memoriesOn } from './memories.js';
 
@@ -87,7 +87,7 @@ export function planCatchup({ from, to, fineFrom, block }) {
     const raw = (i) => {
         const src = floorSource(i);
         const texts = [...(withUser ? src.users.map((u) => u.mes) : []), chat[i]?.mes ?? ''];
-        return estimateTokens(texts.map((x) => cleanForSummary(x)).join('\n'));
+        return estimateTokens([...texts.map((x) => cleanForSummary(x)), extractRef(chat[i]?.mes ?? '')].join('\n'));
     };
     const tokens = list.reduce((n, i) => n + raw(i), 0) + (coarse.length + fine.length) * PROMPT_OVERHEAD;
     return { coarse, fine, floors: list.length, calls: coarse.length + fine.length, tokens };
@@ -225,7 +225,12 @@ async function buildPrompt(indices) {
     }
     const keep = memoriesOn() && s.memories?.auto;
     const theater = keep ? indices.map((i) => extractTheater(chat[i].mes)).filter(Boolean).join('\n\n') : '';
-    const content = parts.join('\n\n') + (theater ? `\n\n${t('prompt.theaterLabel')}\n${theater}` : '');
+    // 只當參考的標籤：每層一行（第幾樓＋抽出來的日期、時間、地點）。
+    const ref = indices.map((i) => {
+        const lines = extractRef(chat[i].mes);
+        return lines ? `#${i} ${lines.split('\n').join('；')}` : '';
+    }).filter(Boolean).join('\n');
+    const content = parts.join('\n\n') + (theater ? `\n\n${t('prompt.theaterLabel')}\n${theater}` : '') + (ref ? `\n\n${t('prompt.refLabel')}\n${ref}` : '');
     const tokens = await countTokens(content);
     // 一章大約是單層摘要的三到四成；單層摘要是原文的 3～6%。
     const l1 = (s.summary.ratioMin + s.summary.ratioMax) / 200;

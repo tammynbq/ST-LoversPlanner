@@ -42,7 +42,8 @@ const eventTypes = {
   GENERATION_STOPPED: 'generation_stopped', CHARACTER_MESSAGE_RENDERED: 'character_message_rendered',
   USER_MESSAGE_RENDERED: 'user_message_rendered', MORE_MESSAGES_LOADED: 'more_messages_loaded',
 };
-window.jQuery = (arg) => { if (typeof arg === 'function') { document.addEventListener('DOMContentLoaded', arg); if (document.readyState !== 'loading') arg(); return; } return { fadeOut(){ arg.style.display='none'; } }; };
+// 和真的 jQuery(fn) 一樣：DOM 好了就執行一次（以前會執行兩次，擴充被初始化兩遍）。
+window.jQuery = (arg) => { if (typeof arg === 'function') { if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', arg, { once: true }); else arg(); return; } return { fadeOut(){ arg.style.display='none'; } }; };
 window.SillyTavern = { getContext: () => ({
   extensionSettings, saveSettingsDebounced(){ window.__saved++; },
   eventSource: { on(n, f){ (window.__events[n] ||= []).push(f); } },

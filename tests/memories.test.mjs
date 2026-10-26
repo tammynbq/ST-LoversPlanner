@@ -27,6 +27,16 @@ await page.addInitScript((chat) => {
   window.__presetSettings = { lovers_planner: { settingsVersion: 5, summary: { mode: 'after' }, recall: { notes: false, memory: false },
     compress: { auto: false }, memories: { enabled: true, auto: true, recall: true, everyN: 1, count: 2, minAge: 20, cooldown: 30 } } };
 }, CHAT);
+// 和 calendar.test 一樣：有背景摘要時偶爾遇到「Execution context was destroyed」（頁面其實沒有重新整理），重試就好。
+const rawEvaluate = page.evaluate.bind(page);
+page.evaluate = async (fn, arg) => {
+  for (let k = 0; ; k++) {
+    try { return await rawEvaluate(fn, arg); } catch (e) {
+      if (k >= 3 || !/Execution context was destroyed/.test(e.message)) throw e;
+      await new Promise((r) => setTimeout(r, 200));
+    }
+  }
+};
 await page.goto(URL);
 await page.waitForFunction(() => Boolean(document.getElementById('lp_wand_entry') && globalThis.loversPlannerInterceptor), null, { timeout: 15000 });
 

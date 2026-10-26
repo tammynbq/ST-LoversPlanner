@@ -8,7 +8,7 @@ import { getTemplate, isTemplateModified, resetTemplate, setTemplate, TEMPLATE_K
 import { listModels, normalizeBaseUrl, testConnection } from '../api/custom.js';
 import { testEmbedding } from '../api/embed.js';
 import { warmVectors } from '../recall.js';
-import { cleanForSummary, scanTags, setTagMode, tagMode } from '../filter.js';
+import { cleanForSummary, extractRef, scanTags, setTagMode, tagMode } from '../filter.js';
 import { getLoadedVersion } from '../update.js';
 import { VERSION } from '../version.js';
 import { addMemory, editMemory, listMemories, memoriesOn, nextPinned, onMemoriesChange, removeMemory, surfaceNext } from '../memories.js';
@@ -1778,13 +1778,24 @@ let tagScanCache = { key: '', value: [] };
 /** 一列標籤：名稱、出現幾次／多少 token／哪幾層、範例，和「讀／不讀／只讀」選單。 */
 function tagRow(x, { stats = false } = {}) {
     const { mode, builtin } = tagMode(x.name);
-    const opts = ['read', 'skip', 'only'].map((m) => `<option value="${m}"${m === mode ? ' selected' : ''}>${esc(t(`set.filter.mode.${m}`))}</option>`).join('');
+    const opts = ['read', 'skip', 'only', 'ref'].map((m) => `<option value="${m}"${m === mode ? ' selected' : ''}>${esc(t(`set.filter.mode.${m}`))}</option>`).join('');
     const info = stats
         ? ` <span class="lp-note">${esc(t('set.filter.scan.stats', { tokens: x.tokens.toLocaleString(), floors: x.floors, first: x.first ?? '?', last: x.last ?? '?' }))}</span>`
         : (x.count > 1 ? ` <span class="lp-note">×${x.count}</span>` : '');
+    // 猜的類型、有沒有日期／地點（給使用者決定要讀、不讀還是只當參考）。
+    const kind = x.kind ? `<span class="lp-badge lp-tag-kind" data-kind="${x.kind}">${esc(t(`set.filter.kind.${x.kind}`))}</span>` : '';
+    const pct = x.count ? Math.round((x.dated / x.count) * 100) : 0;
+    const flags = [pct ? t('set.filter.flag.date', { pct }) : '', x.placed ? t('set.filter.flag.where') : ''].filter(Boolean);
+    const hint = mode !== 'ref' && x.kind === 'status' && pct >= 50 ? `<div class="lp-note lp-tag-hint">${esc(t('set.filter.refHint'))}</div>` : '';
+    const refPreview = mode === 'ref' && x.full ? extractRef(`<${x.name}>${x.full}</${x.name}>`, { ...getSettings().filter, ref: x.name }) : '';
     return `<li class="lp-tag-row" data-tag-row="${esc(x.name)}">
-        <div class="lp-tag-main"><code>&lt;${esc(x.name)}&gt;</code>${info}${builtin ? ` <span class="lp-note">${esc(t(`set.filter.builtin.${builtin}`))}</span>` : ''}
-          ${x.sample ? `<div class="lp-note lp-tag-sample">${esc(x.sample)}…</div>` : ''}</div>
+        <div class="lp-tag-main"><code>&lt;${esc(x.name)}&gt;</code> ${kind}${info}${builtin ? ` <span class="lp-note">${esc(t(`set.filter.builtin.${builtin}`))}</span>` : ''}
+          ${flags.length ? `<div class="lp-note lp-tag-flags">${esc(flags.join('　'))}</div>` : ''}
+          ${x.keys?.length ? `<div class="lp-note lp-tag-keys">${esc(t('set.filter.keys', { keys: x.keys.slice(0, 8).join('、') }))}</div>` : ''}
+          ${x.sample ? `<div class="lp-note lp-tag-sample">${esc(x.sample)}…</div>` : ''}
+          ${hint}
+          ${mode === 'ref' ? `<div class="lp-note lp-tag-ref" data-role="tag-ref">${esc(refPreview ? t('set.filter.refPreview', { lines: refPreview.split('\n').join('；') }) : t('set.filter.refNone'))}</div>` : ''}
+          ${x.full ? `<details class="lp-tag-full"><summary>${esc(t('set.filter.full'))}</summary><pre class="lp-preview-text">${esc(x.full)}</pre></details>` : ''}</div>
         <select class="text_pole lp-select" data-role="tag-mode" data-tag="${esc(x.name)}" aria-label="${esc(t('set.filter.mode.aria', { tag: x.name }))}">${opts}</select>
       </li>`;
 }
@@ -1862,6 +1873,11 @@ function renderSettings() {
         ${textInput('filter.tags', 'lp-filter-tags', t('set.filter.tags.ph'))}</label>
       <label class="lp-field" for="lp-filter-only"><span class="lp-label">${esc(t('set.filter.only'))}</span>
         ${textInput('filter.only', 'lp-filter-only', t('set.filter.only.ph'))}</label>
+      <label class="lp-field" for="lp-filter-ref"><span class="lp-label">${esc(t('set.filter.ref'))}</span>
+        ${textInput('filter.ref', 'lp-filter-ref', t('set.filter.ref.ph'))}</label>
+      <label class="lp-field" for="lp-filter-refkeys"><span class="lp-label">${esc(t('set.filter.refKeys'))}</span>
+        ${textInput('filter.refKeys', 'lp-filter-refkeys', t('set.filter.refKeys.ph'))}</label>
+      <div class="lp-note">${esc(t('set.filter.refKeys.note'))}</div>
       <div class="lp-note">${esc(t('set.filter.only.note'))}</div>
       <details class="lp-preview-raw">
         <summary>${esc(t('set.filter.test'))}</summary>

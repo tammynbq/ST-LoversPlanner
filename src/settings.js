@@ -24,7 +24,11 @@ export const DEFAULTS = Object.freeze({
     },
     // 摘要時跳過的內容（只影響送去摘要的文字）。tags：自訂要跳過的標籤；only：只看這些標籤裡的內容；
     // keep：內建清單裡、但使用者選了「要讀」的標籤。
-    filter: { thinking: true, status: true, html: true, tags: '', only: '', keep: '', theater: 'keepsake', theaterTags: '' },
+    filter: {
+        thinking: true, status: true, html: true, tags: '', only: '', keep: '', theater: 'keepsake', theaterTags: '',
+        // 只當參考的標籤，以及要從裡面抽出來的欄位名稱（v0.13.0）。
+        ref: '', refKeys: 'time, date, 時間, 日期, 時段, location, 地點, 时间, 时段, 地点',
+    },
     // 分層壓縮（2026-10-25 依真實聊天紀錄的測試改，見 SPEC 2.3）：
     // L2 每 l1PerL2 層一章（只看比例）；L3 每 l2PerL3 章一卷；L4 以上每 higherPer 個一組，沒有層數上限。
     // capL3／capL4／capL5／capMore：各層的長度上限（tokens），越高層越短，越舊的越粗。

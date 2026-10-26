@@ -16,7 +16,7 @@ import { errorText } from './errors.js';
 import { formatNotesForPrompt, invalidateNotes, normalizeModelOps, replay } from './notes.js';
 import { buildL1Parts } from './l1rules.js';
 import { parseJsonLenient } from './json.js';
-import { cleanForSummary, extractTheater } from './filter.js';
+import { cleanForSummary, extractRef, extractTheater } from './filter.js';
 import { calendarOn, cleanEvents, normDate } from './calendar.js';
 import { cleanKeepsakes, memoriesOn } from './memories.js';
 import {
@@ -277,7 +277,9 @@ export async function buildL1Prompt(index) {
     parts.push(`${src.ai.name ?? c?.name2 ?? 'Character'}: ${cleanForSummary(src.ai.mes)}`);
     // 小劇場（番外）：不算正文，另外附上，讓模型只挑有意義的收進回憶錄。
     const theater = memoriesOn() && s.memories?.auto ? extractTheater(src.ai.mes) : '';
-    const content = parts.join('\n\n') + (theater ? `\n\n${t('prompt.theaterLabel')}\n${theater}` : '');
+    // 只當參考的標籤（狀態欄）：抽出日期、時間、地點那幾行另外附上。
+    const ref = extractRef(src.ai.mes);
+    const content = parts.join('\n\n') + (theater ? `\n\n${t('prompt.theaterLabel')}\n${theater}` : '') + (ref ? `\n\n${t('prompt.refLabel')}\n${ref}` : '');
 
     const tokens = await countTokens(content);
     const ratio = (s.summary.ratioMin + s.summary.ratioMax) / 200;

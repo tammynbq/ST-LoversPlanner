@@ -703,3 +703,11 @@
 .lp-note-dates .lp-dot { color: var(--lp-muted); }
 .lp-note-sort { gap: 8px; }
 .lp-note-sort .lp-select { width: auto; }
+
+/* ===== 標籤檢查：類型、日期、完整內容、參考 ===== */
+.lp-tag-kind { font-weight: normal; }
+.lp-tag-flags, .lp-tag-keys { overflow-wrap: anywhere; }
+.lp-tag-hint { color: var(--lp-accent); }
+.lp-tag-ref { color: var(--lp-ok); overflow-wrap: anywhere; }
+.lp-tag-full > summary { cursor: pointer; color: var(--lp-muted); font-size: 0.9em; }
+.lp-tag-full pre { max-height: 16em; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
