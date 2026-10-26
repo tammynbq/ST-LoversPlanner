@@ -11,7 +11,7 @@
 // 過期的章不注入，改回注入那幾層的單層摘要。卷也一樣。
 
 import { ctx, LOG_PREFIX, MODULE, toast } from './util.js';
-import { getSettings } from './settings.js';
+import { getSettings, isTracked } from './settings.js';
 import { currentLocale, t } from './i18n.js';
 import { getTemplate } from './prompts.js';
 import { ApiError } from './api/custom.js';
@@ -337,6 +337,8 @@ export function refreshDigestMeta() {
         } else {
             meta = chapterMeta(alive);
         }
+        // 模型歸納的地點比程式聰明，保留。
+        if (c.data.placeBy === 'model') meta.location = c.data.location;
         if (!same(c.data, meta)) {
             Object.assign(c.data, meta);
             changed = true;
@@ -346,6 +348,7 @@ export function refreshDigestMeta() {
     for (const v of [...st.volumes].sort((a, b) => a.level - b.level)) {
         if (!v.children.length) continue;
         const meta = volumeMeta(v.children);
+        if (v.data.placeBy === 'model') meta.location = v.data.location;
         if (!same(v.data, meta)) {
             Object.assign(v.data, meta);
             changed = true;
@@ -393,12 +396,31 @@ function fill(template, vars) {
     return template.replace(/\{\{(\w+)\}\}/g, (m, key) => (key in vars ? String(vars[key]) : m));
 }
 
+/**
+ * 讓模型順便歸納地點（v0.13.6，使用者要求）：在提示詞最後要求第一行寫「地點：…」（1～2 個主要地點），
+ * 同一次呼叫、不多花錢。回傳 { summary, place }；模型沒照格式寫，place 是空的（改用程式歸納）。
+ */
+const PLACE_LINE = /^\s*[［\[]?\s*(?:地點|地点|場所|场所|location|place)\s*[］\]]?\s*[:：]\s*(.*)$/i;
+
+export function splitPlace(text) {
+    const lines = String(text ?? '').split('\n');
+    const k = lines.findIndex((l) => l.trim());
+    const m = k >= 0 ? lines[k].match(PLACE_LINE) : null;
+    if (!m) return { summary: String(text ?? '').trim(), place: '' };
+    const summary = lines.slice(k + 1).join('\n').trim();
+    if (!summary) throw new ApiError('empty');
+    return { summary, place: m[1].trim().replace(/[。.]$/, '').slice(0, 80) };
+}
+
 async function callModel(templateKey, varName, text, level = 2) {
     const c = ctx();
     const length = targetLength(text, level);
-    const prompt = fill(getTemplate(templateKey), { [varName]: text, length, char: c?.name2 ?? '', user: c?.name1 ?? '' });
+    const askPlace = isTracked('location');
+    let prompt = fill(getTemplate(templateKey), { [varName]: text, length, char: c?.name2 ?? '', user: c?.name1 ?? '' });
+    if (askPlace) prompt += `\n\n${t('prompt.placeLine')}`;
     const raw = await generateText(prompt, { maxTokens: Math.max(1500, length * 3) });
-    return parsePlain(raw);
+    const plain = parsePlain(raw);
+    return askPlace ? splitPlace(plain) : { summary: plain, place: '' };
 }
 
 function upsert(listName, item) {
@@ -424,8 +446,8 @@ async function compressChapter(indices, existing = null) {
         ...chapterMeta(indices),
     };
     try {
-        const summary = await callModel('l2', 'summaries', text);
-        upsert('chapters', { ...base, summary, status: 'ok', at: Date.now() });
+        const { summary, place } = await callModel('l2', 'summaries', text);
+        upsert('chapters', { ...base, ...(place ? { location: place, placeBy: 'model' } : { placeBy: undefined }), summary, status: 'ok', at: Date.now() });
         return true;
     } catch (e) {
         console.warn(LOG_PREFIX, '壓縮成章失敗', e);
@@ -447,8 +469,8 @@ async function compressVolume(children, existing = null, level = existing?.level
         ...volumeMeta(children),
     };
     try {
-        const summary = await callModel('l3', 'chapters', text, level);
-        upsert('volumes', { ...base, summary, status: 'ok', at: Date.now() });
+        const { summary, place } = await callModel('l3', 'chapters', text, level);
+        upsert('volumes', { ...base, ...(place ? { location: place, placeBy: 'model' } : { placeBy: undefined }), summary, status: 'ok', at: Date.now() });
         return true;
     } catch (e) {
         console.warn(LOG_PREFIX, `壓縮成 L${level} 失敗`, e);

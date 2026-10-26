@@ -83,6 +83,32 @@ const legacy = await page.evaluate(async () => {
 });
 check('old chapters refreshed without the model', legacy.changed && legacy.time === '2025-12-12 上午 → 14:52' && legacy.location === '营地、汤屋' && legacy.sameAt && legacy.calls === 0, JSON.stringify(legacy));
 
+// ===== 2b. 模型順便歸納地點 =====
+const split = await page.evaluate(async () => {
+  const { splitPlace } = await import('/src/compress.js');
+  return [splitPlace('地點：恋语市郊区・银杏林营地\n兩人去露營。'), splitPlace('［地点］: 恋语市。\n\n總結'), splitPlace('沒有地點那一行的總結')];
+});
+check('place line split off', split[0].place === '恋语市郊区・银杏林营地' && split[0].summary === '兩人去露營。', JSON.stringify(split[0]));
+check('place line variants', split[1].place === '恋语市' && split[1].summary === '總結', JSON.stringify(split[1]));
+check('no place line → summary kept, no place', split[2].place === '' && split[2].summary === '沒有地點那一行的總結');
+const modelPlace = await page.evaluate(async () => {
+  const { getChapters, getVolumes, runCompression, structure, refreshDigestMeta } = await import('/src/compress.js');
+  window.__prompts.length = 0;
+  window.__generateRaw = async ({ prompt }) => (prompt.includes('卷總結') ? '地點：恋语市\n一卷（重壓）' : '地點：恋语市郊区・银杏林营地\n一章（重壓）');
+  const ch = structure().chapters[0];
+  await runCompression(ch.data.id);
+  const vol = structure().volumes[0];
+  await runCompression(vol.data.id);
+  const asked = window.__prompts.every((p) => p.prompt.includes('最前面先寫一行「地點：」'));
+  refreshDigestMeta();
+  const c = getChapters().find((x) => x.id === ch.data.id);
+  const v = getVolumes().find((x) => x.id === vol.data.id);
+  return { asked, chLoc: c.location, chSum: c.summary, by: c.placeBy, volLoc: v.location, volSum: v.summary };
+});
+check('prompt asks for a place line', modelPlace.asked);
+check('model place used for chapter', modelPlace.chLoc === '恋语市郊区・银杏林营地' && modelPlace.chSum === '一章（重壓）' && modelPlace.by === 'model', JSON.stringify(modelPlace));
+check('model place used for volume, kept after refresh', modelPlace.volLoc === '恋语市' && modelPlace.volSum === '一卷（重壓）', JSON.stringify(modelPlace));
+
 // ===== 3. 番外 =====
 const found = await page.evaluate(async () => (await import('/src/catchup.js')).findExtras(21, 39).map((x) => `${x.index}:${x.word}`));
 check('finds extras (reply start, user message, heading)', JSON.stringify(found) === JSON.stringify(['23:小劇場', '25:番外', '29:IF線']), JSON.stringify(found));
