@@ -19,9 +19,9 @@ import {
 } from './chat.js';
 import { formatNotesForPrompt, normalizeModelOps, replay } from './notes.js';
 import {
-    cancelQueue, enqueue, enqueueCoarse, isActive, parseL1, pendingCount, previousDate, setAfterSummaryHook, setCoarseHandler,
+    cancelQueue, enqueue, enqueueCoarse, isActive, parseL1, pendingCount, previousDate, setAfterSummaryHook, setCoarseHandler, skipFloor,
 } from './summarize.js';
-import { saveChapter, setCoarseRedo } from './compress.js';
+import { refreshDigestMeta, saveChapter, setCoarseRedo } from './compress.js';
 import { estimateTokens } from './hide.js';
 import { cleanForSummary, extractRef, extractTheater, scanTags, tagMode } from './filter.js';
 import { calendarOn, cleanEvents, normDate } from './calendar.js';
@@ -133,6 +133,80 @@ function schedule(rec) {
     return plan;
 }
 
+// ===== 番外／小劇場／IF 線（v0.13.5，使用者要求） =====
+// 開始或繼續補建前，先掃一遍還沒補的樓層：使用者的發言、AI 回覆的開頭，或回覆裡很短的一行（像標題）
+// 出現了這些字眼，就先停下來列給使用者看（附上一部分正文），決定要跳過還是照常摘要，決定完才開始。
+// 決定記在 catchup.extras（send_date → 'skip'|'keep'），不會再問。
+
+/** AI 回覆從開頭看多少字；之後只看很短的行（標題）。 */
+const EXTRA_HEAD = 300;
+const EXTRA_HEADING = 40;
+
+function extraWords() {
+    const s = getSettings().catchup ?? {};
+    if (s.askExtras === false) return [];
+    return String(s.extraWords ?? '').split(/[,，、;；\n]+/).map((x) => x.trim()).filter(Boolean);
+}
+
+/** 還沒決定過、可能是番外的樓層：[{ index, word, user, excerpt }]。 */
+export function findExtras(from, to) {
+    const words = extraWords();
+    if (!words.length) return [];
+    const re = new RegExp(words.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|'), 'i');
+    const decided = getCatchup()?.extras ?? {};
+    const chat = getChat();
+    const out = [];
+    for (const i of candidates(from, to)) {
+        if (decided[chat[i]?.send_date ?? `#${i}`]) continue;
+        const src = floorSource(i);
+        const user = src.users.map((u) => cleanForSummary(u.mes)).join('\n').trim();
+        const ai = cleanForSummary(chat[i]?.mes ?? '');
+        const heads = ai.split('\n').map((l) => l.trim()).filter((l) => l && l.length <= EXTRA_HEADING);
+        const hit = [user, ai.slice(0, EXTRA_HEAD), ...heads].map((x) => x.match(re)).find(Boolean);
+        if (!hit) continue;
+        // 字眼出現在回覆後面（標題行）：另外附上那附近的文字。
+        const pos = ai.search(re);
+        const around = pos > 150 ? ai.slice(Math.max(0, pos - 60), pos + 90) : '';
+        out.push({ index: i, word: hit[0], user: user.slice(0, 150), excerpt: ai.slice(0, 600), around });
+    }
+    return out;
+}
+
+/** 開始／繼續前檢查：有還沒決定的番外就停下來（回傳找到幾層），沒有就回傳 0。 */
+function holdForExtras(rec) {
+    const n = findExtras(rec.catchup.from, rec.catchup.to).length;
+    if (!n) {
+        if (rec.catchup.asking) {
+            rec.catchup = { ...rec.catchup, asking: false };
+            saveMeta();
+        }
+        return 0;
+    }
+    rec.catchup = { ...rec.catchup, paused: true, asking: true, error: null };
+    saveMeta();
+    return n;
+}
+
+/**
+ * 使用者決定了：choices = { index: 'skip' | 'keep' }。跳過的標成「跳過」（和平常的跳過一樣，之後可以取消），
+ * 照常的記下來不再問；然後繼續補建。
+ */
+export function decideExtras(choices) {
+    const rec = chatRecord(false);
+    if (!rec?.catchup) return null;
+    const chat = getChat();
+    const extras = { ...(rec.catchup.extras ?? {}) };
+    for (const [k, choice] of Object.entries(choices)) {
+        const i = Number(k);
+        if (!chat[i]) continue;
+        extras[chat[i].send_date ?? `#${i}`] = choice === 'keep' ? 'keep' : 'skip';
+        if (choice !== 'keep') skipFloor(i);
+    }
+    rec.catchup = { ...rec.catchup, extras, asking: false };
+    saveMeta();
+    return resumeCatchup();
+}
+
 export function startCatchup({ from, to, fineCount, block }) {
     if (!isActive()) return null;
     const rec = chatRecord(true);
@@ -141,6 +215,8 @@ export function startCatchup({ from, to, fineCount, block }) {
     if (!total) return null;
     rec.catchup = { from, to, fineFrom: Number.isFinite(fineFrom) ? fineFrom : null, block, total, paused: false, startedAt: Date.now() };
     saveMeta();
+    const ask = holdForExtras(rec);
+    if (ask) return { ask };
     return schedule(normalized(rec.catchup));
 }
 
@@ -159,6 +235,8 @@ export function resumeCatchup() {
     if (!rec?.catchup) return null;
     rec.catchup = { ...rec.catchup, paused: false, error: null };
     saveMeta();
+    const ask = holdForExtras(rec);
+    if (ask) return { ask };
     return schedule(normalized(rec.catchup));
 }
 
@@ -292,6 +370,8 @@ export async function runCoarse(indices, existing = null) {
             status: 'ok',
             at,
         });
+        // 時間補上日期、地點歸納（和一般壓縮的章一樣）。
+        refreshDigestMeta();
         saveChatSoon();
         return true;
     } catch (e) {
@@ -346,7 +426,14 @@ export function maybeAskResume() {
     prompted = key;
     const done = Math.max(0, c.total - left);
     toastActions(t('catchup.ask', { done, total: c.total }), [
-        { label: t('catchup.resume'), primary: true, run: () => resumeCatchup() },
+        {
+            label: t('catchup.resume'),
+            primary: true,
+            run: () => {
+                const r = resumeCatchup();
+                if (r?.ask) toast(t('extras.toast', { n: r.ask }), 'info');
+            },
+        },
         { label: t('catchup.later'), run: () => pauseCatchup(c.error ?? null) },
     ], { timeOut: 0 });
 }

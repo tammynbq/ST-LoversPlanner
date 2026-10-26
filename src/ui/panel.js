@@ -16,7 +16,7 @@ import {
     auditFloors, auditIssues, auditProgress, auditResults, fixAll, fixIssue, issueCount, pickAuditFloors, runChecks,
 } from '../check.js';
 import {
-    abandonCatchup, catchupTags, fineFromFor, getCatchup, pauseCatchup, planCatchup, remaining, resumeCatchup, startCatchup,
+    abandonCatchup, catchupTags, decideExtras, findExtras, fineFromFor, getCatchup, pauseCatchup, planCatchup, remaining, resumeCatchup, startCatchup,
 } from '../catchup.js';
 import {
     changeCharacterScope, changeChatScope, condenseRecap, deleteRecap, editRecap, effectiveScope, getLinkedSummary,
@@ -148,6 +148,8 @@ const view = {
     cal: { month: null, selected: null, addType: null },
     // 補建舊樓層的設定卡片。
     catchup: { open: false, from: null, to: null, fine: 30, block: null },
+    // 補建前找到的番外：清單（算一次就好）和每層的選擇（預設跳過）。
+    extras: { key: null, list: [], choice: new Map() },
     // 設定頁的標籤掃描：掃最新 2 層、最新 30 層，還是整個聊天。
     tagScan: 'latest',
     // 從其他聊天匯入：選哪個聊天、帶哪些。
@@ -650,6 +652,8 @@ function renderSummaryTab() {
         const text = cu ? t('catchup.progress', { done: Math.max(0, cu.total - remaining()), total: cu.total, n: pending }) : t('sum.progress', { n: pending });
         queueArea = `<div class="lp-callout lp-row" role="status" data-role="catchup-progress"><span>${esc(text)}</span><span class="lp-spacer"></span>
           <button type="button" class="menu_button lp-btn" data-action="sum-stop">${esc(t(cu ? 'catchup.pause' : 'sum.stop'))}</button></div>`;
+    } else if (cu?.asking) {
+        queueArea = extrasCard(cu);
     } else if (cu) {
         const left = remaining();
         queueArea = `<div class="lp-callout lp-row" data-role="catchup-paused"><span>${esc(t('catchup.pausedBanner', { done: Math.max(0, cu.total - left), total: cu.total }))}${cu.error ? `<br><span class="lp-error-text">${esc(cu.error)}</span>` : ''}</span><span class="lp-spacer"></span>
@@ -1044,12 +1048,57 @@ function catchupCard(todo) {
         <div class="lp-row">${inline('catchup.range', { from: num('from', v.from, 0, lastIndex, t('catchup.from')), to: num('to', v.to, 0, lastIndex, t('catchup.to')) })}</div>
         <div class="lp-row">${inline('catchup.fine', { n: num('fine', v.fine, 0, 100000, t('catchup.fine.aria')) })}</div>
         <div class="lp-row">${inline('catchup.block', { n: num('block', v.block, 2, 100, t('catchup.block.aria')) })}</div>
+        ${checkbox('catchup.askExtras', t('set.extras.ask'), true)}
+        ${getSettings().catchup?.askExtras !== false ? `<label class="lp-field" for="lp-extra-words"><span class="lp-label">${esc(t('set.extras.words'))}</span>
+          <input id="lp-extra-words" type="text" class="text_pole lp-grow" data-path="catchup.extraWords" value="${esc(getSettings().catchup?.extraWords ?? '')}" autocomplete="off" spellcheck="false"></label>` : ''}
         <div class="lp-note lp-catchup-estimate" data-role="cu-estimate">${esc(catchupEstimate(todo))}</div>
         <div data-role="cu-tags-box">${catchupTagList(todo)}</div>
         ${warn}
         <div class="lp-row">
           <button type="button" class="menu_button lp-btn lp-primary" data-action="backfill-yes">${esc(t('catchup.start'))}</button>
           <button type="button" class="menu_button lp-btn" data-action="backfill-no">${esc(t('sum.backfill.no'))}</button>
+        </div>
+      </div>`;
+}
+
+// ===== 摘要分頁：補建前找到的番外／小劇場／IF 線 =====
+
+function extrasList(cu) {
+    const key = `${chatKey()}|${cu.startedAt}|${remaining()}`;
+    if (view.extras.key !== key) {
+        view.extras = { key, list: findExtras(cu.from, cu.to), choice: new Map() };
+    }
+    return view.extras.list;
+}
+
+function extrasCard(cu) {
+    const list = extrasList(cu);
+    const choice = (i) => view.extras.choice.get(i) ?? 'skip';
+    const skips = list.filter((x) => choice(x.index) === 'skip').length;
+    const rows = list.map((x) => {
+        const opts = ['skip', 'keep'].map((c) => `<option value="${c}"${choice(x.index) === c ? ' selected' : ''}>${esc(t(`extras.${c}`))}</option>`).join('');
+        const head = x.excerpt.slice(0, 150);
+        return `<li class="lp-extra-row" data-extra="${x.index}">
+          <div class="lp-row"><b>#${x.index}</b><span class="lp-badge">${esc(t('extras.word', { word: x.word }))}</span><span class="lp-spacer"></span>
+            <select class="text_pole lp-select" data-role="extra-choice" data-index="${x.index}" aria-label="${esc(t('extras.choice', { n: x.index }))}">${opts}</select></div>
+          ${x.user ? `<div class="lp-note lp-extra-user">${esc(t('extras.user', { text: x.user }))}</div>` : ''}
+          <div class="lp-extra-text">${esc(head)}${x.excerpt.length > head.length ? '…' : ''}</div>
+          ${x.around ? `<div class="lp-extra-text lp-extra-around" data-role="extra-around">${esc(t('extras.around'))} …${hl(x.around, x.word)}…</div>` : ''}
+          ${x.excerpt.length > head.length ? `<details class="lp-tag-full"><summary>${esc(t('extras.more'))}</summary><pre class="lp-preview-text">${esc(x.excerpt)}</pre></details>` : ''}
+        </li>`;
+    }).join('');
+    return `
+      <div class="lp-card lp-extras" data-role="extras">
+        <div class="lp-scope-title">${esc(t('extras.title', { n: list.length }))}</div>
+        <div class="lp-note">${esc(t('extras.desc'))}</div>
+        <div class="lp-row">
+          <button type="button" class="menu_button lp-btn" data-action="extras-all" data-choice="skip">${esc(t('extras.allSkip'))}</button>
+          <button type="button" class="menu_button lp-btn" data-action="extras-all" data-choice="keep">${esc(t('extras.allKeep'))}</button>
+        </div>
+        <ul class="lp-extras-list">${rows}</ul>
+        <div class="lp-row">
+          <button type="button" class="menu_button lp-btn lp-primary" data-action="extras-go">${esc(t('extras.go', { skip: skips, keep: list.length - skips }))}</button>
+          <button type="button" class="menu_button lp-btn" data-action="catchup-abandon">${esc(t('catchup.abandon'))}</button>
         </div>
       </div>`;
 }
@@ -2548,6 +2597,17 @@ function onClick(e) {
             resumeCatchup();
             render();
             return;
+        case 'extras-all':
+            for (const x of view.extras.list) view.extras.choice.set(x.index, btn.dataset.choice);
+            render();
+            return;
+        case 'extras-go': {
+            const choices = Object.fromEntries(view.extras.list.map((x) => [x.index, view.extras.choice.get(x.index) ?? 'skip']));
+            view.extras = { key: null, list: [], choice: new Map() };
+            decideExtras(choices);
+            render();
+            return;
+        }
         case 'catchup-abandon':
             abandonCatchup();
             render();
@@ -2653,6 +2713,11 @@ function onChange(e) {
         if (!el.checked) return;
         if (el.dataset.scope === 'char') changeCharacterScope(el.dataset.kind, el.value);
         else changeChatScope(el.dataset.kind, el.value);
+        render();
+        return;
+    }
+    if (el.dataset?.role === 'extra-choice') {
+        view.extras.choice.set(Number(el.dataset.index), el.value);
         render();
         return;
     }
