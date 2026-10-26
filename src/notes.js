@@ -19,8 +19,9 @@ export const NOTE_FIELDS = {
     character: CHARACTER_FIELDS,
     item: ['name', 'quantity', 'holder', 'status'],
     // when：原文說的時間（「明天早上」「明年秋天」）；due：換算成哪一天（YYYY-MM-DD，要開行事曆才有故事日期）。
-    promise: ['content', 'with', 'when', 'due'],
-    todo: ['content', 'when', 'due'],
+    // title：15 字內的短標題（v0.13.7，使用者要求；畫面上當標題，content 變成詳情）。待辦也有「和誰」。
+    promise: ['content', 'title', 'with', 'when', 'due'],
+    todo: ['content', 'title', 'with', 'when', 'due'],
 };
 
 const ID_PREFIX = { character: 'c', item: 'i', promise: 'p', todo: 't' };
@@ -63,13 +64,26 @@ export function noteTitle(note) {
     return note?.data?.[TITLE_FIELD[note.type]] ?? '';
 }
 
+/** 用來認「是不是同一條」的欄位（人物、物件是名字；約定、待辦是內容）。 */
+export function keyField(type) {
+    return TITLE_FIELD[type];
+}
+
+/** 畫面上顯示的標題：約定／待辦有短標題就用短標題，沒有就用內容。 */
+export function displayTitle(note) {
+    return (note?.type === 'promise' || note?.type === 'todo') && note.data?.title ? note.data.title : noteTitle(note);
+}
+
+const MAX_TITLE = 15;
+const MAX_DETAIL = 200;
+
 function cleanData(type, data) {
     const out = {};
     if (!data || typeof data !== 'object') return out;
     for (const f of [...(NOTE_FIELDS[type] ?? []), ...(LEGACY_FIELDS[type] ?? [])]) {
         const v = data[f];
         if (v === undefined || v === null) continue;
-        const s = DATE_FIELDS.has(f) ? normDate(v) : String(v).trim().slice(0, MAX_FIELD);
+        const s = DATE_FIELDS.has(f) ? normDate(v) : String(v).trim().slice(0, f === 'title' ? MAX_TITLE + 5 : MAX_FIELD);
         if (s) out[f] = s;
     }
     return out;
@@ -123,17 +137,22 @@ function applyOp(state, op, floor) {
             if (!note) return false;
             const result = RESULTS.includes(op.result) ? op.result : 'done';
             if (note.type === 'character') return false; // 人物不會結束，只更新狀態
+            // detail：怎麼完成的（模型寫的，50～100 字）；closedDate：手動完成時的故事日期。
+            const extra = {
+                closedDetail: op.detail ? String(op.detail).trim().slice(0, MAX_DETAIL) : null,
+                closedDate: op.closedDate ?? null,
+            };
             if (note.type === 'promise' && result === 'broken') {
-                state.set(op.id, { ...note, state: 'broken', result, closedFloor: at, closedManual: floor === null });
+                state.set(op.id, { ...note, ...extra, state: 'broken', result, closedFloor: at, closedManual: floor === null });
             } else {
-                state.set(op.id, { ...note, state: 'done', result, closedFloor: at, closedManual: floor === null });
+                state.set(op.id, { ...note, ...extra, state: 'done', result, closedFloor: at, closedManual: floor === null });
             }
             return true;
         }
         case 'reopen': {
             const note = state.get(op.id);
             if (!note || note.state === 'active') return false;
-            state.set(op.id, { ...note, state: 'active', result: null, closedFloor: null, closedManual: false });
+            state.set(op.id, { ...note, state: 'active', result: null, closedFloor: null, closedManual: false, closedDetail: null, closedDate: null });
             return true;
         }
         case 'role': {
@@ -209,7 +228,8 @@ export function normalizeModelOps(rawOps, stateBefore, previousOps = [], { types
                 if (sameKey(data[TITLE_FIELD[note.type]], noteTitle(note))) delete data[TITLE_FIELD[note.type]];
                 op = { op: 'update', id: note.id, data };
             } else {
-                op = { op: 'complete', id: note.id, result: String(raw.result ?? 'done').toLowerCase() };
+                const detail = String(raw.detail ?? raw.note ?? raw.how ?? '').trim();
+                op = { op: 'complete', id: note.id, result: String(raw.result ?? 'done').toLowerCase(), ...(detail ? { detail: detail.slice(0, MAX_DETAIL) } : {}) };
             }
         }
         if (op && applyOp(state, op, 0)) out.push(op);
@@ -390,7 +410,36 @@ export function updateNoteManual(id, data) {
 }
 
 export function completeNoteManual(id, result = 'done') {
-    return pushManual({ op: 'complete', id, result });
+    const date = storyToday();
+    return pushManual({ op: 'complete', id, result, ...(date ? { closedDate: date } : {}) });
+}
+
+/** 還沒有短標題的約定／待辦（含已完成的）。 */
+export function notesWithoutTitle() {
+    return [...getNotes().notes.values()].filter((n) => (n.type === 'promise' || n.type === 'todo') && !n.data.title && isTracked(n.type));
+}
+
+/** 一次補上很多條的短標題：titles = { id: '標題' }。回傳補了幾條。 */
+export function setTitlesManual(titles) {
+    const notes = getNotes().notes;
+    const ops = [];
+    const at = Date.now();
+    for (const [id, raw] of Object.entries(titles ?? {})) {
+        const title = String(raw ?? '').trim().slice(0, MAX_TITLE + 5);
+        const n = notes.get(id);
+        if (!title || !n || n.data.title) continue;
+        ops.push({ op: 'update', id, data: { title }, raw: true, at });
+    }
+    if (!ops.length) return 0;
+    const rec = chatRecord(true);
+    rec.manualOps = [...manualOps(), ...ops];
+    emitNotesChange();
+    const c = ctx();
+    try {
+        if (typeof c?.saveMetadataDebounced === 'function') c.saveMetadataDebounced();
+        else c?.saveMetadata?.();
+    } catch (e) { /* 忽略 */ }
+    return ops.length;
 }
 
 export function reopenNoteManual(id) {
@@ -468,7 +517,7 @@ export function resultLabel(result) {
 export function describeOp(op, notes) {
     const note = notes.get(op.id);
     const type = op.type ?? note?.type;
-    const title = op.op === 'add' ? (op.data?.[TITLE_FIELD[op.type]] ?? '') : noteTitle(note) || op.id;
+    const title = op.op === 'add' ? (op.data?.title || op.data?.[TITLE_FIELD[op.type]] || '') : displayTitle(note) || op.id;
     if (op.op === 'add') return `＋ ${typeLabel(type)}：${title}`;
     if (op.op === 'complete') {
         const sym = op.result === 'broken' ? '✗' : '✓';

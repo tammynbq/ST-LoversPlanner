@@ -167,6 +167,16 @@ function snapshots(create = false) {
     return rec.chats ?? null;
 }
 
+/** 刪掉這個聊天的快照（資料管理 › 刪除本窗口的內容）。 */
+export function removeSnapshot() {
+    const all = snapshots(false);
+    const id = chatKey();
+    if (!all || !id || !(id in all)) return false;
+    delete all[id];
+    saveSettings();
+    return true;
+}
+
 /** 同角色其他聊天的快照，新的在前。 */
 export function otherSnapshots() {
     const list = snapshots(false) ?? {};

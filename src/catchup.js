@@ -21,7 +21,7 @@ import { formatNotesForPrompt, normalizeModelOps, replay } from './notes.js';
 import {
     cancelQueue, enqueue, enqueueCoarse, isActive, parseL1, pendingCount, previousDate, setAfterSummaryHook, setCoarseHandler, skipFloor,
 } from './summarize.js';
-import { refreshDigestMeta, saveChapter, setCoarseRedo } from './compress.js';
+import { refreshDigestMeta, saveChapter, setCoarseRedo, structure } from './compress.js';
 import { estimateTokens } from './hide.js';
 import { cleanForSummary, extractRef, extractTheater, scanTags, tagMode } from './filter.js';
 import { calendarOn, cleanEvents, normDate } from './calendar.js';
@@ -148,15 +148,35 @@ function extraWords() {
     return String(s.extraWords ?? '').split(/[,，、;；\n]+/).map((x) => x.trim()).filter(Boolean);
 }
 
-/** 還沒決定過、可能是番外的樓層：[{ index, word, user, excerpt }]。 */
+/** 決定過的（send_date → 'skip'|'keep'）：存在聊天資料裡，補建結束後也還在。舊版存在 catchup.extras。 */
+function decidedExtras() {
+    const rec = chatRecord(false);
+    return { ...(rec?.catchup?.extras ?? {}), ...(rec?.extras ?? {}) };
+}
+
+/** 還沒決定過、可能是番外的樓層：[{ index, word, user, excerpt, around }]。 */
 export function findExtras(from, to) {
+    return scanExtras(candidates(from, to));
+}
+
+/**
+ * 重新檢查本窗口所有樓層（資料管理，v0.13.7）：已經摘要、壓縮過的也看；已經跳過或決定過的不列。
+ * 每一項多一個 chapter：已經在第幾章裡（跳過後那一章要重新壓縮）。
+ */
+export function findExtrasAll() {
+    const list = scanExtras(aiIndices().filter((i) => floorStatus(i) !== 'skip'));
+    const st = structure();
+    return list.map((x) => ({ ...x, chapter: st.chapters.find((c) => c.indices.includes(x.index))?.number ?? null }));
+}
+
+function scanExtras(indices) {
     const words = extraWords();
     if (!words.length) return [];
     const re = new RegExp(words.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|'), 'i');
-    const decided = getCatchup()?.extras ?? {};
+    const decided = decidedExtras();
     const chat = getChat();
     const out = [];
-    for (const i of candidates(from, to)) {
+    for (const i of indices) {
         if (decided[chat[i]?.send_date ?? `#${i}`]) continue;
         const src = floorSource(i);
         const user = src.users.map((u) => cleanForSummary(u.mes)).join('\n').trim();
@@ -194,17 +214,30 @@ function holdForExtras(rec) {
 export function decideExtras(choices) {
     const rec = chatRecord(false);
     if (!rec?.catchup) return null;
+    applyExtras(choices);
+    rec.catchup = { ...rec.catchup, asking: false };
+    saveMeta();
+    return resumeCatchup();
+}
+
+/** 套用選擇（不管補建）：跳過的標成跳過，照常的記下來不再問。回傳跳過了幾層。 */
+export function applyExtras(choices) {
+    const rec = chatRecord(true);
     const chat = getChat();
-    const extras = { ...(rec.catchup.extras ?? {}) };
+    const extras = { ...(rec.extras ?? {}) };
+    let skipped = 0;
     for (const [k, choice] of Object.entries(choices)) {
         const i = Number(k);
         if (!chat[i]) continue;
         extras[chat[i].send_date ?? `#${i}`] = choice === 'keep' ? 'keep' : 'skip';
-        if (choice !== 'keep') skipFloor(i);
+        if (choice !== 'keep') {
+            skipFloor(i);
+            skipped++;
+        }
     }
-    rec.catchup = { ...rec.catchup, extras, asking: false };
+    rec.extras = extras;
     saveMeta();
-    return resumeCatchup();
+    return skipped;
 }
 
 export function startCatchup({ from, to, fineCount, block }) {

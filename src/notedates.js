@@ -89,3 +89,20 @@ export function noteDates(note) {
     const byContent = guessDate(note.data?.content, made);
     return { made, due: byContent, guessed: Boolean(byContent), from: byContent ? 'content' : null };
 }
+
+/** 某一層的故事日期（沒寫就延續前面最近一個有日期的樓層）。 */
+function floorDate(index) {
+    const list = aiIndices().filter((i) => i <= index);
+    for (let k = list.length - 1; k >= 0; k--) {
+        const d = normDate(getEntry(list[k])?.date);
+        if (d) return d;
+    }
+    return '';
+}
+
+/** 約定／待辦完成（或被打破）的故事日期：手動完成時記下的，或完成那一層的日期。 */
+export function closedDateOf(note) {
+    if (!note || note.state === 'active') return '';
+    if (normDate(note.closedDate)) return normDate(note.closedDate);
+    return note.closedFloor !== null && note.closedFloor !== undefined ? floorDate(note.closedFloor) : '';
+}

@@ -16,7 +16,7 @@ import {
     auditFloors, auditIssues, auditProgress, auditResults, fixAll, fixIssue, issueCount, pickAuditFloors, runChecks,
 } from '../check.js';
 import {
-    abandonCatchup, catchupTags, decideExtras, findExtras, fineFromFor, getCatchup, pauseCatchup, planCatchup, remaining, resumeCatchup, startCatchup,
+    abandonCatchup, applyExtras, catchupTags, decideExtras, findExtras, findExtrasAll, fineFromFor, getCatchup, pauseCatchup, planCatchup, remaining, resumeCatchup, startCatchup,
 } from '../catchup.js';
 import {
     changeCharacterScope, changeChatScope, condenseRecap, deleteRecap, editRecap, effectiveScope, getLinkedSummary,
@@ -29,7 +29,9 @@ import { hl, isExpanded, isSectionOpen, matches, setExpanded, setSectionOpen, te
 import {
     cancelQueue, enqueue, enqueueCompress, floorState, isActive, onSummaryChange, pendingCount, skipFloor, unskipFloor, unsummarizedIndices,
 } from '../summarize.js';
-import { noteDates, storyToday } from '../notedates.js';
+import { closedDateOf, noteDates, storyToday } from '../notedates.js';
+import { fillTitles, onTitleProgress, TITLE_BATCH, titleProgress } from '../titles.js';
+import { buildBackup, downloadBackup, importBackup, parseBackup, wipeChat } from '../backup.js';
 import { checkManualChapter, compressSelected, compressionDue, deleteChapter, digestLabel, editChapter, editVolume, structure } from '../compress.js';
 import { actionsFor, eventLabel, hintFor, revealFloor, runAction, sceneHtml, STATUS_ICONS } from './message.js';
 import {
@@ -38,7 +40,7 @@ import {
 } from '../calendar.js';
 import {
     addNoteManual, changeQuantity, closedNotes, completeNoteManual, deleteNoteManual, getNotes, NOTE_FIELDS, NOTE_TYPES,
-    DATE_FIELDS, fieldLabel, fieldsOf, leadRoles, noteTitle, NUMBER_FIELDS, setRoleManual,
+    DATE_FIELDS, displayTitle, fieldLabel, fieldsOf, keyField, leadRoles, noteTitle, notesWithoutTitle, NUMBER_FIELDS, setRoleManual,
     notesOfType, onNotesChange, pinNoteManual, reopenNoteManual, resultLabel, typeLabel, updateNoteManual,
 } from '../notes.js';
 import {
@@ -148,8 +150,10 @@ const view = {
     cal: { month: null, selected: null, addType: null },
     // 補建舊樓層的設定卡片。
     catchup: { open: false, from: null, to: null, fine: 30, block: null },
-    // 補建前找到的番外：清單（算一次就好）和每層的選擇（預設跳過）。
-    extras: { key: null, list: [], choice: new Map() },
+    // 補建前找到的番外：清單（算一次就好）和每層的選擇（預設跳過）。rescan：資料管理的「重新檢查所有樓層」。
+    extras: { key: null, list: [], choice: new Map(), rescan: false },
+    // 資料管理：導出要不要含設定、導入讀到的檔案和方式、刪除的確認。
+    data: { exportSettings: true, file: null, fileName: '', mode: 'merge', importSettings: false, confirmWipe: false, confirmReplace: false, message: null },
     // 設定頁的標籤掃描：掃最新 2 層、最新 30 層，還是整個聊天。
     tagScan: 'latest',
     // 從其他聊天匯入：選哪個聊天、帶哪些。
@@ -652,6 +656,8 @@ function renderSummaryTab() {
         const text = cu ? t('catchup.progress', { done: Math.max(0, cu.total - remaining()), total: cu.total, n: pending }) : t('sum.progress', { n: pending });
         queueArea = `<div class="lp-callout lp-row" role="status" data-role="catchup-progress"><span>${esc(text)}</span><span class="lp-spacer"></span>
           <button type="button" class="menu_button lp-btn" data-action="sum-stop">${esc(t(cu ? 'catchup.pause' : 'sum.stop'))}</button></div>`;
+    } else if (view.extras.rescan) {
+        queueArea = extrasCard(null);
     } else if (cu?.asking) {
         queueArea = extrasCard(cu);
     } else if (cu) {
@@ -811,7 +817,7 @@ function renderCalendarTab() {
         if (due.some((n) => n.type === 'promise')) marks.push('<span class="lp-cal-mark" aria-hidden="true">🤝</span>');
         if (due.some((n) => n.type === 'todo')) marks.push('<span class="lp-cal-mark" aria-hidden="true">📝</span>');
         const cls = ['lp-cal-cell', d === cal.today ? 'lp-cal-today' : '', d === view.cal.selected ? 'lp-on' : '', info.period === 'actual' ? 'lp-cal-period' : ''].filter(Boolean).join(' ');
-        const label = [d, ...info.items.map(eventLabel), ...due.map(noteTitle), info.period === 'actual' ? t('cal.status.during', { day: info.periodDay }) : '',
+        const label = [d, ...info.items.map(eventLabel), ...due.map(displayTitle), info.period === 'actual' ? t('cal.status.during', { day: info.periodDay }) : '',
             info.period === 'predicted' ? t('cal.predicted') : '', info.fertile ? t('cal.fertile') : ''].filter(Boolean).join('，');
         cells.push(`<button type="button" class="${cls}" data-action="cal-day" data-date="${d}" aria-label="${esc(label)}" aria-pressed="${d === view.cal.selected}">
             <span class="lp-cal-num">${Number(d.slice(8))}</span><span class="lp-cal-marks">${marks.join('')}</span></button>`);
@@ -851,7 +857,7 @@ function dayNotes(d) {
         const rows = items.map((x) => {
             const icon = x.type === 'promise' ? '🤝' : '📝';
             const state = x.state === 'active' ? '' : `<span class="lp-note">（${esc(resultLabel(x.result ?? x.state))}）</span>`;
-            return `<li class="lp-cal-item"><button type="button" class="lp-link" data-action="cal-note" data-id="${esc(x.id)}" data-done="${x.state === 'done'}">${icon} ${esc(noteTitle(x))}</button>${state}</li>`;
+            return `<li class="lp-cal-item"><button type="button" class="lp-link" data-action="cal-note" data-id="${esc(x.id)}" data-done="${x.state === 'done'}">${icon} ${esc(displayTitle(x))}</button>${state}</li>`;
         }).join('');
         return `<div class="lp-label">${esc(t(key))}</div><ul class="lp-recall-list" data-role="${key === 'cal.notes.due' ? 'cal-day-due' : 'cal-day-made'}">${rows}</ul>`;
     };
@@ -1064,22 +1070,29 @@ function catchupCard(todo) {
 // ===== 摘要分頁：補建前找到的番外／小劇場／IF 線 =====
 
 function extrasList(cu) {
+    if (!cu) return view.extras.list; // 重新檢查：開始時就算好了
     const key = `${chatKey()}|${cu.startedAt}|${remaining()}`;
     if (view.extras.key !== key) {
-        view.extras = { key, list: findExtras(cu.from, cu.to), choice: new Map() };
+        view.extras = { key, list: findExtras(cu.from, cu.to), choice: new Map(), rescan: false };
     }
     return view.extras.list;
 }
 
+/** cu：補建前的清單；null：資料管理的「重新檢查所有樓層」。 */
 function extrasCard(cu) {
+    const rescan = !cu;
     const list = extrasList(cu);
+    if (rescan && !list.length) {
+        return `<div class="lp-callout lp-row" data-role="extras"><span>${esc(t('extras.rescanNone'))}</span><span class="lp-spacer"></span>
+          <button type="button" class="menu_button lp-btn" data-action="extras-close">${esc(t('extras.close'))}</button></div>`;
+    }
     const choice = (i) => view.extras.choice.get(i) ?? 'skip';
     const skips = list.filter((x) => choice(x.index) === 'skip').length;
     const rows = list.map((x) => {
         const opts = ['skip', 'keep'].map((c) => `<option value="${c}"${choice(x.index) === c ? ' selected' : ''}>${esc(t(`extras.${c}`))}</option>`).join('');
         const head = x.excerpt.slice(0, 150);
         return `<li class="lp-extra-row" data-extra="${x.index}">
-          <div class="lp-row"><b>#${x.index}</b><span class="lp-badge">${esc(t('extras.word', { word: x.word }))}</span><span class="lp-spacer"></span>
+          <div class="lp-row"><b>#${x.index}</b><span class="lp-badge">${esc(t('extras.word', { word: x.word }))}</span>${x.chapter ? `<span class="lp-badge lp-st-stale">${esc(t('extras.inChapter', { n: x.chapter }))}</span>` : ''}<span class="lp-spacer"></span>
             <select class="text_pole lp-select" data-role="extra-choice" data-index="${x.index}" aria-label="${esc(t('extras.choice', { n: x.index }))}">${opts}</select></div>
           ${x.user ? `<div class="lp-note lp-extra-user">${esc(t('extras.user', { text: x.user }))}</div>` : ''}
           <div class="lp-extra-text">${esc(head)}${x.excerpt.length > head.length ? '…' : ''}</div>
@@ -1089,16 +1102,19 @@ function extrasCard(cu) {
     }).join('');
     return `
       <div class="lp-card lp-extras" data-role="extras">
-        <div class="lp-scope-title">${esc(t('extras.title', { n: list.length }))}</div>
-        <div class="lp-note">${esc(t('extras.desc'))}</div>
+        <div class="lp-scope-title">${esc(t(rescan ? 'extras.rescanTitle' : 'extras.title', { n: list.length }))}</div>
+        <div class="lp-note">${esc(t(rescan ? 'extras.rescanDesc' : 'extras.desc'))}</div>
         <div class="lp-row">
           <button type="button" class="menu_button lp-btn" data-action="extras-all" data-choice="skip">${esc(t('extras.allSkip'))}</button>
           <button type="button" class="menu_button lp-btn" data-action="extras-all" data-choice="keep">${esc(t('extras.allKeep'))}</button>
         </div>
         <ul class="lp-extras-list">${rows}</ul>
         <div class="lp-row">
-          <button type="button" class="menu_button lp-btn lp-primary" data-action="extras-go">${esc(t('extras.go', { skip: skips, keep: list.length - skips }))}</button>
-          <button type="button" class="menu_button lp-btn" data-action="catchup-abandon">${esc(t('catchup.abandon'))}</button>
+          ${rescan
+        ? `<button type="button" class="menu_button lp-btn lp-primary" data-action="extras-apply">${esc(t('extras.apply', { skip: skips, keep: list.length - skips }))}</button>
+          <button type="button" class="menu_button lp-btn" data-action="extras-close">${esc(t('extras.close'))}</button>`
+        : `<button type="button" class="menu_button lp-btn lp-primary" data-action="extras-go">${esc(t('extras.go', { skip: skips, keep: list.length - skips }))}</button>
+          <button type="button" class="menu_button lp-btn" data-action="catchup-abandon">${esc(t('catchup.abandon'))}</button>`}
         </div>
       </div>`;
 }
@@ -1308,6 +1324,7 @@ onNotesChange(scheduleRefresh);
 onCarryChange(scheduleRefresh);
 onCalendarChange(scheduleRefresh);
 onMemoriesChange(scheduleRefresh);
+onTitleProgress(() => { if (isPanelOpen() && ['notes', 'done'].includes(view.tab)) render(); });
 // 每次送出後更新標題列的統計（不整頁重畫）。
 onStatsChange(() => {
     const el = isPanelOpen() ? panel.querySelector('.lp-stats') : null;
@@ -1386,7 +1403,7 @@ function noteActions(note, roles = null) {
 
 /** 搜尋用：一條記事的所有文字。 */
 function noteText(note) {
-    return [typeLabel(note.type), ...Object.values(note.data ?? {}), note.state !== 'active' ? resultLabel(note.result ?? note.state) : ''].filter(Boolean).join(' ');
+    return [typeLabel(note.type), ...Object.values(note.data ?? {}), note.closedDetail, note.state !== 'active' ? resultLabel(note.result ?? note.state) : ''].filter(Boolean).join(' ');
 }
 
 /** 「10-21 週二・明天」：預定日期，和故事裡的今天差幾天。 */
@@ -1443,14 +1460,15 @@ function noteCard(note, query = '', today = null, roles = null) {
     const head = `
         <button type="button" class="lp-row-head" data-action="fold" data-key="${esc(key)}" aria-expanded="${open}">
           <span class="lp-sum-chev" aria-hidden="true">${open ? '▾' : '▸'}</span>
-          <span class="lp-note-title">${hl(noteTitle(note), query)}</span>
+          <span class="lp-note-title">${hl(displayTitle(note), query)}</span>
           ${note.pinned ? `<span class="lp-pin-tag" title="${esc(t('notes.pinned'))}" aria-label="${esc(t('notes.pinned'))}">📌</span>` : ''}${roleTag}${qtyTag}${broken}${dueTag(note, today)}
           ${!open && sub ? `<span class="lp-row-preview">${hl(sub, query)}</span>` : ''}
         </button>`;
     if (!open) return `<div class="lp-note-card lp-folded${note.state === 'broken' ? ' lp-note-broken' : ''}" data-fold-key="${esc(key)}">${head}</div>`;
-    const titleField = NOTE_FIELDS[note.type][0];
+    // 標題已經顯示在上面：有短標題時不重複列標題，內容照樣列出來（當詳情）；沒有短標題時內容就是標題。
+    const shownAsTitle = displayTitle(note) === note.data.title ? 'title' : keyField(note.type);
     const lines = fieldsOf(note)
-        .filter((f) => f !== titleField && !NUMBER_FIELDS.has(f) && !DATE_FIELDS.has(f) && note.data[f])
+        .filter((f) => f !== shownAsTitle && f !== 'title' && !NUMBER_FIELDS.has(f) && !DATE_FIELDS.has(f) && note.data[f])
         .map((f) => `<div class="lp-note-line"><span class="lp-label">${esc(fieldLabel(note.type, f))}</span> ${hl(note.data[f], query)}</div>`)
         .join('');
     // 物件的數量：直接用 −／＋ 改。
@@ -1520,7 +1538,53 @@ function renderNotesTab(types = NOTE_TYPES) {
     const sort = dated ? `<div class="lp-row lp-note-sort"><div class="lp-chips" data-role="note-filters">${chips}</div><span class="lp-spacer"></span>
         <label class="lp-label" for="lp-note-sort">${esc(t('notes.sort'))}</label>
         <select id="lp-note-sort" class="text_pole lp-select" data-role="note-sort">${['due', 'newest', 'oldest'].map((k) => `<option value="${k}"${view.notes.sort === k ? ' selected' : ''}>${esc(t(`notes.sort.${k}`))}</option>`).join('')}</select></div>` : '';
-    return `${searchBox(view.tab)}${sort}${empty}${none}<div class="lp-notes-stack">${sections}</div>`;
+    return `${searchBox(view.tab)}${sort}${dated ? titlesBar() : ''}${empty}${none}<div class="lp-notes-stack">${sections}</div>`;
+}
+
+/** 設定 › 資料管理：導出、導入、重新檢查番外、刪除（v0.13.7）。 */
+function renderDataSection() {
+    if (!isActive()) return `<div class="lp-note">${esc(t('data.needChat'))}</div>`;
+    const d = view.data;
+    const opt = (key, label) => `<label class="lp-check"><input type="checkbox" data-role="data-opt" data-key="${key}"${d[key] ? ' checked' : ''}><span>${esc(label)}</span></label>`;
+    const modeRadio = (m) => `<label class="lp-check"><input type="radio" name="lp-import-mode" data-role="data-opt" data-key="mode" value="${m}"${d.mode === m ? ' checked' : ''}><span>${esc(t(`data.mode.${m}`))}</span></label>`;
+    const f = d.file;
+    const fileInfo = f ? `<div class="lp-note" data-role="data-file-info">${esc(t('data.fileInfo', { name: d.fileName, character: f.character || '?', chat: f.chat || '?', n: f.floors.length, date: String(f.exportedAt ?? '').slice(0, 10) }))}</div>` : '';
+    const wipe = d.confirmWipe
+        ? `<div class="lp-callout lp-warn lp-row" data-role="data-wipe-confirm"><span>${esc(t('data.wipeConfirm'))}</span><span class="lp-spacer"></span>
+            <button type="button" class="menu_button lp-btn lp-danger" data-action="data-wipe">${esc(t('data.wipeYes'))}</button>
+            <button type="button" class="menu_button lp-btn" data-action="data-wipe-cancel">${esc(t('act.cancel'))}</button></div>`
+        : `<button type="button" class="menu_button lp-btn lp-danger" data-action="data-wipe">${esc(t('data.wipe'))}</button>`;
+    return `
+      ${d.message ? `<div class="lp-callout" role="status" data-role="data-message">${esc(d.message)}</div>` : ''}
+      <div class="lp-scope-title">${esc(t('data.export'))}</div>
+      <div class="lp-note">${esc(t('data.export.note'))}</div>
+      ${opt('exportSettings', t('data.exportSettings'))}
+      <div class="lp-row"><button type="button" class="menu_button lp-btn lp-primary" data-action="data-export">${esc(t('data.exportBtn'))}</button></div>
+      <div class="lp-scope-title">${esc(t('data.import'))}</div>
+      <input type="file" accept=".json,application/json" class="lp-file" data-role="data-file" aria-label="${esc(t('data.import'))}">
+      ${fileInfo}
+      ${modeRadio('merge')}${modeRadio('replace')}
+      ${opt('importSettings', t('data.importSettings'))}
+      ${d.confirmReplace ? `<div class="lp-callout lp-warn">${esc(t('data.replaceConfirm'))}</div>` : ''}
+      <div class="lp-row"><button type="button" class="menu_button lp-btn" data-action="data-import"${f ? '' : ' disabled'}>${esc(t(d.confirmReplace ? 'data.importYes' : 'data.importBtn'))}</button>
+        ${d.confirmReplace ? `<button type="button" class="menu_button lp-btn" data-action="data-wipe-cancel">${esc(t('act.cancel'))}</button>` : ''}</div>
+      <div class="lp-scope-title">${esc(t('data.rescan'))}</div>
+      <div class="lp-note">${esc(t('data.rescan.note'))}</div>
+      <div class="lp-row"><button type="button" class="menu_button lp-btn" data-action="data-rescan">${esc(t('data.rescanBtn'))}</button></div>
+      <div class="lp-scope-title">${esc(t('data.wipeTitle'))}</div>
+      <div class="lp-note">${esc(t('data.wipe.note'))}</div>
+      <div class="lp-row">${wipe}</div>`;
+}
+
+/** 「幫 N 條補標題」：舊的約定／待辦沒有短標題（新的摘要時模型就會寫）。 */
+function titlesBar() {
+    const p = titleProgress();
+    if (p.busy) return `<div class="lp-callout" role="status" data-role="titles">${esc(t('titles.busy', { done: p.done, total: p.total }))}</div>`;
+    const n = notesWithoutTitle().length;
+    const err = p.error ? `<div class="lp-error-text">${esc(errorText(p.error))}</div>` : '';
+    if (!n) return err ? `<div class="lp-callout" data-role="titles">${err}</div>` : '';
+    return `<div class="lp-callout lp-row" data-role="titles"><span>${esc(t('titles.ask', { n, calls: Math.ceil(n / TITLE_BATCH) }))}</span><span class="lp-spacer"></span>
+        <button type="button" class="menu_button lp-btn" data-action="titles-fill">${esc(t('titles.fill'))}</button>${err}</div>`;
 }
 
 const DUE_FILTERS = ['all', 'soon', 'late', 'nodate'];
@@ -1563,26 +1627,69 @@ function sortNotes(list) {
 
 // ===== 已完成分頁 =====
 
+/** 完成時的詳情：模型寫的「怎麼完成的」優先；沒有就用完成那一層的摘要（粗略補建的用那一章的）。 */
+function closedDetail(note) {
+    if (note.closedDetail) return { text: note.closedDetail, from: 'model' };
+    if (note.closedFloor === null || note.closedFloor === undefined) return null;
+    const e = getEntry(note.closedFloor);
+    if (e?.summary) return { text: e.summary, from: 'floor', floor: note.closedFloor };
+    const ch = structure().chapters.find((c) => c.indices.includes(note.closedFloor));
+    if (ch?.data.summary) return { text: ch.data.summary, from: 'chapter', floor: note.closedFloor, n: ch.number };
+    return null;
+}
+
+/** 「✓ 12-14（已過 20 天）」 */
+function closedText(note, today) {
+    const d = closedDateOf(note);
+    if (!d) return '';
+    const n = today ? daysBetween(d, today) : null;
+    return n === null || n < 0 ? `${d.slice(5)} ${weekdayName(d)}` : `${d.slice(5)} ${weekdayName(d)}・${n === 0 ? t('notes.rel.today') : t('notes.rel.ago', { n })}`;
+}
+
 function renderDoneTab() {
     if (!isActive()) return '';
-    const list = closedNotes();
+    const today = storyToday();
+    // 最近完成的在上面（沒有日期的照完成的樓層）。
+    const list = closedNotes().map((n) => ({ n, d: closedDateOf(n), f: n.closedFloor ?? -1 }))
+        .sort((a, b) => (b.d || '').localeCompare(a.d || '') || b.f - a.f).map((x) => x.n);
     const query = view.query.done;
     const shown = query ? list.filter((n) => matches(noteText(n), query)) : list;
     const rows = shown.map((note) => {
         const key = `done:${note.id}`;
         const open = isExpanded(key) || Boolean(query);
+        const when = closedText(note, today);
         const head = `
           <button type="button" class="lp-row-head" data-action="fold" data-key="${esc(key)}" aria-expanded="${open}">
             <span class="lp-sum-chev" aria-hidden="true">${open ? '▾' : '▸'}</span>
             <span class="lp-chip-static">${esc(typeLabel(note.type))}</span>
-            <span class="lp-note-title">${hl(noteTitle(note), query)}</span>
+            <span class="lp-note-title">${hl(displayTitle(note), query)}</span>
             <span class="lp-note">（${esc(resultLabel(note.result))}）</span>
+            ${when ? `<span class="lp-badge lp-done-date">✓ ${esc(when)}</span>` : ''}
           </button>`;
         if (!open) return `<div class="lp-floor-row lp-folded" data-fold-key="${esc(key)}">${head}</div>`;
+        const d = note.data ?? {};
+        const lines = [];
+        if (d.with) lines.push(`<div class="lp-note-line"><span class="lp-label">${esc(fieldLabel(note.type, 'with'))}</span> ${hl(d.with, query)}</div>`);
+        const { made } = noteDates(note);
+        const closed = closedDateOf(note);
+        const dates = [
+            made ? `<span class="lp-label">${esc(t(`notes.made.${note.type}`))}</span> ${esc(`${made}（${weekdayName(made)}）`)}` : '',
+            closed ? `<span class="lp-label">${esc(t('done.closedOn'))}</span> ${esc(`${closed}（${weekdayName(closed)}）`)}` : '',
+            closed && today && daysBetween(closed, today) > 0 ? `<span class="lp-note">${esc(t('notes.rel.ago', { n: daysBetween(closed, today) }))}</span>` : '',
+        ].filter(Boolean);
+        if (dates.length) lines.push(`<div class="lp-note-line lp-note-dates">${dates.join('<span class="lp-dot"> · </span>')}</div>`);
+        const content = d[keyField(note.type)];
+        if (content && content !== displayTitle(note)) lines.push(`<div class="lp-note-line"><span class="lp-label">${esc(fieldLabel(note.type, keyField(note.type)))}</span> ${hl(content, query)}</div>`);
+        const detail = closedDetail(note);
+        if (detail) {
+            const src = detail.from === 'model' ? '' : ` <span class="lp-note">${esc(detail.from === 'floor' ? t('done.detailFloor', { n: detail.floor }) : t('done.detailChapter', { n: detail.n }))}</span>`;
+            lines.push(`<div class="lp-note-line lp-done-detail" data-role="done-detail"><span class="lp-label">${esc(t('done.detail'))}</span>${src} ${hl(detail.text, query)}</div>`);
+        }
         return `
           <div class="lp-floor-row lp-unfolded" data-fold-key="${esc(key)}">
             ${head}
             <div class="lp-floor-main">
+              ${lines.join('')}
               ${noteTrace(note)}
               <div class="lp-sum-actions">
                 <button type="button" class="menu_button lp-btn lp-mini" data-action="note-reopen" data-id="${note.id}">${esc(t('done.restore'))}</button>
@@ -1602,6 +1709,7 @@ function renderDoneTab() {
     return `
       <div class="lp-summary">
         <div class="lp-note">${esc(t('done.intro'))}</div>
+        ${titlesBar()}
         ${list.length ? searchBox('done') : ''}
         ${!list.length ? `<div class="lp-wip">${esc(t('done.empty'))}</div>` : shown.length ? `<div class="lp-floor-list">${rows}</div>` : `<div class="lp-wip">${esc(t('search.none'))}</div>`}
         ${clear}
@@ -1659,12 +1767,12 @@ function renderGlobalSearch() {
         if (!isTracked(type)) continue;
         const items = notesOfType(type)
             .filter((n) => matches(noteText(n), query))
-            .map((n) => resultButton({ tab: tabOf[type], key: `note:${n.id}`, title: noteTitle(n), sub: matchedFields(n, query) || noteSub(n), query }));
+            .map((n) => resultButton({ tab: tabOf[type], key: `note:${n.id}`, title: displayTitle(n), sub: matchedFields(n, query) || noteSub(n), query }));
         groups.push(resultGroup(t(`kind.${KIND_KEY[type]}`), items));
     }
     const done = closedNotes()
         .filter((n) => matches(noteText(n), query))
-        .map((n) => resultButton({ tab: 'done', key: `done:${n.id}`, title: noteTitle(n), sub: `${typeLabel(n.type)}（${resultLabel(n.result)}）`, query }));
+        .map((n) => resultButton({ tab: 'done', key: `done:${n.id}`, title: displayTitle(n), sub: `${typeLabel(n.type)}（${resultLabel(n.result)}）`, query }));
     groups.push(resultGroup(t('tab.done'), done));
     const body = groups.join('');
     return `${head}${body || `<div class="lp-wip">${esc(t('search.none'))}</div>`}`;
@@ -1696,7 +1804,7 @@ function saveNoteForm(form) {
     const id = form.dataset.noteForm;
     const ok = id ? updateNoteManual(id, data) : addNoteManual(type, data);
     if (!ok) {
-        toast(t('notes.titleRequired', { field: fieldLabel(type, NOTE_FIELDS[type][0]) }), 'warning');
+        toast(t('notes.titleRequired', { field: fieldLabel(type, keyField(type)) }), 'warning');
         form.querySelector('[data-note-field]')?.focus();
         return;
     }
@@ -2052,6 +2160,7 @@ function renderSettings() {
       ${section('scope', t('sec.scope'), t('sec.scope.hint'), scope)}
       ${section('recall', t('sec.recall'), t(r.vector.enabled ? 'sec.recall.hint.vector' : 'sec.recall.hint'), recall)}
       ${section('inject', t('sec.inject'), t('sec.inject.hint'), inject)}
+      ${section('data', t('sec.data'), t('sec.data.hint'), renderDataSection())}
       ${section('advanced', t('sec.advanced'), t('sec.advanced.hint'), advanced)}
     </div>`;
 }
@@ -2346,6 +2455,10 @@ function onClick(e) {
             pinNoteManual(btn.dataset.id, btn.dataset.on !== 'true');
             render();
             return;
+        case 'titles-fill':
+            fillTitles().then((n) => { if (n) toast(t('titles.done', { n }), 'success'); });
+            render();
+            return;
         case 'note-filter':
             view.notes.filter = btn.dataset.filter;
             render();
@@ -2601,6 +2714,59 @@ function onClick(e) {
             for (const x of view.extras.list) view.extras.choice.set(x.index, btn.dataset.choice);
             render();
             return;
+        case 'extras-apply': {
+            const choices = Object.fromEntries(view.extras.list.map((x) => [x.index, view.extras.choice.get(x.index) ?? 'skip']));
+            const chapters = new Set(view.extras.list.filter((x) => choices[x.index] !== 'keep' && x.chapter).map((x) => x.chapter)).size;
+            const n = applyExtras(choices);
+            view.extras = { key: null, list: [], choice: new Map(), rescan: false };
+            toast(t(chapters ? 'extras.appliedStale' : 'extras.applied', { n, chapters }), 'success');
+            render();
+            return;
+        }
+        case 'extras-close':
+            view.extras = { key: null, list: [], choice: new Map(), rescan: false };
+            render();
+            return;
+        case 'data-rescan':
+            view.extras = { key: null, list: findExtrasAll(), choice: new Map(), rescan: true };
+            view.tab = 'summary';
+            render();
+            return;
+        case 'data-export': {
+            const name = downloadBackup(buildBackup({ settings: view.data.exportSettings }));
+            view.data.message = t('data.exported', { name });
+            render();
+            return;
+        }
+        case 'data-import': {
+            const d = view.data;
+            if (!d.file) return;
+            if (d.mode === 'replace' && !d.confirmReplace) {
+                d.confirmReplace = true;
+                render();
+                return;
+            }
+            const r = importBackup(d.file, { mode: d.mode, settings: d.importSettings });
+            view.data = { ...d, file: null, fileName: '', confirmReplace: false, message: t('data.imported', r) };
+            render();
+            return;
+        }
+        case 'data-wipe':
+            if (!view.data.confirmWipe) {
+                view.data.confirmWipe = true;
+                render();
+                return;
+            }
+            // 刪除前先下載一份備份（使用者決定）。
+            downloadBackup(buildBackup({ settings: true }));
+            view.data = { ...view.data, confirmWipe: false, message: t('data.wiped', { n: wipeChat() }) };
+            render();
+            return;
+        case 'data-wipe-cancel':
+            view.data.confirmWipe = false;
+            view.data.confirmReplace = false;
+            render();
+            return;
         case 'extras-go': {
             const choices = Object.fromEntries(view.extras.list.map((x) => [x.index, view.extras.choice.get(x.index) ?? 'skip']));
             view.extras = { key: null, list: [], choice: new Map() };
@@ -2713,6 +2879,23 @@ function onChange(e) {
         if (!el.checked) return;
         if (el.dataset.scope === 'char') changeCharacterScope(el.dataset.kind, el.value);
         else changeChatScope(el.dataset.kind, el.value);
+        render();
+        return;
+    }
+    if (el.dataset?.role === 'data-file') {
+        const file = el.files?.[0];
+        if (!file) return;
+        file.text().then((text) => {
+            const r = parseBackup(text);
+            view.data = { ...view.data, file: r.data ?? null, fileName: file.name, confirmReplace: false, message: r.error ? t(`data.bad.${r.error}`) : null };
+            render();
+        });
+        return;
+    }
+    if (el.dataset?.role === 'data-opt') {
+        const k = el.dataset.key;
+        view.data[k] = el.type === 'checkbox' ? el.checked : el.value;
+        view.data.confirmReplace = false;
         render();
         return;
     }

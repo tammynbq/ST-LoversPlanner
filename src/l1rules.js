@@ -41,6 +41,7 @@ const TEXT = {
         item: 'item：只記 {char} 和 {user} 的所有物，其他人的東西不用記。一件東西一條，數量寫在 quantity（只寫數字）。在兩人之間轉手時用 update 改 holder；用掉一部分時用 update 改 quantity；全部用完、遺失、送給別人時用 complete，result 是 used／lost／gone。',
         promise: 'promise 是和別人的約定或承諾。履行用 complete 加 kept；被打破用 complete 加 broken。',
         todo: 'todo 是主角自己打算做的事。完成用 complete 加 done。',
+        noteTitle: 'promise 和 todo 都要有 title：15 字內的短標題（例如「求婚」「泡溫泉」）；content 寫完整內容；with 寫和誰（todo 寫為誰或和誰一起，沒有就不寫）。complete 時加上 detail，用 50～100 字寫怎麼完成的（或怎麼被打破的）。',
         both: '同一件事不要同時記成 promise 和 todo。',
         due: 'promise 和 todo 的 when 照原文寫（例如「明天早上」「明年秋天」）；due 是預定哪一天，用這一層的 date 換算成 YYYY-MM-DD（明天＝date 加一天，下週三、10月21日也換算好）。沒有確切哪一天就不寫 due。',
         noDup: '清單裡已經有的不要重複新增。沒有值得記的變化就讓 ops 是空陣列。',
@@ -93,6 +94,7 @@ const TEXT = {
         item: 'item：只记 {char} 和 {user} 的所有物，其他人的东西不用记。一件东西一条，数量写在 quantity（只写数字）。在两人之间转手时用 update 改 holder；用掉一部分时用 update 改 quantity；全部用完、遗失、送给别人时用 complete，result 是 used／lost／gone。',
         promise: 'promise 是和别人的约定或承诺。履行用 complete 加 kept；被打破用 complete 加 broken。',
         todo: 'todo 是主角自己打算做的事。完成用 complete 加 done。',
+        noteTitle: 'promise 和 todo 都要有 title：15 字内的短标题（例如「求婚」「泡温泉」）；content 写完整内容；with 写和谁（todo 写为谁或和谁一起，没有就不写）。complete 时加上 detail，用 50～100 字写怎么完成的（或怎么被打破的）。',
         both: '同一件事不要同时记成 promise 和 todo。',
         due: 'promise 和 todo 的 when 照原文写（例如「明天早上」「明年秋天」）；due 是预定哪一天，用这一层的 date 换算成 YYYY-MM-DD（明天＝date 加一天，下周三、10月21日也换算好）。没有确切哪一天就不写 due。',
         noDup: '清单里已经有的不要重复新增。没有值得记的变化就让 ops 是空数组。',
@@ -145,6 +147,7 @@ const TEXT = {
         item: 'item: only things owned by {char} or {user}; other people\'s belongings are not recorded. One entry per item, with the count in quantity (a number only). When it changes hands between them, update holder; when part of it is used, update quantity; when all used up, lost or given to someone else, use complete with result used / lost / gone.',
         promise: 'promise is a commitment made with someone. Kept: complete + kept; broken: complete + broken.',
         todo: 'todo is something a lead plans to do. Finished: complete + done.',
+        noteTitle: 'Every promise and todo needs a title: a short label of at most 8 words (e.g. "Proposal", "Hot spring"); content holds the full text; with says with whom (for a todo: for whom or together with whom; leave out if none). When completing one, add detail: 50–100 words on how it was done (or how it was broken).',
         both: 'Never record the same thing as both a promise and a todo.',
         due: 'For promise and todo, write when as the text says it (e.g. "tomorrow morning", "next autumn"); due is the planned day as YYYY-MM-DD, worked out from this floor\'s date (tomorrow = date + 1 day; also convert "next Wednesday", "October 21"). Leave out due if there is no specific day.',
         noDup: "Don't add anything that is already in the list. If nothing worth recording changed, leave ops as an empty array.",
@@ -206,6 +209,7 @@ export function buildL1Parts({ length, char, user, chapter = false, previousDate
             const fields = charFields().map((f) => `     · ${fill(T.charFields[f], vars)}`);
             sub.push([fill(T.character, vars), ...fields, `     ${fill(T.charMore, vars)}`].join('\n'));
         }
+        if (types.includes('promise') || types.includes('todo')) sub.push(T.noteTitle);
         if (types.includes('promise') && types.includes('todo')) sub.push(T.both);
         // 預定日期要靠故事日期換算，沒開行事曆就不要求。
         if (cal && (types.includes('promise') || types.includes('todo'))) sub.push(T.due);
@@ -241,7 +245,8 @@ export function buildL1Parts({ length, char, user, chapter = false, previousDate
             return `    { "op": "add", "type": "${type}", "data": { ${data} } }`;
         });
         ex.push('    { "op": "update", "id": "…", "data": { … } }');
-        ex.push('    { "op": "complete", "id": "…", "result": "…" }');
+        const dated = types.includes('promise') || types.includes('todo');
+        ex.push(dated ? '    { "op": "complete", "id": "…", "result": "…", "detail": "…" }' : '    { "op": "complete", "id": "…", "result": "…" }');
         lines.push(ex.join(',\n'), '  ]');
     } else {
         lines.push('  "summary": "…"');
