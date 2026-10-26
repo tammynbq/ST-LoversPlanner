@@ -276,7 +276,7 @@ export async function condenseRecap() {
         const c = ctx();
         const length = Number(getSettings().carry.recapLength) || 400;
         const prompt = fill(getTemplate('recap'), { recap: raw, length, char: c?.name2 ?? '', user: c?.name1 ?? '' });
-        let text = String(await generateText(prompt, { maxTokens: Math.max(1500, length * 3) }) ?? '').trim();
+        let text = String(await generateText(prompt, { maxTokens: Math.max(4000, length * 3) }) ?? '').trim();
         text = text.replace(/^```\w*\s*/, '').replace(/\s*```$/, '').trim();
         if (!text) throw new Error(t('err.empty'));
         if (chatKey() !== chatId) return false;

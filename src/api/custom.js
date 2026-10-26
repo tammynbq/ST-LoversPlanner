@@ -7,11 +7,12 @@
 
 import { ctx } from '../util.js';
 
+/** 預設等多久（拉模型清單、測試連接）。呼叫模型用設定的 custom.timeout（v0.13.10 起預設 120 秒）。 */
 const TIMEOUT_MS = 30000;
 
 export class ApiError extends Error {
     /**
-     * @param {'need_url'|'need_custom'|'no_main'|'http'|'network'|'timeout'|'bad_response'|'empty'|'empty_notice'|'parse'} code
+     * @param {'need_url'|'need_custom'|'no_main'|'http'|'network'|'timeout'|'bad_response'|'empty'|'empty_notice'|'empty_length'|'parse'} code
      */
     constructor(code, message = '', status = 0) {
         super(message || code);
@@ -45,9 +46,9 @@ function backendHeaders() {
     return { 'Content-Type': 'application/json' };
 }
 
-export async function fetchJson(url, options) {
+export async function fetchJson(url, options, timeoutMs = TIMEOUT_MS) {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
     let res;
     try {
         res = await fetch(url, { ...options, signal: controller.signal });
@@ -116,7 +117,9 @@ export async function listModels({ url, key }) {
 }
 
 /** 呼叫模型，回傳文字。 */
-export async function chatCompletion({ url, key, model }, messages, { maxTokens = 512, temperature } = {}) {
+export async function chatCompletion({ url, key, model, timeout }, messages, { maxTokens = 512, temperature } = {}) {
+    // 會先「思考」的模型、比較慢的服務商常常要超過 30 秒（使用者回報部的壓縮常逾時）。
+    const wait = Math.min(600, Math.max(30, Number(timeout) || 120)) * 1000;
     const base = normalizeBaseUrl(url);
     if (!base) throw new ApiError('need_url');
     const body = { model, messages, max_tokens: maxTokens, stream: false };
@@ -126,7 +129,7 @@ export async function chatCompletion({ url, key, model }, messages, { maxTokens 
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...authHeaders(key) },
             body: JSON.stringify(body),
-        }),
+        }, wait),
         () => fetchJson('/api/backends/chat-completions/generate', {
             method: 'POST',
             headers: backendHeaders(),
@@ -136,13 +139,18 @@ export async function chatCompletion({ url, key, model }, messages, { maxTokens 
                 custom_url: base,
                 custom_include_headers: includeHeadersYaml(key),
             }),
-        }),
+        }, wait),
     );
     if (json?.error) {
         const msg = json.error?.message ?? (typeof json.error === 'string' ? json.error : '');
         throw new ApiError('http', msg, 0);
     }
-    const text = json?.choices?.[0]?.message?.content ?? json?.choices?.[0]?.text;
+    const choice = json?.choices?.[0];
+    const text = choice?.message?.content ?? choice?.text;
+    // 額度用完了、內容卻是空的：會思考的模型把額度都花在思考上了（llm.js 會加倍額度再試）。
+    if ((text === null || text === undefined || (typeof text === 'string' && !text.trim())) && choice?.finish_reason === 'length') {
+        throw new ApiError('empty_length');
+    }
     if (typeof text !== 'string') throw new ApiError('bad_response', JSON.stringify(json).slice(0, 120));
     return { text, via };
 }

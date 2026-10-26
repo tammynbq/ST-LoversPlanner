@@ -67,6 +67,43 @@ check('custom API gets a system message first', body?.messages?.[0]?.role === 's
 check('custom API summary saved', await page.evaluate(() => window.__chat[7].extra.lovers_planner?.summary === '自訂 API 的摘要'));
 await settings({ source: 'main' });
 
+// ===== 2b. 思考用光額度 → 加倍再試；逾時；壓縮的額度 =====
+let thinkCalls = 0;
+await page.route('https://think.example.com/v1/chat/completions', async (route) => {
+  const body = JSON.parse(route.request().postData());
+  bodies.push(body);
+  thinkCalls++;
+  const content = thinkCalls === 1 ? '' : '{"summary":"第二次才寫出來","ops":[]}';
+  await route.fulfill({ status: 200, contentType: 'application/json', headers: { 'Access-Control-Allow-Origin': '*' }, body: JSON.stringify({ choices: [{ message: { content, reasoning_content: '想了很久…' }, finish_reason: thinkCalls === 1 ? 'length' : 'stop' }] }) });
+});
+await settings({ source: 'custom', custom: { url: 'https://think.example.com/v1', key: 'k', model: 'm' } });
+const before = bodies.length;
+await summarize(1);
+const tries = bodies.slice(before);
+check('thinking used the budget → retried with double', tries.length === 2 && tries[1].max_tokens === tries[0].max_tokens * 2, JSON.stringify(tries.map((b) => b.max_tokens)));
+check('second answer saved', await page.evaluate(() => window.__chat[1].extra.lovers_planner?.summary === '第二次才寫出來'));
+await page.route('https://slow.example.com/v1/chat/completions', async (route) => { await new Promise((r) => setTimeout(r, 1500)); await route.fulfill({ status: 200, contentType: 'application/json', headers: { 'Access-Control-Allow-Origin': '*' }, body: '{}' }).catch(() => {}); });
+const slow = await page.evaluate(async () => {
+  const { fetchJson } = await import('/src/api/custom.js');
+  try { await fetchJson('https://slow.example.com/v1/chat/completions', { method: 'POST', body: '{}' }, 300); return 'no error'; } catch (e) { return e.code; }
+});
+check('slow request times out with the given wait', slow === 'timeout', slow);
+check('default wait is 120 s', await page.evaluate(() => SillyTavern.getContext().extensionSettings.lovers_planner.custom.timeout === 120));
+await settings({ source: 'main' });
+const budget = await page.evaluate(async () => {
+  window.__prompts.length = 0;
+  window.__generateRaw = async () => '一章';
+  const { floorSource, setEntry } = await import('/src/chat.js');
+  for (const i of [3, 5]) setEntry(i, { v: 2, status: 'ok', time: '', location: '', characters: [], summary: `第${i}層`, ops: [], hash: floorSource(i).hash, at: 2000 + i });
+  const { compressSelected } = await import('/src/compress.js');
+  const { pendingCount } = await import('/src/summarize.js');
+  compressSelected([3, 5]);
+  const t0 = Date.now();
+  while (pendingCount() && Date.now() - t0 < 5000) await new Promise((r) => setTimeout(r, 100));
+  return window.__prompts.map((p) => p.responseLength);
+});
+check('compression gets a big enough budget', budget.length === 1 && budget[0] >= 4000, JSON.stringify(budget));
+
 // ===== 3. 設定頁 =====
 await page.evaluate(() => { document.getElementById('extensionsMenu').style.display = ''; });
 await page.click('#lp_wand_entry');

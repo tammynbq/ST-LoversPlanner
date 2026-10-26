@@ -92,6 +92,7 @@ const NUMBER_LIMITS = {
     'memories.minAge': [0, 1000],
     'memories.cooldown': [0, 1000],
     'calendar.ahead': [0, 60],
+    'custom.timeout': [30, 600],
 };
 
 /** 成對的上下限：下限比上限大時，把上限拉到和下限一樣。 */
@@ -2041,6 +2042,8 @@ function renderSettings() {
       ${radio('lp-source', 'source', 'main', t('set.source.main'))}
       ${radio('lp-source', 'source', 'custom', t('set.source.custom'))}
       ${s.source === 'custom' ? renderCustom() : ''}
+      ${s.source === 'custom' ? `<div class="lp-row">${inline('set.custom.timeout', { n: numberInput('custom.timeout', t('set.custom.timeout.aria')) })}</div>
+      <div class="lp-note">${esc(t('set.custom.timeout.note'))}</div>` : ''}
       ${checkbox('model.adultNote', t('set.model.adultNote'))}
       <div class="lp-note">${esc(t('set.model.adultNote.note'))}</div>
       <label class="lp-field" for="lp-preface"><span class="lp-label">${esc(t('set.model.preface'))}</span>

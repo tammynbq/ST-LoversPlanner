@@ -7,6 +7,8 @@ import { ApiError, chatCompletion } from './api/custom.js';
 
 /** 回覆是空的、或只有服務商自己的通知時，自動重試幾次（間隔）。 */
 const EMPTY_RETRY_MS = [2000, 6000];
+/** 額度被思考用光時，加倍再試，最多到這麼多。 */
+const MAX_TOKENS_CAP = 16000;
 
 /**
  * 有些 API 服務商在模型回了空的內容時，會自己塞一段通知（HTML 註解、<style>、<div>，例如「响应内容为空，本条免费」）。
@@ -32,13 +34,29 @@ function isEmptyError(e) {
     return e instanceof ApiError && (e.code === 'empty' || e.code === 'empty_notice');
 }
 
+/**
+ * 呼叫模型。自動重試：空的回覆（最多 2 次）；額度被思考用光（加倍額度再試，最多 2 次）；逾時（1 次）。
+ */
 export async function generateText(prompt, opts = {}) {
-    for (let k = 0; ; k++) {
+    let maxTokens = opts.maxTokens ?? 512;
+    let empty = 0;
+    let longer = 0;
+    let timeouts = 0;
+    for (;;) {
         try {
-            return cleanReply(await generateOnce(prompt, opts));
+            return cleanReply(await generateOnce(prompt, { ...opts, maxTokens }));
         } catch (e) {
-            if (!isEmptyError(e) || k >= EMPTY_RETRY_MS.length) throw e;
-            await new Promise((r) => setTimeout(r, EMPTY_RETRY_MS[k]));
+            if (e instanceof ApiError && e.code === 'empty_length' && longer < 2 && maxTokens < MAX_TOKENS_CAP) {
+                longer++;
+                maxTokens = Math.min(MAX_TOKENS_CAP, maxTokens * 2);
+                continue;
+            }
+            if (e instanceof ApiError && e.code === 'timeout' && timeouts < 1) {
+                timeouts++;
+                continue;
+            }
+            if (!isEmptyError(e) || empty >= EMPTY_RETRY_MS.length) throw e;
+            await new Promise((r) => setTimeout(r, EMPTY_RETRY_MS[empty++]));
         }
     }
 }

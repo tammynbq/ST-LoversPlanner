@@ -12,7 +12,8 @@ export const DEFAULTS = Object.freeze({
     language: 'auto',
     // 'main' = 沿用酒館目前的連線；'custom' = 自訂 OpenAI 相容 API。
     source: 'main',
-    custom: { url: '', key: '', model: '' },
+    // timeout：呼叫模型最多等幾秒（30～600）。
+    custom: { url: '', key: '', model: '', timeout: 120 },
     // 每次呼叫模型都放在最前面的系統提示詞（v0.13.4）：adultNote 成人虛構故事的說明；preface 使用者自訂的前言。
     model: { adultNote: true, preface: '' },
     // 補建前先找出可能是番外／小劇場／IF 線的樓層，讓使用者決定要不要跳過（v0.13.5，使用者要求）。

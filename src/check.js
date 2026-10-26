@@ -220,7 +220,7 @@ async function auditOne(index) {
         e.summary,
     ].filter(Boolean).join('\n');
     const prompt = fill(getTemplate('audit'), { char: c?.name2 ?? '', user: c?.name1 ?? '', content, summary });
-    const raw = await generateText(prompt, { maxTokens: 1500 });
+    const raw = await generateText(prompt, { maxTokens: 3000 });
     const parsed = parseJsonLenient(String(raw ?? '').replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, ''), { accept: (v) => typeof v?.ok === 'boolean' });
     const v = parsed?.value;
     if (typeof v?.ok !== 'boolean') throw new Error(t('err.parse', { detail: String(raw ?? '').slice(0, 120) }));

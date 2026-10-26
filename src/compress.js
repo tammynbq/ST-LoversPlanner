@@ -418,7 +418,8 @@ async function callModel(templateKey, varName, text, level = 2) {
     const askPlace = isTracked('location');
     let prompt = fill(getTemplate(templateKey), { [varName]: text, length, char: c?.name2 ?? '', user: c?.name1 ?? '' });
     if (askPlace) prompt += `\n\n${t('prompt.placeLine')}`;
-    const raw = await generateText(prompt, { maxTokens: Math.max(1500, length * 3) });
+    // 總結很短，但會思考的模型要先花一大段在思考上；給少了就會空回（只照實際用的計費）。
+    const raw = await generateText(prompt, { maxTokens: Math.max(4000, length * 3) });
     const plain = parsePlain(raw);
     return askPlace ? splitPlace(plain) : { summary: plain, place: '' };
 }
