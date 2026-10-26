@@ -9,7 +9,7 @@
 import { ctx, LOG_PREFIX } from './util.js';
 import { getSettings, isTracked } from './settings.js';
 import { getChat, getEntry, isAiMessage } from './chat.js';
-import { getNotes, noteLine } from './notes.js';
+import { getNotes, leadRoles, noteLine } from './notes.js';
 import { sceneLine } from './lines.js';
 import { structure } from './compress.js';
 import { cosine } from './api/embed.js';
@@ -55,15 +55,18 @@ function leadAliases() {
     return [c?.name1, c?.name2].map(aliasesOf).filter((x) => x.length);
 }
 
-export function isLead(note, leads = leadAliases()) {
+export function isLead(note, leads = leadAliases(), roles = null) {
     if (note.type !== 'character') return false;
+    // 指定（或自動認出）是 {{user}}／{{char}} 的人物。
+    if ((roles ?? leadRoles()).has(note.id)) return true;
     const mine = aliasesOf(note.data.name);
     return leads.some((l) => sameName(mine, l));
 }
 
 /** 記事裡哪些名字可以拿來比對：人物、物件看名字；約定看「和誰」。 */
 function noteAliases(note) {
-    if (note.type === 'character' || note.type === 'item') return aliasesOf(note.data.name);
+    if (note.type === 'character') return [...aliasesOf(note.data.name), ...String(note.data.alias ?? '').split(/[、,，/／;；]+/).flatMap(aliasesOf)];
+    if (note.type === 'item') return aliasesOf(note.data.name);
     if (note.type === 'promise') return aliasesOf(note.data.with);
     return [];
 }
@@ -132,11 +135,12 @@ export async function selectRelevant({ keepFrom, limit = getChat().length, previ
     const rest = [];
     if (out.filtered) {
         const leads = leadAliases();
+        const roles = leadRoles();
         const { cast, touched } = recentActivity(limit, Number(r.recentFloors) || 0);
         for (const n of notes) {
             let reason = null;
             if (n.pinned) reason = 'pinned';
-            else if (isLead(n, leads)) reason = 'lead';
+            else if (isLead(n, leads, roles)) reason = 'lead';
             else if (mentioned(noteAliases(n), text)) reason = 'mention';
             else if (touched.has(n.id) || (n.type === 'character' && cast.some((c) => sameName(aliasesOf(n.data.name), c)))) reason = 'recent';
             if (reason) out.notes.set(n.id, { reason });
@@ -149,10 +153,11 @@ export async function selectRelevant({ keepFrom, limit = getChat().length, previ
     if (r.memory) {
         const st = structure();
         const leads = leadAliases();
+        const roles = leadRoles();
         // 拿來比對的名字：人物、物件（主角除外，他們到處都會出現）和這些舊樓層的地點。
         const entities = new Set();
         for (const n of getNotes().notes.values()) {
-            if ((n.type === 'character' || n.type === 'item') && !isLead(n, leads)) aliasesOf(n.data.name).forEach((a) => entities.add(a));
+            if ((n.type === 'character' || n.type === 'item') && !isLead(n, leads, roles)) aliasesOf(n.data.name).forEach((a) => entities.add(a));
         }
         for (const i of [...st.covered].sort((a, b) => a - b)) {
             if (i >= limit) continue;

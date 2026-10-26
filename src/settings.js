@@ -49,6 +49,11 @@ export const DEFAULTS = Object.freeze({
         item: true,
         promise: true,
         todo: true,
+        // 人物資料要記哪些欄位（名字一定記）。
+        fields: {
+            alias: true, identity: true, age: true, birthday: true, relUser: true, relChar: true, appearance: true, outfit: true,
+            status: true, personality: true, likes: true, dislikes: true, habits: true, history: true, note: true,
+        },
     },
     // 行事曆：故事裡的日期＋行程、生理期（{{user}} 的）、親熱的日子、紀念日。
     // start：故事開始日（模型完全沒線索時從這天算）；ahead：送給角色「接下來幾天」的事。
@@ -134,6 +139,16 @@ export const NOTE_TYPE_KEYS = ['character', 'item', 'promise', 'todo'];
 /** 某一項有沒有勾選要記錄（time／location／cast／character／item／promise／todo）。 */
 export function isTracked(key) {
     return getSettings().track?.[key] !== false;
+}
+
+/** 人物資料的欄位（名字以外都可以關掉）。和 notes.js 的 NOTE_FIELDS.character 同步。 */
+export const CHARACTER_FIELDS = ['name', 'alias', 'identity', 'age', 'birthday', 'relUser', 'relChar', 'appearance', 'outfit', 'status',
+    'personality', 'likes', 'dislikes', 'habits', 'history', 'note'];
+
+/** 有勾選要記錄的人物欄位（track.fields.x 是 false 就不記）。 */
+export function charFields() {
+    const off = getSettings().track?.fields ?? {};
+    return CHARACTER_FIELDS.filter((f) => f === 'name' || off[f] !== false);
 }
 
 /** 有勾選的記事類型。 */

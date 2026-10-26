@@ -7,7 +7,7 @@
 
 import { ctx, MODULE } from './util.js';
 import { t } from './i18n.js';
-import { isTracked } from './settings.js';
+import { CHARACTER_FIELDS, isTracked } from './settings.js';
 import { getChat, getEntry, isAiMessage, saveChatSoon } from './chat.js';
 import { normDate } from './calendar.js';
 import { noteDates, storyToday } from './notedates.js';
@@ -15,7 +15,8 @@ import { noteDates, storyToday } from './notedates.js';
 export const NOTE_TYPES = ['character', 'item', 'promise', 'todo'];
 
 export const NOTE_FIELDS = {
-    character: ['name', 'identity', 'relation', 'appearance', 'outfit', 'status', 'likes', 'dislikes', 'note'],
+    // relUser／relChar：和 {{user}}／{{char}} 的關係（v0.12.8，使用者要求的欄位；舊的 relation 見 LEGACY_FIELDS）。
+    character: CHARACTER_FIELDS,
     item: ['name', 'quantity', 'holder', 'status'],
     // when：原文說的時間（「明天早上」「明年秋天」）；due：換算成哪一天（YYYY-MM-DD，要開行事曆才有故事日期）。
     promise: ['content', 'with', 'when', 'due'],
@@ -23,6 +24,24 @@ export const NOTE_FIELDS = {
 };
 
 const ID_PREFIX = { character: 'c', item: 'i', promise: 'p', todo: 't' };
+
+/** 舊版的欄位：資料還在就照樣顯示、可以編輯，但不再要求模型填。 */
+export const LEGACY_FIELDS = { character: ['relation'] };
+
+/** 這條記事要顯示／編輯的欄位：目前的欄位，加上它有資料的舊欄位（接在關係後面）。 */
+export function fieldsOf(note) {
+    const list = [...(NOTE_FIELDS[note.type] ?? [])];
+    for (const f of LEGACY_FIELDS[note.type] ?? []) {
+        if (note.data?.[f]) list.splice(Math.max(1, list.indexOf('relChar') + 1), 0, f);
+    }
+    return list;
+}
+
+/** 欄位名稱（「和 米米 的關係」要代入名字）。 */
+export function fieldLabel(type, f) {
+    const c = ctx();
+    return t(`field.${type}.${f}`, { user: c?.name1 || '{{user}}', char: c?.name2 || '{{char}}' });
+}
 
 /** 日期欄位（YYYY-MM-DD，輸入框用 date）。 */
 export const DATE_FIELDS = new Set(['due']);
@@ -47,7 +66,7 @@ export function noteTitle(note) {
 function cleanData(type, data) {
     const out = {};
     if (!data || typeof data !== 'object') return out;
-    for (const f of NOTE_FIELDS[type] ?? []) {
+    for (const f of [...(NOTE_FIELDS[type] ?? []), ...(LEGACY_FIELDS[type] ?? [])]) {
         const v = data[f];
         if (v === undefined || v === null) continue;
         const s = DATE_FIELDS.has(f) ? normDate(v) : String(v).trim().slice(0, MAX_FIELD);
@@ -115,6 +134,15 @@ function applyOp(state, op, floor) {
             const note = state.get(op.id);
             if (!note || note.state === 'active') return false;
             state.set(op.id, { ...note, state: 'active', result: null, closedFloor: null, closedManual: false });
+            return true;
+        }
+        case 'role': {
+            // 指定這個人物是 {{user}} 或 {{char}}（一個角色只會有一條；null＝取消）。只有手動修改會有。
+            const note = state.get(op.id);
+            if (!note || note.type !== 'character') return false;
+            const role = op.role === 'user' || op.role === 'char' ? op.role : null;
+            if (role) for (const n of state.values()) if (n.role === role && n.id !== op.id) state.set(n.id, { ...n, role: null });
+            state.set(op.id, { ...note, role });
             return true;
         }
         case 'pin': {
@@ -242,7 +270,7 @@ export function replay({ upTo = Infinity } = {}) {
         if (!n?.id || !NOTE_TYPES.includes(n.type)) continue;
         state.set(n.id, {
             id: n.id, type: n.type, data: { ...n.data }, state: n.state ?? 'active', result: n.result ?? null,
-            pinned: Boolean(n.pinned), createdFloor: null, updatedFloor: null, closedFloor: null,
+            pinned: Boolean(n.pinned), role: n.role ?? null, createdFloor: null, updatedFloor: null, closedFloor: null,
             manual: false, carried: true, source: n.source ?? null,
         });
         baseAt.set(n.id, Number(n.updatedAt) || 0);
@@ -351,7 +379,7 @@ export function updateNoteManual(id, data) {
     if (!note) return false;
     // 清空的欄位也要寫進去（用空字串蓋掉）。
     const next = {};
-    for (const f of NOTE_FIELDS[note.type]) {
+    for (const f of fieldsOf(note)) {
         const raw = String(data?.[f] ?? '').trim();
         const v = DATE_FIELDS.has(f) ? normDate(raw) : raw.slice(0, MAX_FIELD);
         if (v !== (note.data[f] ?? '')) next[f] = v;
@@ -367,6 +395,41 @@ export function completeNoteManual(id, result = 'done') {
 
 export function reopenNoteManual(id) {
     return pushManual({ op: 'reopen', id });
+}
+
+export function setRoleManual(id, role) {
+    return pushManual({ op: 'role', id, role: role ?? null });
+}
+
+/**
+ * 哪條人物是 {{user}}、哪條是 {{char}}：Map<id, 'user'|'char'>。
+ * 手動指定的優先；沒指定的，名字或別稱和酒館裡的名字一樣（或互相包含）就自動認。
+ */
+export function leadRoles(notes = getNotes().notes) {
+    const out = new Map();
+    const taken = new Set();
+    for (const n of notes.values()) {
+        if (n.type === 'character' && n.role && !taken.has(n.role)) {
+            out.set(n.id, n.role);
+            taken.add(n.role);
+        }
+    }
+    const c = ctx();
+    const names = { user: c?.name1, char: c?.name2 };
+    const norm = (x) => String(x ?? '').trim().toLowerCase();
+    for (const role of ['user', 'char']) {
+        const want = norm(names[role]);
+        if (taken.has(role) || !want) continue;
+        for (const n of notes.values()) {
+            if (n.type !== 'character' || out.has(n.id)) continue;
+            const mine = [n.data.name, ...String(n.data.alias ?? '').split(/[、,，/／;；\s]+/)].map(norm).filter(Boolean);
+            if (mine.some((x) => x === want || (want.length >= 2 && x.includes(want)) || (x.length >= 2 && want.includes(x)))) {
+                out.set(n.id, role);
+                break;
+            }
+        }
+    }
+    return out;
 }
 
 export function pinNoteManual(id, on) {
@@ -412,7 +475,7 @@ export function describeOp(op, notes) {
         return `${sym} ${typeLabel(type)}：${title}（${resultLabel(op.result)}）`;
     }
     const fields = Object.entries(op.data ?? {})
-        .map(([f, v]) => `${t(`field.${type}.${f}`)}→${v}`).join('，');
+        .map(([f, v]) => `${fieldLabel(type, f)}→${v}`).join('，');
     return `✎ ${typeLabel(type)}：${title}${fields ? `（${fields}）` : ''}`;
 }
 
@@ -422,25 +485,30 @@ export function describeOp(op, notes) {
  */
 export function formatNotesForPrompt(notes, { withIds = true, types = null, only = null, emptyText = t('prompt.noNotes') } = {}) {
     const lines = [];
+    // 主角是誰一律看最新的（摘要某一層時的清單不含手動修改，但手動指定的主角要算）。
+    const roles = leadRoles(getNotes().notes);
     for (const n of notes.values()) {
         if (n.state === 'done' || !isTracked(n.type)) continue;
         if (types && !types.includes(n.type)) continue;
         // only：只列這些 id（「只送相關的記事」挑出來的）。
         if (only && !only.has(n.id)) continue;
         const flag = n.state === 'broken' ? `｜${resultLabel('broken')}` : '';
-        lines.push(`${withIds ? `[${n.id}] ` : ''}${noteLine(n)}${flag}`);
+        // 主角本人標出來：摘要模型才知道更新 {{user}}／{{char}} 要用哪一條。
+        const role = roles.get(n.id);
+        const tag = role ? t('notes.role.tag', { name: (role === 'user' ? ctx()?.name1 : ctx()?.name2) || `{{${role}}}` }) : '';
+        lines.push(`${withIds ? `[${n.id}] ` : ''}${tag}${noteLine(n)}${flag}`);
     }
     return lines.length ? lines.join('\n') : emptyText;
 }
 
 /** 一條記事的內容（不含 id、狀態）。向量也用這段文字來算。 */
 export function noteLine(n) {
-    const parts = NOTE_FIELDS[n.type]
+    const parts = fieldsOf(n)
         .filter((f) => n.data[f])
-        .map((f) => `${t(`field.${n.type}.${f}`)}：${n.data[f]}`);
+        .map((f) => `${fieldLabel(n.type, f)}：${n.data[f]}`);
     // 約定／待辦：哪天約定的、推算出來的預定日期（模型沒寫 due 時）。
     const { made, due, guessed } = noteDates(n);
-    if (guessed) parts.push(`${t(`field.${n.type}.due`)}：${due}`);
+    if (guessed) parts.push(`${fieldLabel(n.type, 'due')}：${due}`);
     if (made) parts.push(`${t(`notes.made.${n.type}`)}：${made}`);
     return `${typeLabel(n.type)}｜${parts.join('｜')}`;
 }

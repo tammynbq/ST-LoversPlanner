@@ -2,7 +2,7 @@
 // 第一版只有設定頁是完整的，其他分頁先放「製作中」的說明。
 
 import { ctx, escapeHtml as esc, hasCharacterChat, isGroupChat, isTauriTavern, LOG_PREFIX, toast } from '../util.js';
-import { getPath, getSettings, isTracked, saveSettings, setPath } from '../settings.js';
+import { CHARACTER_FIELDS, getPath, getSettings, isTracked, saveSettings, setPath } from '../settings.js';
 import { currentLocale, detectHostLocale, LOCALE_NAMES, LOCALES, t } from '../i18n.js';
 import { getTemplate, isTemplateModified, resetTemplate, setTemplate, TEMPLATE_KEYS, TEMPLATE_VARS } from '../prompts.js';
 import { listModels, normalizeBaseUrl, testConnection } from '../api/custom.js';
@@ -38,7 +38,7 @@ import {
 } from '../calendar.js';
 import {
     addNoteManual, changeQuantity, closedNotes, completeNoteManual, deleteNoteManual, getNotes, NOTE_FIELDS, NOTE_TYPES,
-    DATE_FIELDS, noteTitle, NUMBER_FIELDS,
+    DATE_FIELDS, fieldLabel, fieldsOf, leadRoles, noteTitle, NUMBER_FIELDS, setRoleManual,
     notesOfType, onNotesChange, pinNoteManual, reopenNoteManual, resultLabel, typeLabel, updateNoteManual,
 } from '../notes.js';
 import {
@@ -1231,11 +1231,11 @@ function noteTrace(note) {
 }
 
 function noteForm(type, data, { id = null } = {}) {
-    const fields = NOTE_FIELDS[type].map((f, i) => {
+    const fields = (id ? fieldsOf({ type, data }) : NOTE_FIELDS[type]).map((f, i) => {
         const num = NUMBER_FIELDS.has(f);
         const attrs = num ? 'type="number" min="0" step="1" inputmode="numeric"' : DATE_FIELDS.has(f) ? 'type="date"' : 'type="text"';
         return `
-      <label class="lp-field"><span class="lp-label">${esc(t(`field.${type}.${f}`))}</span>
+      <label class="lp-field"><span class="lp-label">${esc(fieldLabel(type, f))}</span>
         <input ${attrs} class="text_pole" data-note-field="${f}" value="${esc(data?.[f] ?? '')}"${i === 0 ? ' data-autofocus' : ''}></label>`;
     }).join('');
     return `
@@ -1248,11 +1248,28 @@ function noteForm(type, data, { id = null } = {}) {
       </div>`;
 }
 
-function noteActions(note) {
-    const btn = (act, key, extra = '') =>
-        `<button type="button" class="menu_button lp-btn lp-mini" data-action="${act}" data-id="${note.id}"${extra}>${esc(t(key))}</button>`;
+/** 「{{user}}：米米」這樣的主角標籤。 */
+function roleLabel(role) {
+    const c = ctx();
+    return t(`notes.role.${role}`, { name: (role === 'user' ? c?.name1 : c?.name2) || '' });
+}
+
+function noteActions(note, roles = null) {
+    const btn = (act, key, extra = '', vars = {}) =>
+        `<button type="button" class="menu_button lp-btn lp-mini" data-action="${act}" data-id="${note.id}"${extra}>${esc(t(key, vars))}</button>`;
     const out = [btn('note-edit', 'notes.act.edit'),
         btn('note-pin', note.pinned ? 'notes.act.unpin' : 'notes.act.pin', ` data-on="${Boolean(note.pinned)}" aria-pressed="${Boolean(note.pinned)}"`)];
+    if (note.type === 'character') {
+        // 指定這個人物是 {{user}} 還是 {{char}}（自動認錯的時候用）。手動指定的才能取消。
+        const c = ctx();
+        const current = roles?.get(note.id) ?? null;
+        for (const role of ['user', 'char']) {
+            const on = current === role;
+            const name = (role === 'user' ? c?.name1 : c?.name2) || '';
+            if (on && note.role === role) out.push(btn('note-role', `notes.act.unrole`, ` data-role-set="" aria-pressed="true"`, { name }));
+            else if (!on) out.push(btn('note-role', `notes.act.role.${role}`, ` data-role-set="${role}" aria-pressed="false"`, { name }));
+        }
+    }
     if (note.type === 'item') out.push(btn('note-complete', 'notes.act.used', ' data-result="used"'));
     if (note.type === 'todo') out.push(btn('note-complete', 'notes.act.done', ' data-result="done"'));
     if (note.type === 'promise' && note.state === 'active') {
@@ -1294,7 +1311,7 @@ function datesLine(note, today) {
     if (made) parts.push(`<span class="lp-label">${esc(t(`notes.made.${note.type}`))}</span> ${esc(`${made}（${weekdayName(made)}）`)}`);
     if (due) {
         const how = guessed ? ` <span class="lp-note">${esc(from === 'when' ? t('notes.guessed.when', { text: note.data.when }) : t('notes.guessed.content'))}</span>` : '';
-        parts.push(`<span class="lp-label">${esc(t(`field.${note.type}.due`))}</span> ${esc(`${due}（${weekdayName(due)}）`)}${today ? ` <span class="lp-note">${esc(dueText(due, today).split('・')[1] ?? '')}</span>` : ''}${how}`);
+        parts.push(`<span class="lp-label">${esc(fieldLabel(note.type, 'due'))}</span> ${esc(`${due}（${weekdayName(due)}）`)}${today ? ` <span class="lp-note">${esc(dueText(due, today).split('・')[1] ?? '')}</span>` : ''}${how}`);
     }
     return parts.length ? `<div class="lp-note-line lp-note-dates">${parts.join('<span class="lp-dot"> · </span>')}</div>` : '';
 }
@@ -1302,7 +1319,7 @@ function datesLine(note, today) {
 /** 收起時那一行的副標：人物顯示身份／關係，物件顯示在誰手上，約定顯示和誰、時間。 */
 function noteSub(note) {
     const d = note.data;
-    if (note.type === 'character') return [d.identity, d.relation].filter(Boolean).join(' · ');
+    if (note.type === 'character') return [d.identity, d.relUser || d.relChar || d.relation].filter(Boolean).join(' · ');
     if (note.type === 'item') return d.holder ?? '';
     if (note.type === 'promise') return [d.with, d.when].filter(Boolean).join(' · ');
     if (note.type === 'todo') return d.when ?? '';
@@ -1310,25 +1327,27 @@ function noteSub(note) {
 }
 
 /** 記事卡片：平常只顯示一行，點開才有全部欄位和按鈕。搜尋時符合的自動展開。 */
-function noteCard(note, query = '', today = null) {
+function noteCard(note, query = '', today = null, roles = null) {
     if (view.notes.editing === note.id) return noteForm(note.type, note.data, { id: note.id });
     const key = `note:${note.id}`;
     const open = isExpanded(key) || Boolean(query);
     const qtyTag = note.type === 'item' && note.data.quantity !== undefined ? `<span class="lp-qty-tag">×${esc(note.data.quantity)}</span>` : '';
     const broken = note.state === 'broken' ? `<span class="lp-badge lp-st-fail">${esc(resultLabel('broken'))}</span>` : '';
     const sub = noteSub(note);
+    const role = roles?.get(note.id);
+    const roleTag = role ? `<span class="lp-badge lp-role-tag" data-role-tag="${role}">${esc(roleLabel(role))}</span>` : '';
     const head = `
         <button type="button" class="lp-row-head" data-action="fold" data-key="${esc(key)}" aria-expanded="${open}">
           <span class="lp-sum-chev" aria-hidden="true">${open ? '▾' : '▸'}</span>
           <span class="lp-note-title">${hl(noteTitle(note), query)}</span>
-          ${note.pinned ? `<span class="lp-pin-tag" title="${esc(t('notes.pinned'))}" aria-label="${esc(t('notes.pinned'))}">📌</span>` : ''}${qtyTag}${broken}${dueTag(note, today)}
+          ${note.pinned ? `<span class="lp-pin-tag" title="${esc(t('notes.pinned'))}" aria-label="${esc(t('notes.pinned'))}">📌</span>` : ''}${roleTag}${qtyTag}${broken}${dueTag(note, today)}
           ${!open && sub ? `<span class="lp-row-preview">${hl(sub, query)}</span>` : ''}
         </button>`;
     if (!open) return `<div class="lp-note-card lp-folded${note.state === 'broken' ? ' lp-note-broken' : ''}" data-fold-key="${esc(key)}">${head}</div>`;
     const titleField = NOTE_FIELDS[note.type][0];
-    const lines = NOTE_FIELDS[note.type]
+    const lines = fieldsOf(note)
         .filter((f) => f !== titleField && !NUMBER_FIELDS.has(f) && !DATE_FIELDS.has(f) && note.data[f])
-        .map((f) => `<div class="lp-note-line"><span class="lp-label">${esc(t(`field.${note.type}.${f}`))}</span> ${hl(note.data[f], query)}</div>`)
+        .map((f) => `<div class="lp-note-line"><span class="lp-label">${esc(fieldLabel(note.type, f))}</span> ${hl(note.data[f], query)}</div>`)
         .join('');
     // 物件的數量：直接用 −／＋ 改。
     const qty = note.type === 'item' ? `
@@ -1345,7 +1364,7 @@ function noteCard(note, query = '', today = null) {
         ${lines}
         ${datesLine(note, today)}
         ${noteTrace(note)}
-        ${noteActions(note)}
+        ${noteActions(note, roles)}
       </div>`;
 }
 
@@ -1353,6 +1372,7 @@ function renderNotesTab(types = NOTE_TYPES) {
     if (!isActive()) return '';
     const query = view.query[view.tab] ?? '';
     const today = storyToday();
+    const roles = types.includes('character') ? leadRoles() : null;
     const dated = types.includes('promise') || types.includes('todo');
     const sections = types.map((type) => {
         // 進行中的在前，被打破的約定在後。
@@ -1377,7 +1397,7 @@ function renderNotesTab(types = NOTE_TYPES) {
               <button type="button" class="menu_button lp-btn lp-mini" data-action="note-add" data-type="${type}">${esc(t('notes.add'))}</button>
             </div>
             ${adding}
-            ${open ? `<div class="lp-card-grid">${list.map((n) => noteCard(n, query, today)).join('')}</div>` : ''}
+            ${open ? `<div class="lp-card-grid">${list.map((n) => noteCard(n, query, today, roles)).join('')}</div>` : ''}
           </section>`;
     }).join('');
     const empty = types.every((type) => !notesOfType(type).length) && !view.notes.adding
@@ -1521,9 +1541,9 @@ function renderGlobalSearch() {
 /** 總搜尋結果的副標：列出哪些欄位符合（標題本身符合的不重複列）。 */
 function matchedFields(note, query) {
     const titleField = NOTE_FIELDS[note.type][0];
-    return NOTE_FIELDS[note.type]
+    return fieldsOf(note)
         .filter((f) => f !== titleField && note.data[f] && terms(query).some((x) => String(note.data[f]).toLowerCase().includes(x)))
-        .map((f) => `${t(`field.${note.type}.${f}`)}：${note.data[f]}`)
+        .map((f) => `${fieldLabel(note.type, f)}：${note.data[f]}`)
         .join('｜');
 }
 
@@ -1544,7 +1564,7 @@ function saveNoteForm(form) {
     const id = form.dataset.noteForm;
     const ok = id ? updateNoteManual(id, data) : addNoteManual(type, data);
     if (!ok) {
-        toast(t('notes.titleRequired', { field: t(`field.${type}.${NOTE_FIELDS[type][0]}`) }), 'warning');
+        toast(t('notes.titleRequired', { field: fieldLabel(type, NOTE_FIELDS[type][0]) }), 'warning');
         form.querySelector('[data-note-field]')?.focus();
         return;
     }
@@ -1782,7 +1802,9 @@ function renderSettings() {
     const track = `
       <div class="lp-note">${esc(t('set.track.desc'))}</div>
       <div class="lp-track-group"><span class="lp-label">${esc(t('set.track.scene'))}</span>${['time', 'location', 'cast'].map(trackItem).join('')}</div>
-      <div class="lp-track-group"><span class="lp-label">${esc(t('set.track.notes'))}</span>${['character', 'item', 'promise', 'todo'].map(trackItem).join('')}</div>`;
+      <div class="lp-track-group"><span class="lp-label">${esc(t('set.track.notes'))}</span>${['character', 'item', 'promise', 'todo'].map(trackItem).join('')}</div>
+      ${isTracked('character') ? `<div class="lp-track-group" data-role="char-fields"><span class="lp-label">${esc(t('set.track.charFields'))}</span>${CHARACTER_FIELDS.filter((f) => f !== 'name').map((f) => checkbox(`track.fields.${f}`, fieldLabel('character', f))).join('')}</div>
+      <div class="lp-note">${esc(t('set.track.charFields.note'))}</div>` : ''}`;
 
     const c = s.calendar;
     const calendar = `
@@ -2168,6 +2190,10 @@ function onClick(e) {
             return;
         case 'note-pin':
             pinNoteManual(btn.dataset.id, btn.dataset.on !== 'true');
+            render();
+            return;
+        case 'note-role':
+            setRoleManual(btn.dataset.id, btn.dataset.roleSet || null);
             render();
             return;
         case 'sum-filter':

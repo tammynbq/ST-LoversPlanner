@@ -81,7 +81,7 @@ function isShared(type) {
 function plainNote(n, updatedAt) {
     return {
         id: n.id, type: n.type, data: { ...n.data }, state: n.state, result: n.result ?? null,
-        pinned: Boolean(n.pinned), updatedAt: Number(updatedAt) || 0, ...(n.source ? { source: n.source } : {}),
+        pinned: Boolean(n.pinned), ...(n.role ? { role: n.role } : {}), updatedAt: Number(updatedAt) || 0, ...(n.source ? { source: n.source } : {}),
     };
 }
 
@@ -104,7 +104,7 @@ function baseNotes() {
 
 function sameNote(a, b) {
     return a && b && a.state === b.state && (a.result ?? null) === (b.result ?? null)
-        && Boolean(a.pinned) === Boolean(b.pinned) && JSON.stringify(a.data) === JSON.stringify(b.data);
+        && Boolean(a.pinned) === Boolean(b.pinned) && (a.role ?? null) === (b.role ?? null) && JSON.stringify(a.data) === JSON.stringify(b.data);
 }
 
 /** 完整重播後：共用的類型，把這個聊天看到的結果寫回共用的那份（以最新的修改為準）。 */

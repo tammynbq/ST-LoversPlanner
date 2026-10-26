@@ -2,7 +2,7 @@
 // 沒勾的項目在提示詞裡完全不出現，模型也就不會回報。
 
 import { currentLocale } from './i18n.js';
-import { getSettings, isTracked, trackedNoteTypes } from './settings.js';
+import { charFields, getSettings, isTracked, trackedNoteTypes } from './settings.js';
 import { NOTE_FIELDS } from './notes.js';
 import { CAL_TYPES, calendarOn, calTracked, normDate } from './calendar.js';
 import { memoriesOn } from './memories.js';
@@ -18,7 +18,26 @@ const TEXT = {
         noComment: '不要評論，不要加入原文沒有的內容。',
         ops: 'ops：對照目前的記事清單，只記之後劇情還會用到的變化，寧缺勿濫：',
         opsAdd: '新增用 add，type 是 {types}。更新或結束已有的記事時，用清單裡方括號中的 id。',
-        character: 'character：包括 {char} 和 {user} 在內的重要人物。記下之後會用到的個人資料：身份（identity）、和主角的關係（relation）、外貌（appearance）、當前衣著（outfit，換了衣服就更新）、狀態（status）、喜歡（likes）、不喜歡（dislikes）、習慣或重要經歷（note）。有新發現時用 update 補上，不要每層重複寫一樣的內容。人物不會被移除，只用 update 更新狀態（例如離開、死亡）。',
+        character: 'character：包括 {char} 和 {user} 在內的重要人物。每個欄位只寫屬於它的內容，不要混在一起：',
+        charFields: {
+            name: 'name：一個主要的名字',
+            alias: 'alias：別稱、暱稱、別人怎麼稱呼他',
+            identity: 'identity：身份、職業',
+            age: 'age：年齡',
+            birthday: 'birthday：生日',
+            relUser: 'relUser：和 {user} 的關係（{user} 本人那條不用寫）',
+            relChar: 'relChar：和 {char} 的關係（{char} 本人那條不用寫）',
+            appearance: 'appearance：外貌和身體特徵（長相、身材、髮型、疤痕、刺青…）',
+            outfit: 'outfit：當前衣著，換了衣服就更新',
+            status: 'status：當前狀態（身體、情緒、處境），有變就更新；離開、死亡也寫在這裡',
+            personality: 'personality：性格',
+            likes: 'likes：喜歡的東西',
+            dislikes: 'dislikes：討厭的東西',
+            habits: 'habits：習慣、小動作、口頭禪',
+            history: 'history：重要的經歷、過去',
+            note: 'note：放不進上面任何欄位的才寫這裡（外貌、喜好等不要寫在 note）',
+        },
+        charMore: '有新發現時用 update 只補上變了的欄位，不要每層重複寫一樣的內容。人物不會被移除。清單裡標了「主角：」的就是 {user}／{char} 本人，更新他們的資料用那一條的 id，不要另外新增。',
         item: 'item：只記 {char} 和 {user} 的所有物，其他人的東西不用記。一件東西一條，數量寫在 quantity（只寫數字）。在兩人之間轉手時用 update 改 holder；用掉一部分時用 update 改 quantity；全部用完、遺失、送給別人時用 complete，result 是 used／lost／gone。',
         promise: 'promise 是和別人的約定或承諾。履行用 complete 加 kept；被打破用 complete 加 broken。',
         todo: 'todo 是主角自己打算做的事。完成用 complete 加 done。',
@@ -51,7 +70,26 @@ const TEXT = {
         noComment: '不要评论，不要加入原文没有的内容。',
         ops: 'ops：对照当前的记事清单，只记之后剧情还会用到的变化，宁缺毋滥：',
         opsAdd: '新增用 add，type 是 {types}。更新或结束已有的记事时，用清单里方括号中的 id。',
-        character: 'character：包括 {char} 和 {user} 在内的重要人物。记下之后会用到的个人资料：身份（identity）、和主角的关系（relation）、外貌（appearance）、当前衣着（outfit，换了衣服就更新）、状态（status）、喜欢（likes）、不喜欢（dislikes）、习惯或重要经历（note）。有新发现时用 update 补上，不要每层重复写一样的内容。人物不会被移除，只用 update 更新状态（例如离开、死亡）。',
+        character: 'character：包括 {char} 和 {user} 在内的重要人物。每个栏位只写属于它的内容，不要混在一起：',
+        charFields: {
+            name: 'name：一个主要的名字',
+            alias: 'alias：别称、昵称、别人怎么称呼他',
+            identity: 'identity：身份、职业',
+            age: 'age：年龄',
+            birthday: 'birthday：生日',
+            relUser: 'relUser：和 {user} 的关系（{user} 本人那条不用写）',
+            relChar: 'relChar：和 {char} 的关系（{char} 本人那条不用写）',
+            appearance: 'appearance：外貌和身体特征（长相、身材、发型、疤痕、纹身…）',
+            outfit: 'outfit：当前衣着，换了衣服就更新',
+            status: 'status：当前状态（身体、情绪、处境），有变就更新；离开、死亡也写在这里',
+            personality: 'personality：性格',
+            likes: 'likes：喜欢的东西',
+            dislikes: 'dislikes：讨厌的东西',
+            habits: 'habits：习惯、小动作、口头禅',
+            history: 'history：重要的经历、过去',
+            note: 'note：放不进上面任何栏位的才写这里（外貌、喜好等不要写在 note）',
+        },
+        charMore: '有新发现时用 update 只补上变了的栏位，不要每层重复写一样的内容。人物不会被移除。清单里标了「主角：」的就是 {user}／{char} 本人，更新他们的资料用那一条的 id，不要另外新增。',
         item: 'item：只记 {char} 和 {user} 的所有物，其他人的东西不用记。一件东西一条，数量写在 quantity（只写数字）。在两人之间转手时用 update 改 holder；用掉一部分时用 update 改 quantity；全部用完、遗失、送给别人时用 complete，result 是 used／lost／gone。',
         promise: 'promise 是和别人的约定或承诺。履行用 complete 加 kept；被打破用 complete 加 broken。',
         todo: 'todo 是主角自己打算做的事。完成用 complete 加 done。',
@@ -84,7 +122,26 @@ const TEXT = {
         noComment: "Don't comment and don't add anything that isn't in the text.",
         ops: 'ops: compare with the current notes and record only changes the story will need later. Less is more:',
         opsAdd: 'Use add with type {types} for new ones. To update or finish an existing note, use the id in square brackets from the list.',
-        character: 'character: important characters, including {char} and {user}. Record personal details the story may need: identity, relationship to the leads (relation), appearance, current outfit (outfit; update it when they change clothes), status, likes, dislikes, and habits or key experiences (note). Use update to add new findings; don\'t repeat the same details every floor. Characters are never removed; only use update to change their status (e.g. left, died).',
+        character: 'character: important characters, including {char} and {user}. Put each detail only in the field it belongs to:',
+        charFields: {
+            name: 'name: one main name',
+            alias: 'alias: other names, nicknames, what others call them',
+            identity: 'identity: role, occupation',
+            age: 'age',
+            birthday: 'birthday',
+            relUser: 'relUser: relationship to {user} (leave empty on {user}\'s own entry)',
+            relChar: 'relChar: relationship to {char} (leave empty on {char}\'s own entry)',
+            appearance: 'appearance: looks and physical features (face, build, hair, scars, tattoos…)',
+            outfit: 'outfit: what they are wearing now; update it when they change',
+            status: 'status: current state (body, mood, situation); update when it changes, including leaving or dying',
+            personality: 'personality',
+            likes: 'likes',
+            dislikes: 'dislikes',
+            habits: 'habits: habits, mannerisms, catchphrases',
+            history: 'history: important past experiences',
+            note: 'note: only what fits none of the fields above (never put looks or likes here)',
+        },
+        charMore: 'When you learn something new, update only the fields that changed; don\'t repeat the same details every floor. Characters are never removed. Entries marked "Lead:" are {user} / {char} themselves: update them by that id, never add another entry for them.',
         item: 'item: only things owned by {char} or {user}; other people\'s belongings are not recorded. One entry per item, with the count in quantity (a number only). When it changes hands between them, update holder; when part of it is used, update quantity; when all used up, lost or given to someone else, use complete with result used / lost / gone.',
         promise: 'promise is a commitment made with someone. Kept: complete + kept; broken: complete + broken.',
         todo: 'todo is something a lead plans to do. Finished: complete + done.',
@@ -140,7 +197,15 @@ export function buildL1Parts({ length, char, user, chapter = false, previousDate
     rules.push([fill(chapter ? T.summaryChapter : T.summary, vars), ...summarySub.map((x) => `   - ${x}`)].join('\n'));
     if (types.length) {
         const sub = [fill(T.opsAdd, { types: types.join(T.sep) })];
-        for (const type of types) sub.push(fill(T[type], vars));
+        for (const type of types) {
+            if (type !== 'character') {
+                sub.push(fill(T[type], vars));
+                continue;
+            }
+            // 人物：逐欄說明（只列有勾選的欄位），免得模型把外貌寫進備註。
+            const fields = charFields().map((f) => `     · ${fill(T.charFields[f], vars)}`);
+            sub.push([fill(T.character, vars), ...fields, `     ${fill(T.charMore, vars)}`].join('\n'));
+        }
         if (types.includes('promise') && types.includes('todo')) sub.push(T.both);
         // 預定日期要靠故事日期換算，沒開行事曆就不要求。
         if (cal && (types.includes('promise') || types.includes('todo'))) sub.push(T.due);
@@ -171,7 +236,7 @@ export function buildL1Parts({ length, char, user, chapter = false, previousDate
     if (types.length) {
         lines.push('  "summary": "…",', '  "ops": [');
         const ex = types.map((type) => {
-            const fields = NOTE_FIELDS[type].filter((f) => f !== 'due' || cal);
+            const fields = type === 'character' ? charFields() : NOTE_FIELDS[type].filter((f) => f !== 'due' || cal);
             const data = fields.map((f) => `"${f}": ${f === 'quantity' ? '1' : f === 'due' ? '"YYYY-MM-DD"' : '"…"'}`).join(', ');
             return `    { "op": "add", "type": "${type}", "data": { ${data} } }`;
         });
