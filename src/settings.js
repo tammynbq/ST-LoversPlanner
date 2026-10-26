@@ -65,8 +65,6 @@ export const DEFAULTS = Object.freeze({
         enabled: true,
         track: { plan: true, period: true, intimacy: true, anniversary: true },
         start: '',
-        periodCycle: 28,
-        periodLength: 5,
         inject: true,
         ahead: 7,
     },

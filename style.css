@@ -665,7 +665,6 @@
 .lp-cal-period { background: color-mix(in srgb, #e5534b 14%, transparent); }
 .lp-cal-num { font-size: 0.85em; line-height: 1.4; }
 .lp-cal-marks { display: flex; flex-wrap: wrap; justify-content: center; gap: 1px; font-size: 0.7em; line-height: 1.2; }
-.lp-cal-pred { opacity: 0.4; }
 .lp-cal-status { display: flex; flex-direction: column; gap: 0.2em; }
 .lp-cal-day { display: flex; flex-direction: column; gap: 0.4em; padding: 0.7em 0.8em; }
 .lp-cal-day .lp-row { flex-wrap: wrap; gap: 0.4em; align-items: center; }

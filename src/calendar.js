@@ -170,11 +170,14 @@ export function restoreRemoved() {
 
 // ===== 算出行事曆 =====
 
+/** 生理期沒記到「結束」時，最多當作持續幾天（只用來在月曆上標出來）。 */
+const OPEN_DAYS = 10;
+
 /**
  * 回傳 {
  *   today: 'YYYY-MM-DD' | null（最新一個有日期的樓層），
  *   items: [{ type, date, title?, count?, state?, source: 'floor'|'manual', floor?, key?, id? }],
- *   periods: [{ start, end, assumed }], cycle, length, next: 下次預計開始 | null,
+ *   periods: [{ start, end, open }]（open：沒記到結束）,
  *   removedCount,
  * }
  */
@@ -204,26 +207,23 @@ export function buildCalendar() {
     for (const ev of rec?.manual ?? []) if (calTracked(ev.type)) items.push({ ...ev, source: 'manual' });
     if (!today) today = normDate(s.start) || null;
 
-    // 生理期：每次開始，配上之後（下次開始之前）的第一個結束；沒記結束就當作持續「每次幾天」。
-    const length = Math.max(1, Number(s.periodLength) || 5);
+    // 生理期（v0.13.1 使用者要求：不是每個人都有固定週期，不設週期、不預測）：
+    // 只記劇情裡提到的開始和結束。每次開始配上之後（下次開始之前）的第一個結束；
+    // 沒記到結束的，最多算 OPEN_DAYS 天（也不超過下次開始的前一天）。
     const starts = [...new Set(items.filter((x) => x.type === 'period' && x.state === 'start').map((x) => x.date))].sort();
     const ends = items.filter((x) => x.type === 'period' && x.state === 'end').map((x) => x.date).sort();
     const periods = starts.map((start, k) => {
         const nextStart = starts[k + 1];
         const end = ends.find((x) => x >= start && (!nextStart || x < nextStart));
-        return { start, end: end ?? addDays(start, length - 1), assumed: !end };
+        if (end) return { start, end, open: false };
+        let last = addDays(start, OPEN_DAYS - 1);
+        if (nextStart && last >= nextStart) last = addDays(nextStart, -1);
+        return { start, end: last, open: true };
     });
-    const diffs = [];
-    for (let k = 1; k < starts.length; k++) {
-        const d = daysBetween(starts[k - 1], starts[k]);
-        if (d >= 15 && d <= 60) diffs.push(d);
-    }
-    const cycle = diffs.length ? Math.round(diffs.reduce((a, b) => a + b, 0) / diffs.length) : Math.max(15, Number(s.periodCycle) || 28);
-    const next = starts.length ? addDays(starts[starts.length - 1], cycle) : null;
-    return { today, items, periods, cycle, length, next, removedCount: removed.size };
+    return { today, items, periods, removedCount: removed.size };
 }
 
-/** 某一天的內容：{ plans, anniversaries, intimacy, intimacyItems, periodItems, period: 'actual'|'predicted'|null, periodDay }。 */
+/** 某一天的內容：{ items, plans, anniversaries, intimacy, period: 'actual'|null, periodDay, periodOpen }。 */
 export function dayInfo(cal, date) {
     const md = date.slice(5);
     const on = cal.items.filter((x) => (x.type === 'anniversary' ? x.date === md : x.date === date));
@@ -234,20 +234,13 @@ export function dayInfo(cal, date) {
         intimacy: on.filter((x) => x.type === 'intimacy').reduce((n, x) => n + (Number(x.count) || 1), 0),
         period: null,
         periodDay: 0,
+        periodOpen: false,
     };
     const p = cal.periods.find((x) => date >= x.start && date <= x.end);
     if (p) {
         info.period = 'actual';
         info.periodDay = daysBetween(p.start, date) + 1;
-    } else if (cal.next && calTracked('period')) {
-        // 預測接下來三次。
-        for (let k = 0; k < 3; k++) {
-            const start = addDays(cal.next, k * cal.cycle);
-            if (date >= start && date <= addDays(start, cal.length - 1)) {
-                info.period = 'predicted';
-                break;
-            }
-        }
+        info.periodOpen = p.open;
     }
     return info;
 }
@@ -272,20 +265,21 @@ export function upcoming(cal, ahead = Number(getSettings().calendar?.ahead) || 7
             if (d <= end) out.push({ date: d, kind: 'anniversary', title: x.title });
         }
     }
-    if (calTracked('period') && cal.next && cal.next > cal.today && cal.next <= end && !dayInfo(cal, cal.today).period) {
-        out.push({ date: cal.next, kind: 'period' });
-    }
     return out.map((x) => ({ ...x, in: daysBetween(cal.today, x.date) })).sort((a, b) => a.date.localeCompare(b.date));
 }
 
-/** 今天的生理期狀態：{ kind: 'during', day } | { kind: 'until', days, date } | { kind: 'late', days } | null。 */
+/**
+ * 今天的生理期狀態：{ kind: 'during', day, open } | { kind: 'last', date, days }（上次開始是哪天、幾天前）| null。
+ * 不預測下一次。
+ */
 export function periodStatus(cal) {
     if (!calTracked('period') || !cal.today) return null;
     const info = dayInfo(cal, cal.today);
-    if (info.period === 'actual') return { kind: 'during', day: info.periodDay };
-    if (!cal.next) return null;
-    const d = daysBetween(cal.today, cal.next);
-    return d >= 0 ? { kind: 'until', days: d, date: cal.next } : { kind: 'late', days: -d };
+    if (info.period === 'actual') return { kind: 'during', day: info.periodDay, open: info.periodOpen };
+    const past = cal.periods.filter((x) => x.start <= cal.today);
+    if (!past.length) return null;
+    const last = past[past.length - 1].start;
+    return { kind: 'last', date: last, days: daysBetween(last, cal.today) };
 }
 
 // ===== 送給角色的文字 =====
@@ -298,9 +292,8 @@ export function calendarInjection() {
     const user = ctx()?.name1 ?? '';
     const lines = [t('cal.inject.today', { date: cal.today, weekday: weekdayName(cal.today, 'long') })];
     const p = periodStatus(cal);
+    // 只在生理期中告訴角色（不預測、不提醒「快來了」）。
     if (p?.kind === 'during') lines.push(t('cal.inject.during', { user, day: p.day }));
-    else if (p?.kind === 'until' && p.days <= (Number(s.ahead) || 7)) lines.push(t('cal.inject.until', { user, days: p.days, date: p.date.slice(5) }));
-    else if (p?.kind === 'late') lines.push(t('cal.inject.late', { user, days: p.days }));
     const today = dayInfo(cal, cal.today);
     if (today.intimacy) lines.push(t('cal.inject.intimacy', { n: today.intimacy }));
     const list = upcoming(cal).filter((x) => x.kind !== 'period');

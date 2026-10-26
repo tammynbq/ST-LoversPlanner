@@ -1,4 +1,4 @@
-// 行事曆：提示詞、日期延續、事件、生理期推算、接下來的事、注入、月曆畫面、手動新增／刪除、關掉。
+// 行事曆：提示詞、日期延續、事件、生理期（只記開始／結束，不預測）、接下來的事、注入、月曆畫面、手動新增／刪除、關掉。
 import { createRequire } from 'node:module';
 import { execSync } from 'node:child_process';
 const require = createRequire(import.meta.url);
@@ -91,9 +91,9 @@ let cal = await page.evaluate(async () => {
   return { today: cal.today, periods: cal.periods, next: cal.next, cycle: cal.cycle, status: c.periodStatus(cal), up: c.upcoming(cal) };
 });
 check('today is latest dated floor', cal.today === '2025-03-05');
-check('period from start to end', JSON.stringify(cal.periods) === JSON.stringify([{ start: '2025-03-02', end: '2025-03-04', assumed: false }]), JSON.stringify(cal.periods));
-check('next period predicted with default cycle', cal.next === '2025-03-30' && cal.cycle === 28);
-check('period status: until', cal.status.kind === 'until' && cal.status.days === 25, JSON.stringify(cal.status));
+check('period from start to end', JSON.stringify(cal.periods) === JSON.stringify([{ start: '2025-03-02', end: '2025-03-04', open: false }]), JSON.stringify(cal.periods));
+check('no cycle, no prediction', cal.next === undefined && cal.cycle === undefined);
+check('period status: last one', cal.status.kind === 'last' && cal.status.date === '2025-03-02' && cal.status.days === 3, JSON.stringify(cal.status));
 check('upcoming within 7 days', cal.up.map((x) => `${x.date}:${x.kind}:${x.in}`).join() === '2025-03-08:plan:3,2025-03-10:anniversary:5', JSON.stringify(cal.up));
 
 // ===== 3. 注入 =====
@@ -121,7 +121,8 @@ check('period days marked', Boolean(await page.$('[data-date="2025-03-03"].lp-ca
 check('plan marked', (await page.textContent('[data-date="2025-03-08"]')).includes('📌'));
 check('anniversary marked', (await page.textContent('[data-date="2025-03-10"]')).includes('🎂'));
 check('intimacy marked with count', (await page.textContent('[data-date="2025-03-02"]')).includes('💕2'));
-check('predicted period faint', Boolean(await page.$('[data-date="2025-03-30"] .lp-cal-pred')));
+check('nothing predicted', !(await page.textContent('[data-date="2025-03-30"]')).includes('🩸') && !(await page.textContent('[data-role="cal-status"]')).includes('預計'));
+check('status shows last period', (await page.textContent('[data-role="cal-status"]')).includes('上次生理期：2025-03-02 開始（3 天前）'));
 await page.screenshot({ path: `${OUT}/calendar.png`, fullPage: true });
 
 // 手動新增：今天親熱 1 次
@@ -140,16 +141,25 @@ check('restore offered', await page.isVisible('[data-action="cal-restore"]'));
 await page.click('[data-action="cal-restore"]');
 check('restored', (await page.textContent('[data-date="2025-03-08"]')).includes('📌'));
 
-// 第二次生理期：週期改用實際的
+// 第二次生理期：只記了開始 → 最多標 10 天
 await page.click('[data-date="2025-03-28"]');
 await page.selectOption('[data-role="cal-type"]', 'period');
 await page.click('[data-action="cal-add"]');
-cal = await page.evaluate(async () => { const c = await import('/src/calendar.js'); const x = c.buildCalendar(); return { cycle: x.cycle, next: x.next }; });
-check('cycle from actual data', cal.cycle === 26 && cal.next === '2025-04-23', JSON.stringify(cal));
+cal = await page.evaluate(async () => { const c = await import('/src/calendar.js'); return c.buildCalendar().periods; });
+check('open period capped at 10 days', JSON.stringify(cal[1]) === JSON.stringify({ start: '2025-03-28', end: '2025-04-06', open: true }), JSON.stringify(cal));
 await page.click('[data-action="cal-month"][data-delta="1"]');
 check('next month', (await page.textContent('[data-role="cal-title"]')).includes('4'));
-check('assumed period runs into April', Boolean(await page.$('[data-date="2025-04-01"].lp-cal-period')));
+check('open period runs into April', Boolean(await page.$('[data-date="2025-04-01"].lp-cal-period')) && !(await page.$('[data-date="2025-04-07"].lp-cal-period')));
 await page.screenshot({ path: `${OUT}/calendar-april.png`, fullPage: true });
+
+// 今天開始：告訴角色正在生理期（只說今天，不預測）
+await page.click('[data-action="cal-month"][data-delta="-1"]');
+await page.click('[data-date="2025-03-05"]');
+await page.selectOption('[data-role="cal-type"]', 'period');
+await page.click('[data-action="cal-add"]');
+check('status: during, no end yet', (await page.textContent('[data-role="cal-status"]')).includes('生理期第 1 天') && (await page.textContent('[data-role="cal-status"]')).includes('還沒記到結束'));
+r = await page.evaluate(() => window.__runInterceptor('normal'));
+check('during injected', r.injection.value.includes('正在生理期，第 1 天'), r.injection.value);
 
 // ===== 6. 編輯器有日期 =====
 const hasDate = await page.evaluate(() => {
