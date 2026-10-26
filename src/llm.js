@@ -2,6 +2,7 @@
 
 import { ctx } from './util.js';
 import { getSettings } from './settings.js';
+import { t } from './i18n.js';
 import { ApiError, chatCompletion } from './api/custom.js';
 
 /** 回覆是空的、或只有服務商自己的通知時，自動重試幾次（間隔）。 */
@@ -42,17 +43,30 @@ export async function generateText(prompt, opts = {}) {
     }
 }
 
+/**
+ * 每次呼叫模型時放在最前面的系統提示詞（v0.13.4，使用者要求）：
+ *   adultNote：說明這是成年人、雙方同意的虛構故事，親密段落照實、簡短、不露骨地記下（模型比較不會拒絕或回空）；
+ *   preface：使用者自訂的前言（例如自己預設裡的說明）。
+ * 注意：服務商在 API 那層擋掉的，提示詞救不了，只能換模型或服務商。
+ */
+export function systemText() {
+    const s = getSettings().model ?? {};
+    return [s.adultNote ? t('prompt.adultNote') : '', String(s.preface ?? '').trim()].filter(Boolean).join('\n\n');
+}
+
 async function generateOnce(prompt, { maxTokens = 512 } = {}) {
     const s = getSettings();
+    const system = systemText();
     if (s.source === 'custom') {
         if (!s.custom.url || !s.custom.model) throw new ApiError('need_custom');
-        const { text } = await chatCompletion(s.custom, [{ role: 'user', content: prompt }], { maxTokens });
+        const messages = [...(system ? [{ role: 'system', content: system }] : []), { role: 'user', content: prompt }];
+        const { text } = await chatCompletion(s.custom, messages, { maxTokens });
         return text;
     }
     const c = ctx();
     if (typeof c?.generateRaw !== 'function') throw new ApiError('no_main');
-    // generateRaw 不帶聊天紀錄和角色設定，只送我們給的提示詞。
-    return await c.generateRaw({ prompt, responseLength: maxTokens, trimNames: false });
+    // generateRaw 不帶聊天紀錄和角色設定，只送我們給的提示詞（systemPrompt 是我們的系統提示詞）。
+    return await c.generateRaw({ prompt, ...(system ? { systemPrompt: system } : {}), responseLength: maxTokens, trimNames: false });
 }
 
 /** 估算 token 數：優先用酒館的分詞器，沒有就粗估。 */

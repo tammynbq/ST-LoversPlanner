@@ -1855,7 +1855,12 @@ function renderSettings() {
     const model = `
       ${radio('lp-source', 'source', 'main', t('set.source.main'))}
       ${radio('lp-source', 'source', 'custom', t('set.source.custom'))}
-      ${s.source === 'custom' ? renderCustom() : ''}`;
+      ${s.source === 'custom' ? renderCustom() : ''}
+      ${checkbox('model.adultNote', t('set.model.adultNote'))}
+      <div class="lp-note">${esc(t('set.model.adultNote.note'))}</div>
+      <label class="lp-field" for="lp-preface"><span class="lp-label">${esc(t('set.model.preface'))}</span>
+        <textarea id="lp-preface" class="text_pole lp-sum-editor" data-path="model.preface" placeholder="${esc(t('set.model.preface.ph'))}" spellcheck="false">${esc(s.model?.preface ?? '')}</textarea></label>
+      <div class="lp-note">${esc(t('set.model.preface.note'))}</div>`;
 
     const summary = `
       <div class="lp-row">

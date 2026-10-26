@@ -13,6 +13,8 @@ export const DEFAULTS = Object.freeze({
     // 'main' = 沿用酒館目前的連線；'custom' = 自訂 OpenAI 相容 API。
     source: 'main',
     custom: { url: '', key: '', model: '' },
+    // 每次呼叫模型都放在最前面的系統提示詞（v0.13.4）：adultNote 成人虛構故事的說明；preface 使用者自訂的前言。
+    model: { adultNote: true, preface: '' },
     summary: {
         // 'after' 每回正文結束後自動 | 'manual' 手動 | 'before' 開始下回前自動（使用者送出下一句時摘要上一層）
         mode: 'before',
