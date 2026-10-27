@@ -55,7 +55,7 @@ for (const [v, bgWant] of [['night-mint', 'rgb(29, 39, 35)'], ['night-sky', 'rgb
   await page.screenshot({ path: `${OUT}/look-${v}.png` });
 }
 // 白天換色（v0.13.24）：小草、白雲、櫻花
-for (const [v, cl, bgWant] of [['day-grass', 'grass', 'rgb(243, 248, 241)'], ['day-cloud', 'cloud', 'rgb(242, 246, 251)'], ['day-blossom', 'blossom', 'rgb(255, 246, 249)']]) {
+for (const [v, cl, bgWant] of [['day-grass', 'grass', 'rgb(242, 250, 240)'], ['day-cloud', 'cloud', 'rgb(238, 245, 253)'], ['day-blossom', 'blossom', 'rgb(255, 246, 249)']]) {
   await page.selectOption('#lp-theme', v);
   await page.waitForFunction((cl) => document.documentElement.classList.contains(`lp-techo-${cl}`), cl);
   const c = await cls();
@@ -73,6 +73,17 @@ const fl = await page.evaluate(() => {
   return { radius: tab.borderTopLeftRadius, head: head.includes('svg'), sec: sec.includes('svg') };
 });
 check('blossom: pill tabs, flower garland, corner flowers', fl.radius === '999px' && fl.head && fl.sec, JSON.stringify(fl));
+// 草地、天空（v0.13.26）：葉子形分頁＋角落葉子；雲朵膠囊分頁＋角落雲朵，標題列有太陽
+for (const [v, cl, radius] of [['day-grass', 'grass', '16px'], ['day-cloud', 'cloud', '999px']]) {
+  await page.selectOption('#lp-theme', v);
+  await page.waitForFunction((cl) => document.documentElement.classList.contains(`lp-techo-${cl}`), cl);
+  const x = await page.evaluate(() => ({
+    tl: getComputedStyle(document.querySelector('.lp-tab')).borderTopLeftRadius,
+    corner: getComputedStyle(document.querySelector('.lp-sec'), '::after').backgroundImage.includes('svg'),
+    head: getComputedStyle(document.querySelector('.lp-header')).backgroundImage.includes('svg'),
+  }));
+  check(`${v}: own shapes and decorations`, x.tl === radius && x.corner && x.head, JSON.stringify(x));
+}
 await page.selectOption('#lp-theme', 'techo');
 check('cream planner drops color classes', !/lp-techo-(grass|cloud|blossom)/.test(await cls()));
 check('back to day planner drops night classes', !(await cls()).includes('lp-techo-night') && (await cls()).includes('lp-theme-techo'));

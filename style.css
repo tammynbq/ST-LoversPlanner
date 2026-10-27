@@ -1011,14 +1011,6 @@
     --lp-callout-bg: #f0f6fd; --lp-callout-border: #cfe0f3;
     --lp-cal-cell: #fdfeff; --lp-cal-line: #dfe7f1;
 }
-/* 白雲：標題列加幾朵雲 */
-html.lp-techo-cloud .lp-header {
-    background:
-        radial-gradient(ellipse 34px 14px at 82% 34%, rgba(255, 255, 255, 0.95) 98%, transparent),
-        radial-gradient(ellipse 22px 12px at 88% 28%, rgba(255, 255, 255, 0.95) 98%, transparent),
-        radial-gradient(ellipse 28px 11px at 64% 70%, rgba(255, 255, 255, 0.85) 98%, transparent),
-        linear-gradient(180deg, #d9eaf8, #eef5fc);
-}
 /* 🌸 櫻花粉色 */
 .lp-techo-blossom .lp-overlay,
 .lp-techo-blossom.lp-theme-techo-blocks .lp-sum {
@@ -1188,12 +1180,264 @@ html.lp-techo-blossom.lp-theme-techo-blocks .lp-sum {
     border-radius: 18px;
     position: relative;
 }
-/* 小草：標題列下緣一排小草 */
+
+/* ===== 🌱 草地主題（v0.13.26，使用者要求：做成完整主題，不只是手帳換色） ===== */
+html.lp-techo-grass .lp-overlay,
+html.lp-techo-grass.lp-theme-techo-blocks .lp-sum {
+    --lp-accent: #6cb58b;
+    --lp-border: #cfe5d2;
+    --lp-card: #fbfefb;
+    --lp-shadow: 0 2px 10px rgba(90, 160, 110, 0.13);
+}
+html.lp-techo-grass .lp-panel {
+    background-color: #f2faf0;
+    background-image: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'><g fill='%23bfe6c9' fill-opacity='0.9'><circle cx='14' cy='14' r='7.2'/><circle cx='26' cy='14' r='7.2'/><circle cx='14' cy='26' r='7.2'/><circle cx='26' cy='26' r='7.2'/></g><path d='M21 21Q26 31 31 38' stroke='%239fd1ae' stroke-width='2.2' fill='none' stroke-linecap='round' stroke-opacity='0.9'/></svg>"), url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'><g fill='%23bfe6c9' fill-opacity='0.9'><circle cx='14' cy='14' r='7.2'/><circle cx='26' cy='14' r='7.2'/><circle cx='14' cy='26' r='7.2'/><circle cx='26' cy='26' r='7.2'/></g><path d='M21 21Q26 31 31 38' stroke='%239fd1ae' stroke-width='2.2' fill='none' stroke-linecap='round' stroke-opacity='0.9'/></svg>"), url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'><g fill='%23bfe6c9' fill-opacity='0.9'><circle cx='14' cy='14' r='7.2'/><circle cx='26' cy='14' r='7.2'/><circle cx='14' cy='26' r='7.2'/><circle cx='26' cy='26' r='7.2'/></g><path d='M21 21Q26 31 31 38' stroke='%239fd1ae' stroke-width='2.2' fill='none' stroke-linecap='round' stroke-opacity='0.9'/></svg>"), url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 400 90' preserveAspectRatio='none'><path d='M0 52Q60 18 125 44T250 38T400 30V90H0Z' fill='%23d3ecce'/><path d='M0 66Q90 42 180 62T400 54V90H0Z' fill='%23bde2b6'/></svg>"), linear-gradient(180deg, #f4fbf2 0%, #eaf6e5 100%);
+    background-repeat: no-repeat;
+    background-size: 30px 30px, 24px 24px, 28px 28px, 100% 90px, 100% 100%;
+    background-position: right 14px bottom 150px, left 10px bottom 210px, right 34% bottom 96px, left bottom, 0 0;
+    box-shadow: 0 18px 50px rgba(40, 80, 50, 0.25), inset 0 0 0 1.5px #d6ead6;
+}
 html.lp-techo-grass .lp-header {
-    background:
-        radial-gradient(ellipse 5px 9px at 50% 100%, rgba(108, 178, 128, 0.55) 96%, transparent) bottom left / 9px 10px repeat-x,
-        radial-gradient(ellipse 4px 7px at 50% 100%, rgba(150, 204, 150, 0.5) 96%, transparent) bottom 0 left 4px / 13px 8px repeat-x,
-        repeating-linear-gradient(-45deg, var(--lp-stripe) 0 8px, var(--lp-stripe-2) 8px 16px);
+    background: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 12'><path d='M0 12L3 2L6 12ZM6 12L10 0L13 12ZM13 12L17 3L20 12ZM19 12L22 5L24 12Z' fill='%2386c79a'/></svg>") bottom left / 24px 12px repeat-x, linear-gradient(180deg, #e3f3df, #f3faf1);
+    border-bottom: none;
+    padding-bottom: 20px;
+}
+html.lp-techo-grass .lp-title::before { content: '🍀 '; }
+html.lp-techo-grass .lp-tabs { gap: 6px; padding: 8px 10px 6px; border-bottom: 1.5px dashed #bfdcc4; }
+html.lp-techo-grass .lp-tab {
+    min-height: 34px;
+    margin: 0;
+    padding: 0 14px;
+    border: 1.5px solid #cfe5d2;
+    border-radius: 16px 3px 16px 3px;
+    background: #fbfefb;
+    color: #5f8a6d;
+    transform: none;
+}
+html.lp-techo-grass .lp-tab.lp-on {
+    transform: none;
+    background: linear-gradient(135deg, #95d3a9, #67b386);
+    border-color: #67b386;
+    color: #fff;
+    box-shadow: 0 3px 8px rgba(103, 179, 134, 0.35);
+}
+html.lp-techo-grass .lp-tab.lp-on::before { content: '🌱 '; }
+html.lp-techo-grass .lp-note-card,
+html.lp-techo-grass .lp-floor-row,
+html.lp-techo-grass .lp-group,
+html.lp-techo-grass .lp-card,
+html.lp-techo-grass .lp-sec,
+html.lp-techo-grass .lp-preview,
+html.lp-techo-grass .lp-check-row,
+html.lp-techo-grass .lp-result {
+    border: 1.5px solid #cfe5d2;
+    border-radius: 16px 4px 16px 4px;
+    background: rgba(251, 254, 251, 0.92);
+    box-shadow: var(--lp-shadow);
+}
+html.lp-techo-grass .lp-note-card,
+html.lp-techo-grass .lp-card,
+html.lp-techo-grass .lp-sec,
+html.lp-techo-grass .lp-group { position: relative; }
+html.lp-techo-grass .lp-note-card::after,
+html.lp-techo-grass .lp-card::after,
+html.lp-techo-grass .lp-sec::after,
+html.lp-techo-grass .lp-group::after {
+    content: '';
+    position: absolute;
+    top: -8px;
+    right: 12px;
+    width: 16px;
+    height: 18px;
+    background: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'><path d='M20 37C5 27 6 10 20 3C34 10 35 27 20 37Z' fill='%2393d1a9'/><path d='M20 34V8' stroke='%235fa77b' stroke-width='1.6' fill='none' stroke-linecap='round'/></svg>") center / contain no-repeat;
+    pointer-events: none;
+}
+html.lp-techo-grass .lp-group-body { border-left: 2px dotted #b5d8be; }
+html.lp-techo-grass .lp-callout {
+    background: linear-gradient(135deg, #f1f9ea, #fbfbe8);
+    border: 1.5px dashed #b5d8be;
+    border-radius: 16px 4px 16px 4px;
+}
+html.lp-techo-grass .lp-group-title,
+html.lp-techo-grass .lp-scope-title {
+    background: none;
+    text-decoration: underline dotted #7cc497;
+    text-decoration-thickness: 1.5px;
+    text-underline-offset: 5px;
+}
+html.lp-techo-grass .lp-sec > summary { border-left: none; border-radius: 16px 4px 16px 4px; }
+html.lp-techo-grass .lp-sec-title::before { content: '☘ '; color: var(--lp-accent); }
+html.lp-techo-grass .lp-memories .lp-note-card::before {
+    top: -13px;
+    left: 14px;
+    width: 28px;
+    height: 28px;
+    transform: rotate(-10deg);
+    background: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'><g fill='%236dbb8c' fill-opacity='1'><circle cx='14' cy='14' r='7.2'/><circle cx='26' cy='14' r='7.2'/><circle cx='14' cy='26' r='7.2'/><circle cx='26' cy='26' r='7.2'/></g><path d='M21 21Q26 31 31 38' stroke='%234d9469' stroke-width='2.2' fill='none' stroke-linecap='round' stroke-opacity='1'/></svg>") center / contain no-repeat;
+    border: none;
+    filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.15));
+}
+html.lp-techo-grass .lp-memories .lp-note-card:nth-of-type(odd)::before { background-image: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'><g fill='%238fd0a6' fill-opacity='1'><circle cx='14' cy='14' r='7.2'/><circle cx='26' cy='14' r='7.2'/><circle cx='14' cy='26' r='7.2'/><circle cx='26' cy='26' r='7.2'/></g><path d='M21 21Q26 31 31 38' stroke='%235fa77b' stroke-width='2.2' fill='none' stroke-linecap='round' stroke-opacity='1'/></svg>"); transform: rotate(14deg); }
+html.lp-techo-grass .lp-memories .lp-note-card::after { display: none; }
+html.lp-techo-grass .lp-overlay .menu_button.lp-btn,
+html.lp-techo-grass.lp-theme-techo-blocks .lp-sum .menu_button.lp-btn {
+    background: linear-gradient(180deg, #fdfffd, #eef8ef);
+    border: 1.5px solid #b5d8be;
+    border-radius: 16px 3px 16px 3px;
+    box-shadow: 0 2px 6px rgba(103, 179, 134, 0.18);
+}
+html.lp-techo-grass .lp-overlay .menu_button.lp-btn.lp-primary,
+html.lp-techo-grass.lp-theme-techo-blocks .lp-sum .menu_button.lp-btn.lp-primary {
+    background: linear-gradient(135deg, #95d3a9, #67b386);
+    border-color: #67b386;
+    color: #fff;
+    box-shadow: 0 3px 8px rgba(103, 179, 134, 0.35);
+}
+html.lp-techo-grass .lp-chip { border-color: #cfe5d2; background: #fbfefb; color: #5f8a6d; border-radius: 16px 3px 16px 3px; }
+html.lp-techo-grass .lp-chip.lp-on { background: linear-gradient(135deg, #95d3a9, #67b386); border-color: #67b386; color: #fff; }
+html.lp-techo-grass .lp-badge { border-radius: 999px; }
+html.lp-techo-grass .lp-cal-cell { border-radius: 12px; border-color: #cfe5d2; background: rgba(251, 254, 251, 0.92); }
+html.lp-techo-grass .lp-cal-empty { background: transparent; border: none; }
+html.lp-techo-grass .lp-cal-today .lp-cal-num {
+    background: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'><g fill='%238fd0a6' fill-opacity='1'><circle cx='14' cy='14' r='7.2'/><circle cx='26' cy='14' r='7.2'/><circle cx='14' cy='26' r='7.2'/><circle cx='26' cy='26' r='7.2'/></g><path d='M21 21Q26 31 31 38' stroke='%235fa77b' stroke-width='2.2' fill='none' stroke-linecap='round' stroke-opacity='1'/></svg>") center / 2.2em 2.2em no-repeat;
+    color: #24543a;
+    font-weight: 700;
+    padding: 0.35em 0.5em;
+}
+html.lp-techo-grass.lp-theme-techo-blocks .lp-sum {
+    background: linear-gradient(180deg, #f4fbf2, #eaf6e5);
+    border: 1.5px solid #cfe5d2;
+    border-radius: 16px 4px 16px 4px;
+    position: relative;
+}
+/* ===== ☁️ 天空主題（v0.13.26，使用者要求：做成完整主題，不只是手帳換色） ===== */
+html.lp-techo-cloud .lp-overlay,
+html.lp-techo-cloud.lp-theme-techo-blocks .lp-sum {
+    --lp-accent: #6fa6dc;
+    --lp-border: #d3e3f3;
+    --lp-card: #ffffff;
+    --lp-shadow: 0 4px 14px rgba(110, 160, 215, 0.16);
+}
+html.lp-techo-cloud .lp-panel {
+    background-color: #eef5fd;
+    background-image: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 60 36'><g fill='%23ffffff'><circle cx='18' cy='22' r='11'/><circle cx='30' cy='15' r='13'/><circle cx='43' cy='22' r='10'/><rect x='12' y='21' width='38' height='12' rx='6'/></g></svg>"), url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 60 36'><g fill='%23ffffff'><circle cx='18' cy='22' r='11'/><circle cx='30' cy='15' r='13'/><circle cx='43' cy='22' r='10'/><rect x='12' y='21' width='38' height='12' rx='6'/></g></svg>"), url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 60 36'><g fill='%23ffffff'><circle cx='18' cy='22' r='11'/><circle cx='30' cy='15' r='13'/><circle cx='43' cy='22' r='10'/><rect x='12' y='21' width='38' height='12' rx='6'/></g></svg>"), linear-gradient(180deg, #d6e9fb 0%, #eef5fd 45%, #ffffff 100%);
+    background-repeat: no-repeat;
+    background-size: 120px 72px, 90px 54px, 140px 84px, 100% 100%;
+    background-position: left -34px top 52%, right 14% bottom 26%, right -36px bottom 30px, 0 0;
+    box-shadow: 0 18px 50px rgba(40, 70, 110, 0.25), inset 0 0 0 1.5px #d9e7f5;
+}
+html.lp-techo-cloud .lp-header {
+    background: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'><g stroke='%23f6c25e' stroke-width='2.6' stroke-linecap='round'><line x1='20' y1='3' x2='20' y2='8' transform='rotate(0 20 20)'/><line x1='20' y1='3' x2='20' y2='8' transform='rotate(45 20 20)'/><line x1='20' y1='3' x2='20' y2='8' transform='rotate(90 20 20)'/><line x1='20' y1='3' x2='20' y2='8' transform='rotate(135 20 20)'/><line x1='20' y1='3' x2='20' y2='8' transform='rotate(180 20 20)'/><line x1='20' y1='3' x2='20' y2='8' transform='rotate(225 20 20)'/><line x1='20' y1='3' x2='20' y2='8' transform='rotate(270 20 20)'/><line x1='20' y1='3' x2='20' y2='8' transform='rotate(315 20 20)'/></g><circle cx='20' cy='20' r='9' fill='%23ffd978'/></svg>") right 18px top 10px / 34px 34px no-repeat, url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 60 36'><g fill='%23ffffff'><circle cx='18' cy='22' r='11'/><circle cx='30' cy='15' r='13'/><circle cx='43' cy='22' r='10'/><rect x='12' y='21' width='38' height='12' rx='6'/></g></svg>") right 64px top 8px / 64px 38px no-repeat, url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 60 36'><g fill='%23ffffff'><circle cx='18' cy='22' r='11'/><circle cx='30' cy='15' r='13'/><circle cx='43' cy='22' r='10'/><rect x='12' y='21' width='38' height='12' rx='6'/></g></svg>") right 10px top 34px / 44px 26px no-repeat, url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 60 36'><g fill='%23ffffff'><circle cx='18' cy='22' r='11'/><circle cx='30' cy='15' r='13'/><circle cx='43' cy='22' r='10'/><rect x='12' y='21' width='38' height='12' rx='6'/></g></svg>") left 52% bottom 2px / 52px 31px no-repeat, linear-gradient(180deg, #cfe5fa, #e8f2fc);
+    border-bottom: none;
+    padding-bottom: 20px;
+}
+html.lp-techo-cloud .lp-title::before { content: '☁️ '; }
+html.lp-techo-cloud .lp-tabs { gap: 6px; padding: 8px 10px 6px; border-bottom: 1.5px dashed #c3d9f0; }
+html.lp-techo-cloud .lp-tab {
+    min-height: 34px;
+    margin: 0;
+    padding: 0 14px;
+    border: 1.5px solid #d6e5f4;
+    border-radius: 999px;
+    background: #ffffff;
+    color: #5f7fa3;
+    transform: none;
+}
+html.lp-techo-cloud .lp-tab.lp-on {
+    transform: none;
+    background: linear-gradient(135deg, #9cc9f1, #6ea5dc);
+    border-color: #6ea5dc;
+    color: #fff;
+    box-shadow: 0 3px 8px rgba(110, 165, 220, 0.38);
+}
+html.lp-techo-cloud .lp-tab.lp-on::before { content: '☁ '; }
+html.lp-techo-cloud .lp-note-card,
+html.lp-techo-cloud .lp-floor-row,
+html.lp-techo-cloud .lp-group,
+html.lp-techo-cloud .lp-card,
+html.lp-techo-cloud .lp-sec,
+html.lp-techo-cloud .lp-preview,
+html.lp-techo-cloud .lp-check-row,
+html.lp-techo-cloud .lp-result {
+    border: 1.5px solid #d6e5f4;
+    border-radius: 20px;
+    background: rgba(255, 255, 255, 0.94);
+    box-shadow: var(--lp-shadow);
+}
+html.lp-techo-cloud .lp-note-card,
+html.lp-techo-cloud .lp-card,
+html.lp-techo-cloud .lp-sec,
+html.lp-techo-cloud .lp-group { position: relative; }
+html.lp-techo-cloud .lp-note-card::after,
+html.lp-techo-cloud .lp-card::after,
+html.lp-techo-cloud .lp-sec::after,
+html.lp-techo-cloud .lp-group::after {
+    content: '';
+    position: absolute;
+    top: -9px;
+    right: 12px;
+    width: 26px;
+    height: 16px;
+    background: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 60 36'><g fill='%23cfe2f5'><circle cx='18' cy='22' r='11'/><circle cx='30' cy='15' r='13'/><circle cx='43' cy='22' r='10'/><rect x='12' y='21' width='38' height='12' rx='6'/></g></svg>") center / contain no-repeat;
+    pointer-events: none;
+}
+html.lp-techo-cloud .lp-group-body { border-left: 2px dotted #bcd4ee; }
+html.lp-techo-cloud .lp-callout {
+    background: linear-gradient(135deg, #f2f8ff, #fffbea);
+    border: 1.5px dashed #bcd4ee;
+    border-radius: 20px;
+}
+html.lp-techo-cloud .lp-group-title,
+html.lp-techo-cloud .lp-scope-title {
+    background: none;
+    text-decoration: underline dashed #8cb9e6;
+    text-decoration-thickness: 1.5px;
+    text-underline-offset: 5px;
+}
+html.lp-techo-cloud .lp-sec > summary { border-left: none; border-radius: 20px; }
+html.lp-techo-cloud .lp-sec-title::before { content: '☁ '; color: var(--lp-accent); }
+html.lp-techo-cloud .lp-memories .lp-note-card::before {
+    top: -13px;
+    left: 14px;
+    width: 34px;
+    height: 22px;
+    transform: rotate(-10deg);
+    background: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 60 36'><g fill='%23a9cbec'><circle cx='18' cy='22' r='11'/><circle cx='30' cy='15' r='13'/><circle cx='43' cy='22' r='10'/><rect x='12' y='21' width='38' height='12' rx='6'/></g></svg>") center / contain no-repeat;
+    border: none;
+    filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.15));
+}
+html.lp-techo-cloud .lp-memories .lp-note-card:nth-of-type(odd)::before { background-image: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'><g stroke='%23f6c25e' stroke-width='2.6' stroke-linecap='round'><line x1='20' y1='3' x2='20' y2='8' transform='rotate(0 20 20)'/><line x1='20' y1='3' x2='20' y2='8' transform='rotate(45 20 20)'/><line x1='20' y1='3' x2='20' y2='8' transform='rotate(90 20 20)'/><line x1='20' y1='3' x2='20' y2='8' transform='rotate(135 20 20)'/><line x1='20' y1='3' x2='20' y2='8' transform='rotate(180 20 20)'/><line x1='20' y1='3' x2='20' y2='8' transform='rotate(225 20 20)'/><line x1='20' y1='3' x2='20' y2='8' transform='rotate(270 20 20)'/><line x1='20' y1='3' x2='20' y2='8' transform='rotate(315 20 20)'/></g><circle cx='20' cy='20' r='9' fill='%23ffd978'/></svg>"); transform: rotate(14deg); }
+html.lp-techo-cloud .lp-memories .lp-note-card::after { display: none; }
+html.lp-techo-cloud .lp-overlay .menu_button.lp-btn,
+html.lp-techo-cloud.lp-theme-techo-blocks .lp-sum .menu_button.lp-btn {
+    background: linear-gradient(180deg, #ffffff, #eef5fd);
+    border: 1.5px solid #bcd4ee;
+    border-radius: 999px;
+    box-shadow: 0 2px 6px rgba(110, 165, 220, 0.18);
+}
+html.lp-techo-cloud .lp-overlay .menu_button.lp-btn.lp-primary,
+html.lp-techo-cloud.lp-theme-techo-blocks .lp-sum .menu_button.lp-btn.lp-primary {
+    background: linear-gradient(135deg, #9cc9f1, #6ea5dc);
+    border-color: #6ea5dc;
+    color: #fff;
+    box-shadow: 0 3px 8px rgba(110, 165, 220, 0.38);
+}
+html.lp-techo-cloud .lp-chip { border-color: #d6e5f4; background: #ffffff; color: #5f7fa3; border-radius: 999px; }
+html.lp-techo-cloud .lp-chip.lp-on { background: linear-gradient(135deg, #9cc9f1, #6ea5dc); border-color: #6ea5dc; color: #fff; }
+html.lp-techo-cloud .lp-badge { border-radius: 999px; }
+html.lp-techo-cloud .lp-cal-cell { border-radius: 12px; border-color: #d6e5f4; background: rgba(255, 255, 255, 0.94); }
+html.lp-techo-cloud .lp-cal-empty { background: transparent; border: none; }
+html.lp-techo-cloud .lp-cal-today .lp-cal-num {
+    background: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'><g stroke='%23f6c25e' stroke-width='2.6' stroke-linecap='round'><line x1='20' y1='3' x2='20' y2='8' transform='rotate(0 20 20)'/><line x1='20' y1='3' x2='20' y2='8' transform='rotate(45 20 20)'/><line x1='20' y1='3' x2='20' y2='8' transform='rotate(90 20 20)'/><line x1='20' y1='3' x2='20' y2='8' transform='rotate(135 20 20)'/><line x1='20' y1='3' x2='20' y2='8' transform='rotate(180 20 20)'/><line x1='20' y1='3' x2='20' y2='8' transform='rotate(225 20 20)'/><line x1='20' y1='3' x2='20' y2='8' transform='rotate(270 20 20)'/><line x1='20' y1='3' x2='20' y2='8' transform='rotate(315 20 20)'/></g><circle cx='20' cy='20' r='9' fill='%23ffd978'/></svg>") center / 2.2em 2.2em no-repeat;
+    color: #7a4f00;
+    font-weight: 700;
+    padding: 0.35em 0.5em;
+}
+html.lp-techo-cloud.lp-theme-techo-blocks .lp-sum {
+    background: linear-gradient(180deg, #e3f0fc, #ffffff);
+    border: 1.5px solid #d6e5f4;
+    border-radius: 20px;
+    position: relative;
 }
 
 .lp-theme-techo .lp-overlay { background: var(--lp-overlay-bg); }
