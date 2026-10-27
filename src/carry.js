@@ -81,7 +81,7 @@ function isShared(type) {
 function plainNote(n, updatedAt) {
     return {
         id: n.id, type: n.type, data: { ...n.data }, state: n.state, result: n.result ?? null,
-        pinned: Boolean(n.pinned), ...(n.role ? { role: n.role } : {}), updatedAt: Number(updatedAt) || 0, ...(n.source ? { source: n.source } : {}),
+        pinned: Boolean(n.pinned), ...(n.role ? { role: n.role } : {}), ...(n.cardFields?.length ? { cardFields: [...n.cardFields] } : {}), updatedAt: Number(updatedAt) || 0, ...(n.source ? { source: n.source } : {}),
     };
 }
 

@@ -143,6 +143,26 @@ function stampFields(prev, data, stamp) {
     return out;
 }
 
+// 來自人設（v0.13.16，使用者要求）：「📇 從人設填寫」把角色卡／persona 整理成主角的欄位，
+// 這些欄位記在 note.cardFields。送給角色時不送（角色卡本來就會送），摘要時給模型看（知道基本設定，只記變了的）。
+// 故事裡（樓層）或手動改過的欄位就不再算人設；之後重新填寫只會更新還是人設的欄位和空的欄位。
+// 人設的變化是手動修改（op.card），重播時最後套用，所以要自己避開故事改過的欄位。
+
+/** 套用人設的欄位：只填空的、或本來就是人設的欄位。 */
+function cardData(note, data) {
+    const own = new Set(note.cardFields ?? []);
+    const out = {};
+    for (const [f, v] of Object.entries(data)) if (!note.data[f] || own.has(f)) out[f] = v;
+    return out;
+}
+
+/** 欄位被故事或手動改過：不再算人設。 */
+function dropCard(note, data) {
+    if (!note.cardFields?.length) return note.cardFields;
+    const left = note.cardFields.filter((f) => !(f in data));
+    return left.length ? left : undefined;
+}
+
 /** 對 state（Map）套用一個變化，回傳 true 表示有效。floor 是樓層索引，手動修改是 null。stamp：時間（比較新舊用）。 */
 function applyOp(state, op, floor, stamp = 0) {
     const at = floor ?? null;
@@ -152,6 +172,8 @@ function applyOp(state, op, floor, stamp = 0) {
             const data = cleanData(op.type, op.data);
             if (!data[TITLE_FIELD[op.type]]) return false;
             state.set(op.id, {
+                ...(op.card ? { cardFields: Object.keys(data), fromCard: true } : {}),
+                ...(op.card && op.role ? { role: op.role } : {}),
                 id: op.id, type: op.type, data, fieldAt: stampFields(null, data, stamp), state: 'active', result: null,
                 createdFloor: at, updatedFloor: null, closedFloor: null, manual: floor === null,
                 // 手動新增的：新增當時的故事日期（樓層的看那一層的 date）。
@@ -163,11 +185,16 @@ function applyOp(state, op, floor, stamp = 0) {
             const note = state.get(op.id);
             if (!note) return false;
             // 手動修改（raw）可以把欄位清空；模型的空值一律忽略。
-            const data = op.raw ? { ...op.data } : cleanData(note.type, op.data);
+            let data = op.raw ? { ...op.data } : cleanData(note.type, op.data);
+            if (op.card) data = cardData(note, data);
             if (!Object.keys(data).length) return false;
             const merged = { ...note.data, ...data };
             for (const f of Object.keys(merged)) if (merged[f] === '') delete merged[f];
-            state.set(op.id, { ...note, data: merged, fieldAt: stampFields(note.fieldAt, data, stamp), updatedFloor: at ?? note.updatedFloor });
+            const cardFields = op.card ? [...new Set([...(note.cardFields ?? []), ...Object.keys(data)])] : dropCard(note, data);
+            const next = { ...note, data: merged, fieldAt: stampFields(note.fieldAt, data, stamp), updatedFloor: op.card ? note.updatedFloor : (at ?? note.updatedFloor) };
+            if (cardFields?.length) next.cardFields = cardFields;
+            else delete next.cardFields;
+            state.set(op.id, next);
             return true;
         }
         case 'complete': {
@@ -333,7 +360,7 @@ export function replay({ upTo = Infinity } = {}) {
         if (!n?.id || !NOTE_TYPES.includes(n.type)) continue;
         state.set(n.id, {
             id: n.id, type: n.type, data: { ...n.data }, state: n.state ?? 'active', result: n.result ?? null,
-            pinned: Boolean(n.pinned), role: n.role ?? null, createdFloor: null, updatedFloor: null, closedFloor: null,
+            pinned: Boolean(n.pinned), role: n.role ?? null, ...(n.cardFields?.length ? { cardFields: [...n.cardFields] } : {}), createdFloor: null, updatedFloor: null, closedFloor: null,
             manual: false, carried: true, source: n.source ?? null,
         });
         baseAt.set(n.id, Number(n.updatedAt) || 0);
@@ -349,6 +376,9 @@ export function replay({ upTo = Infinity } = {}) {
         if (n) known.set(op.id, { type: n.type, title: displayTitle(n) });
         return ok;
     };
+    // 從人設新增的主角（📇）當成起點：先放進去，之後樓層的更新才找得到它。
+    const cardAdd = (op) => op.card && op.op === 'add';
+    for (const op of manualOps()) if (cardAdd(op)) apply(op, null, op.at);
     const chat = getChat();
     const end = Math.min(chat.length, upTo);
     for (let i = 0; i < end; i++) {
@@ -364,10 +394,11 @@ export function replay({ upTo = Infinity } = {}) {
         perFloor.set(i, list);
     }
     if (upTo === Infinity) {
-        for (const op of manualOps()) apply(op, null, op.at);
+        for (const op of manualOps()) if (!cardAdd(op)) apply(op, null, op.at);
     } else {
         // 替某一層組提示詞時：手動刪掉（含合併掉）的記事也拿掉，模型才不會一直更新它（v0.13.11 修）。
-        for (const op of manualOps()) if (op.op === 'delete') apply(op, null, op.at);
+        // 人設的欄位也算進去：模型才知道基本設定已經有了，只記變了的（故事改過的欄位不會被人設蓋掉，見 cardData）。
+        for (const op of manualOps()) if (op.op === 'delete' || (op.card && !cardAdd(op))) apply(op, null, op.at);
     }
     return { notes: state, perFloor, touched, known };
 }
@@ -492,6 +523,47 @@ export function setTitlesManual(titles) {
     return ops.length;
 }
 
+/**
+ * 「📇 從人設填寫」：fills = { user: data, char: data }。已經有主角那條就更新（只動空的和人設的欄位），
+ * 沒有就新增一條並指定成主角。回傳 { added, updated }。
+ */
+export function fillFromCardManual(fills) {
+    const notes = getNotes().notes;
+    const roles = leadRoles(notes);
+    const ops = [];
+    const at = Date.now();
+    let added = 0;
+    let updated = 0;
+    for (const role of ['user', 'char']) {
+        const data = cleanData('character', fills?.[role]);
+        if (!Object.keys(data).length) continue;
+        const id = [...roles].find(([, r]) => r === role)?.[0];
+        const note = id ? notes.get(id) : null;
+        if (note) {
+            delete data.name; // 名字不跟著人設改
+            const d = cardData(note, data);
+            if (!Object.keys(d).length) continue;
+            ops.push({ op: 'update', id, data: d, raw: true, card: true, at });
+            updated++;
+        } else {
+            if (!data.name) data.name = (role === 'user' ? ctx()?.name1 : ctx()?.name2) || '';
+            if (!data.name) continue;
+            ops.push({ op: 'add', id: newNoteId('character'), type: 'character', data, card: true, role, at });
+            added++;
+        }
+    }
+    if (!ops.length) return { added, updated };
+    const rec = chatRecord(true);
+    rec.manualOps = [...manualOps(), ...ops];
+    emitNotesChange();
+    const c = ctx();
+    try {
+        if (typeof c?.saveMetadataDebounced === 'function') c.saveMetadataDebounced();
+        else c?.saveMetadata?.();
+    } catch (e) { /* 忽略 */ }
+    return { added, updated };
+}
+
 export function reopenNoteManual(id) {
     return pushManual({ op: 'reopen', id });
 }
@@ -585,7 +657,7 @@ export function describeOp(op, notes, known = getNotes().known) {
  * 記事清單文字：只列進行中（含被打破的約定），已完成的不列，省 token。
  * withIds：給摘要模型看時要有 id（它要引用）；注入給角色看時不需要。
  */
-export function formatNotesForPrompt(notes, { withIds = true, types = null, only = null, emptyText = t('prompt.noNotes') } = {}) {
+export function formatNotesForPrompt(notes, { withIds = true, types = null, only = null, emptyText = t('prompt.noNotes'), skipCard = false } = {}) {
     const lines = [];
     // 主角是誰一律看最新的（摘要某一層時的清單不含手動修改，但手動指定的主角要算）。
     const roles = leadRoles(getNotes().notes);
@@ -598,15 +670,17 @@ export function formatNotesForPrompt(notes, { withIds = true, types = null, only
         // 主角本人標出來：摘要模型才知道更新 {{user}}／{{char}} 要用哪一條。
         const role = roles.get(n.id);
         const tag = role ? t('notes.role.tag', { name: (role === 'user' ? ctx()?.name1 : ctx()?.name2) || `{{${role}}}` }) : '';
-        lines.push(`${withIds ? `[${n.id}] ` : ''}${tag}${noteLine(n)}${flag}`);
+        // skipCard：送給角色時，來自人設的欄位不送（角色卡、persona 本來就會送）。
+        lines.push(`${withIds ? `[${n.id}] ` : ''}${tag}${noteLine(n, { skipCard })}${flag}`);
     }
     return lines.length ? lines.join('\n') : emptyText;
 }
 
 /** 一條記事的內容（不含 id、狀態）。向量也用這段文字來算。 */
-export function noteLine(n) {
+export function noteLine(n, { skipCard = false } = {}) {
+    const card = skipCard ? new Set(n.cardFields ?? []) : null;
     const parts = fieldsOf(n)
-        .filter((f) => n.data[f])
+        .filter((f) => n.data[f] && !(card?.has(f) && f !== TITLE_FIELD[n.type]))
         .map((f) => `${fieldLabel(n.type, f)}：${n.data[f]}`);
     // 約定／待辦：哪天約定的、推算出來的預定日期（模型沒寫 due 時）。
     const { made, due, guessed } = noteDates(n);

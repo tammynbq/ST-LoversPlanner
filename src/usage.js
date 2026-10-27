@@ -9,7 +9,7 @@
 import { getSettings, saveSettings } from './settings.js';
 import { chatKey } from './chat.js';
 
-export const PURPOSES = ['l1', 'side', 'catchup', 'compress', 'recap', 'check', 'titles', 'other'];
+export const PURPOSES = ['l1', 'side', 'card', 'tidy', 'catchup', 'compress', 'recap', 'check', 'titles', 'other'];
 const DAYS_KEPT = 120;
 const RECENT_MAX = 200;
 

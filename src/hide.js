@@ -129,7 +129,7 @@ export function injectionParts(hidden, selection = null) {
         if (!isTracked(type)) continue;
         const list = [...notes.values()].filter((n) => n.type === type && n.state !== 'done');
         const count = only ? list.filter((n) => only.has(n.id)).length : list.length;
-        byType[type] = { count, total: list.length, text: count ? formatNotesForPrompt(notes, { withIds: false, types: [type], only, emptyText: '' }) : '' };
+        byType[type] = { count, total: list.length, text: count ? formatNotesForPrompt(notes, { withIds: false, types: [type], only, emptyText: '', skipCard: true }) : '' };
     }
     const memories = selection?.memories ?? [];
     const calendar = calendarInjection();

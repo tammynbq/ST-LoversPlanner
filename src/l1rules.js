@@ -27,15 +27,15 @@ const TEXT = {
             birthday: 'birthday：生日',
             relUser: 'relUser：和 {user} 的關係（{user} 本人那條不用寫）',
             relChar: 'relChar：和 {char} 的關係（{char} 本人那條不用寫）',
-            appearance: 'appearance：外貌和身體特徵（長相、身材、髮型、疤痕、刺青…）',
-            outfit: 'outfit：當前衣著，換了衣服就更新',
-            status: 'status：當前狀態（身體、情緒、處境），有變就更新；離開、死亡也寫在這裡',
+            appearance: 'appearance：外貌和身體特徵（長相、身材、髮型、疤痕、刺青…），60 字內',
+            outfit: 'outfit：當前衣著，40 字內，換了衣服就更新',
+            status: 'status：會持續一段時間的狀態，用短詞組、20～40 字（例如「左臂受傷、感冒中、出差中」）。這一層正在做的事、說的話寫在 summary，不要寫在這裡；離開、死亡也寫在這裡。有變才更新，整段換掉，不要越寫越長',
             personality: 'personality：性格',
             likes: 'likes：喜歡的東西',
             dislikes: 'dislikes：討厭的東西',
             habits: 'habits：習慣、小動作、口頭禪',
-            history: 'history：重要的經歷、過去',
-            note: 'note：放不進上面任何欄位的才寫這裡（外貌、喜好等不要寫在 note）',
+            history: 'history：故事開始前的過去，或改變人生的大事，一件一句、60 字內。故事裡最近發生的事已經在摘要和回憶錄裡，不要寫進來',
+            note: 'note：長期有用、上面欄位放不下的設定（過敏、秘密、忌諱、特殊能力…），40 字內。不要寫發生過的事（約會、告白、吵架…），那些已經在摘要和回憶錄裡；外貌、喜好等也不要寫在 note',
         },
         charMore: '有新發現時用 update 只補上變了的欄位，不要每層重複寫一樣的內容。人物不會被移除。清單裡標了「主角：」的就是 {user}／{char} 本人，更新他們的資料用那一條的 id，不要另外新增。',
         item: 'item：只記 {char} 和 {user} 的所有物，其他人的東西不用記。一件東西一條，數量寫在 quantity（只寫數字）。在兩人之間轉手時用 update 改 holder；用掉一部分時用 update 改 quantity；全部用完、遺失、送給別人時用 complete，result 是 used／lost／gone。',
@@ -83,15 +83,15 @@ const TEXT = {
             birthday: 'birthday：生日',
             relUser: 'relUser：和 {user} 的关系（{user} 本人那条不用写）',
             relChar: 'relChar：和 {char} 的关系（{char} 本人那条不用写）',
-            appearance: 'appearance：外貌和身体特征（长相、身材、发型、疤痕、纹身…）',
-            outfit: 'outfit：当前衣着，换了衣服就更新',
-            status: 'status：当前状态（身体、情绪、处境），有变就更新；离开、死亡也写在这里',
+            appearance: 'appearance：外貌和身体特征（长相、身材、发型、疤痕、纹身…），60 字内',
+            outfit: 'outfit：当前衣着，40 字内，换了衣服就更新',
+            status: 'status：会持续一段时间的状态，用短词组、20～40 字（例如「左臂受伤、感冒中、出差中」）。这一层正在做的事、说的话写在 summary，不要写在这里；离开、死亡也写在这里。有变才更新，整段换掉，不要越写越长',
             personality: 'personality：性格',
             likes: 'likes：喜欢的东西',
             dislikes: 'dislikes：讨厌的东西',
             habits: 'habits：习惯、小动作、口头禅',
-            history: 'history：重要的经历、过去',
-            note: 'note：放不进上面任何栏位的才写这里（外貌、喜好等不要写在 note）',
+            history: 'history：故事开始前的过去，或改变人生的大事，一件一句、60 字内。故事里最近发生的事已经在摘要和回忆录里，不要写进来',
+            note: 'note：长期有用、上面栏位放不下的设定（过敏、秘密、忌讳、特殊能力…），40 字内。不要写发生过的事（约会、告白、吵架…），那些已经在摘要和回忆录里；外貌、喜好等也不要写在 note',
         },
         charMore: '有新发现时用 update 只补上变了的栏位，不要每层重复写一样的内容。人物不会被移除。清单里标了「主角：」的就是 {user}／{char} 本人，更新他们的资料用那一条的 id，不要另外新增。',
         item: 'item：只记 {char} 和 {user} 的所有物，其他人的东西不用记。一件东西一条，数量写在 quantity（只写数字）。在两人之间转手时用 update 改 holder；用掉一部分时用 update 改 quantity；全部用完、遗失、送给别人时用 complete，result 是 used／lost／gone。',
@@ -139,15 +139,15 @@ const TEXT = {
             birthday: 'birthday',
             relUser: 'relUser: relationship to {user} (leave empty on {user}\'s own entry)',
             relChar: 'relChar: relationship to {char} (leave empty on {char}\'s own entry)',
-            appearance: 'appearance: looks and physical features (face, build, hair, scars, tattoos…)',
-            outfit: 'outfit: what they are wearing now; update it when they change',
-            status: 'status: current state (body, mood, situation); update when it changes, including leaving or dying',
+            appearance: 'appearance: looks and physical features (face, build, hair, scars, tattoos…), at most 30 words',
+            outfit: 'outfit: what they are wearing now, at most 20 words; update it when they change',
+            status: 'status: a state that lasts a while, in short phrases of 10–20 words (e.g. "left arm injured, has a cold, away on a trip"). What happens or is said in this floor belongs in summary, not here; leaving or dying also goes here. Update only when it changes, replacing the whole value; never let it grow',
             personality: 'personality',
             likes: 'likes',
             dislikes: 'dislikes',
             habits: 'habits: habits, mannerisms, catchphrases',
-            history: 'history: important past experiences',
-            note: 'note: only what fits none of the fields above (never put looks or likes here)',
+            history: 'history: the past before the story began, or life-changing events, one short sentence each, at most 30 words. Recent events in the story are already in the summaries and memory book; don\'t put them here',
+            note: 'note: lasting facts that fit no field above (allergies, secrets, taboos, special abilities…), at most 20 words. Never write events that happened (dates, confessions, fights…); they are already in the summaries and memory book. Never put looks or likes here either',
         },
         charMore: 'When you learn something new, update only the fields that changed; don\'t repeat the same details every floor. Characters are never removed. Entries marked "Lead:" are {user} / {char} themselves: update them by that id, never add another entry for them.',
         item: 'item: only things owned by {char} or {user}; other people\'s belongings are not recorded. One entry per item, with the count in quantity (a number only). When it changes hands between them, update holder; when part of it is used, update quantity; when all used up, lost or given to someone else, use complete with result used / lost / gone.',
@@ -185,6 +185,12 @@ function startDate() {
 
 function fill(text, vars) {
     return text.replace(/\{(\w+)\}/g, (m, k) => (k in vars ? String(vars[k]) : m));
+}
+
+/** 人物欄位的說明（「📇 從人設填寫」也用）：只列 fields 裡的。 */
+export function charFieldRules(fields, vars) {
+    const T = TEXT[currentLocale()] ?? TEXT.en;
+    return fields.map((f) => `- ${fill(T.charFields[f], vars)}`).join('\n');
 }
 
 /** 產生 {{rules}} 和 {{format}}。chapter：補建時一次讀一整段、寫成一章的版本。side：⭐ 小劇場那一層。 */

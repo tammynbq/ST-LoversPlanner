@@ -23,6 +23,8 @@ import {
     getRecap, importFrom, lastCarry, onCarryChange, otherSnapshots, restoreRecapRaw, setSummarySource, undoCarry,
 } from '../carry.js';
 import { errorText } from '../errors.js';
+import { cardFillBusy, fillFromCard } from '../cardfill.js';
+import { tidyBusy } from '../tidy.js';
 import { getLastStats, onStatsChange, previewInjection } from '../hide.js';
 import { aiIndices, chatKey, getChat, getEntry } from '../chat.js';
 import { hl, isExpanded, isSectionOpen, matches, setExpanded, setSectionOpen, terms, toggleExpanded, toggleSection } from './fold.js';
@@ -108,6 +110,7 @@ const view = {
     tab: 'summary',
     openSections: new Set(['general']),
     notes: {
+        cardMsg: '', // 「從人設填寫」的結果訊息
         editing: null, // 正在編輯的記事 id
         adding: null, // 正在新增的類型
         confirmClear: false,
@@ -739,6 +742,7 @@ function renderSummaryTab() {
           <div class="lp-chips">${chips}</div>
           <span class="lp-spacer"></span>
           <button type="button" class="menu_button lp-btn" data-action="sum-select" aria-pressed="${view.sum.select}">${esc(t(view.sum.select ? 'sum.select.done' : 'sum.select'))}</button>
+          <button type="button" class="menu_button lp-btn" data-action="sum-hide-skip" aria-pressed="${hideSkipped()}">${esc(t(hideSkipped() ? 'sum.hideSkip.on' : 'sum.hideSkip.off'))}</button>
           <button type="button" class="menu_button lp-btn" data-action="sum-sort">${esc(t(view.sum.newest ? 'sum.sort.newest' : 'sum.sort.oldest'))}</button>
         </div>
         ${queueArea}
@@ -957,7 +961,7 @@ function calendarDay(cal) {
 const CHECK_GROUPS = {
     gen: ['none', 'fail', 'stale', 'repaired', 'chapter-stale', 'chapter-fail', 'volume-stale', 'volume-fail', 'compressDue', 'catchupPaused', 'recapFail'],
     odd: ['empty', 'long', 'dup', 'noTime', 'noLocation'],
-    notes: ['dupNote', 'zeroItem'],
+    notes: ['dupNote', 'zeroItem', 'longField'],
     audit: ['audit', 'auditError'],
 };
 const FIX_LABEL = {
@@ -965,7 +969,7 @@ const FIX_LABEL = {
     long: 'check.fix.redo', dup: 'check.fix.redo', audit: 'check.fix.redo', auditError: null,
     'chapter-stale': 'check.fix.redo', 'chapter-fail': 'check.fix.redo', 'volume-stale': 'check.fix.redo', 'volume-fail': 'check.fix.redo',
     compressDue: 'check.fix.compress', catchupPaused: 'check.fix.resume', recapFail: 'check.fix.condense',
-    dupNote: 'check.fix.merge', zeroItem: 'check.fix.used', noTime: null, noLocation: null,
+    dupNote: 'check.fix.merge', zeroItem: 'check.fix.used', longField: 'check.fix.tidy', noTime: null, noLocation: null,
 };
 const SEVERITY_ICON = { error: 'fa-solid fa-circle-xmark', warn: 'fa-solid fa-triangle-exclamation', info: 'fa-solid fa-circle-info' };
 
@@ -973,7 +977,8 @@ function checkRow(x) {
     const vars = { ...x, floor: x.floor ?? '', type: x.type ? typeLabel(x.type) : '', text: x.text ?? '' };
     const fixKey = FIX_LABEL[x.kind];
     const btns = [];
-    if (fixKey) btns.push(`<button type="button" class="menu_button lp-btn lp-mini${x.autoFix ? ' lp-primary' : ''}" data-action="check-fix" data-id="${esc(x.id)}">${esc(t(fixKey))}</button>`);
+    const working = x.kind === 'longField' && tidyBusy(x.ids[0]);
+    if (fixKey) btns.push(`<button type="button" class="menu_button lp-btn lp-mini${x.autoFix ? ' lp-primary' : ''}" data-action="check-fix" data-id="${esc(x.id)}"${working ? ' disabled' : ''}>${esc(t(working ? 'check.tidy.busy' : fixKey))}</button>`);
     if (Number.isInteger(x.floor)) btns.push(`<button type="button" class="menu_button lp-btn lp-mini" data-action="check-jump" data-index="${x.floor}">${esc(t('act.jump'))}</button>`);
     let detail = '';
     if (x.problems?.length) detail = `<ul class="lp-recall-list">${x.problems.map((p) => `<li>${esc(p)}</li>`).join('')}</ul>`;
@@ -1256,20 +1261,28 @@ function rangeText(indices) {
     return `#${Math.min(...list)}–#${Math.max(...list)}`;
 }
 
-function chapterGroup(c, states) {
+/** 「隱藏 👻」開著時，跳過的樓層不列出來（⭐ 小劇場照樣列）。 */
+function hideSkipped() {
+    return Boolean(getSettings().ui?.hideSkip);
+}
+
+function chapterGroup(c, states, extra = new Map()) {
     const id = c.data.id;
+    // extra：夾在這一章範圍裡的跳過、小劇場樓層（不屬於任何章，但放在這裡看起來比較整齊）。
+    const floors = [...c.indices.filter((i) => i >= 0), ...(extra.get(id) ?? [])]
+        .filter((i) => !(hideSkipped() && (states.get(i) ?? floorState(i)) === 'skip'));
     const body = groupOpen(id)
-        ? `<div class="lp-group-body">${digestCard('chapter', c.data, c.state)}${c.indices.filter((i) => i >= 0).sort((a, b) => (view.sum.newest ? b - a : a - b)).map((i) => summaryRow(i, states.get(i) ?? floorState(i))).join('')}</div>`
+        ? `<div class="lp-group-body">${digestCard('chapter', c.data, c.state)}${floors.sort((a, b) => (view.sum.newest ? b - a : a - b)).map((i) => summaryRow(i, states.get(i) ?? floorState(i))).join('')}</div>`
         : '';
     return `<div class="lp-group">${groupHead(id, t('chapter.label', { n: c.number }), 'L2', rangeText(c.indices), t('chapter.meta', { n: c.indices.length }), c.state)}${body}</div>`;
 }
 
-function volumeGroup(v, states) {
+function volumeGroup(v, states, extra = new Map()) {
     const id = v.data.id;
     const indices = v.chapters.flatMap((c) => c.indices);
     const kids = [...v.children].sort((a, b) => (view.sum.newest ? b.number - a.number : a.number - b.number));
     const body = groupOpen(id)
-        ? `<div class="lp-group-body">${digestCard('volume', v.data, v.state)}${kids.map((x) => (v.level === 3 ? chapterGroup(x, states) : volumeGroup(x, states))).join('')}</div>`
+        ? `<div class="lp-group-body">${digestCard('volume', v.data, v.state)}${kids.map((x) => (v.level === 3 ? chapterGroup(x, states, extra) : volumeGroup(x, states, extra))).join('')}</div>`
         : '';
     const meta = v.level === 3 ? t('volume.meta', { n: v.children.length }) : t('level.meta', { n: v.children.length, floors: indices.filter((i) => i >= 0).length });
     return `<div class="lp-group">${groupHead(id, digestLabel(v.level, v.number), `L${v.level}`, rangeText(indices), meta, v.state)}${body}</div>`;
@@ -1322,11 +1335,39 @@ function renderSummarySearch(states, query) {
     return blocks.length ? count + blocks.map((b) => b.html).join('') : `<div class="lp-wip">${esc(t('search.none'))}</div>`;
 }
 
+/**
+ * 跳過、小劇場的樓層不會被壓進章，以前全都擠在「未壓縮」裡（範圍變成 #1271–#3262，排序也亂掉）。
+ * 現在夾在章和章之間的（後面還有壓好的樓層），放進它前面那一章顯示。回傳 Map<章 id, index[]> 和留在未壓縮的。
+ */
+function attachLoose(st, loose, states) {
+    const extra = new Map();
+    const chapters = st.chapters
+        .map((c) => ({ id: c.data.id, min: Math.min(...c.indices.filter((i) => i >= 0), Infinity) }))
+        .filter((c) => c.min !== Infinity)
+        .sort((a, b) => a.min - b.min);
+    const lastClaimed = Math.max(-1, ...st.claimed);
+    const rest = [];
+    for (const i of loose) {
+        const state = states.get(i);
+        const parked = state === 'skip' || state === 'side';
+        let owner = null;
+        if (parked && i < lastClaimed) for (const c of chapters) if (c.min < i) owner = c.id;
+        if (owner) {
+            if (!extra.has(owner)) extra.set(owner, []);
+            extra.get(owner).push(i);
+        } else {
+            rest.push(i);
+        }
+    }
+    return { extra, rest };
+}
+
 function renderTree(states) {
     const st = structure();
-    const blocks = []; // { at, html }：用最早的樓層排序
-    // 未壓縮：不屬於任何章的樓層。
-    const loose = [...states.keys()].filter((i) => !st.claimed.has(i));
+    const blocks = []; // { at, last, html }：照最早（最舊在上）或最新（最新在上）的樓層排序
+    // 未壓縮：不屬於任何章的樓層（夾在章之間的跳過、小劇場放進章裡；「隱藏 👻」時跳過的不列）。
+    const { extra, rest } = attachLoose(st, [...states.keys()].filter((i) => !st.claimed.has(i)), states);
+    const loose = rest.filter((i) => !(hideSkipped() && states.get(i) === 'skip'));
     if (loose.length) {
         const sorted = [...loose].sort((a, b) => (view.sum.newest ? b - a : a - b));
         const shown = sorted.slice(0, view.sum.limit);
@@ -1336,21 +1377,25 @@ function renderTree(states) {
         const n = Number(getSettings().compress.l1PerL2) || 10;
         blocks.push({
             at: Math.min(...loose),
+            last: Math.max(...loose),
             html: `<div class="lp-group">${groupHead('loose', t('group.loose'), 'L1', rangeText(loose), t('group.looseMeta', { n: loose.length, every: n }))}
               ${open ? `<div class="lp-group-body">${shown.map((i) => summaryRow(i, states.get(i))).join('')}${more}</div>` : ''}</div>`,
         });
     }
     for (const c of st.chapters) {
         if (st.claimedChapters.has(c.data.id)) continue;
-        blocks.push({ at: Math.min(...c.indices.filter((i) => i >= 0), Infinity), html: chapterGroup(c, states) });
+        const own = c.indices.filter((i) => i >= 0);
+        blocks.push({ at: Math.min(...own, Infinity), last: Math.max(...own, -1), html: chapterGroup(c, states, extra) });
     }
     // 卷以上：只列最上層的（沒被更高一層收進去的），點開一層一層往下。
     for (const v of st.volumes) {
         if (st.claimedVolumes.has(v.data.id)) continue;
         const indices = v.chapters.flatMap((c) => c.indices);
-        blocks.push({ at: Math.min(...indices.filter((i) => i >= 0), Infinity), html: volumeGroup(v, states) });
+        const own = indices.filter((i) => i >= 0);
+        blocks.push({ at: Math.min(...own, Infinity), last: Math.max(...own, -1), html: volumeGroup(v, states, extra) });
     }
-    blocks.sort((a, b) => (view.sum.newest ? b.at - a.at : a.at - b.at));
+    // 最新在上：比每一組最新的那一層（未壓縮裡有很舊的樓層時，才不會整組掉到最下面）。
+    blocks.sort((a, b) => (view.sum.newest ? b.last - a.last : a.at - b.at));
     return blocks.map((b) => b.html).join('');
 }
 
@@ -1393,7 +1438,7 @@ function floorLink(index, key) {
 function noteTrace(note) {
     const parts = [];
     if (note.carried && note.createdFloor === null) parts.push(esc(t(note.source ? 'notes.carried' : 'notes.shared', { chat: note.source ?? '' })));
-    else parts.push(note.createdFloor === null ? esc(t('notes.manualAdd')) : floorLink(note.createdFloor, 'notes.created'));
+    else parts.push(note.createdFloor === null ? esc(t(note.fromCard ? 'notes.cardAdd' : 'notes.manualAdd')) : floorLink(note.createdFloor, 'notes.created'));
     if (note.updatedFloor !== null && note.updatedFloor !== note.createdFloor) parts.push(floorLink(note.updatedFloor, 'notes.updated'));
     if (note.state !== 'active') {
         parts.push(note.closedFloor === null ? esc(t('notes.closedManual')) : floorLink(note.closedFloor, 'notes.closed'));
@@ -1519,7 +1564,7 @@ function noteCard(note, query = '', today = null, roles = null) {
     const shownAsTitle = displayTitle(note) === note.data.title ? 'title' : keyField(note.type);
     const lines = fieldsOf(note)
         .filter((f) => f !== shownAsTitle && f !== 'title' && !NUMBER_FIELDS.has(f) && !DATE_FIELDS.has(f) && note.data[f])
-        .map((f) => `<div class="lp-note-line"><span class="lp-label">${esc(fieldLabel(note.type, f))}</span> ${hl(note.data[f], query)}</div>`)
+        .map((f) => `<div class="lp-note-line"><span class="lp-label">${esc(fieldLabel(note.type, f))}</span>${note.cardFields?.includes(f) ? ` <span class="lp-kind-tag lp-card-tag" title="${esc(t('notes.cardTag.hint'))}">${esc(t('notes.cardTag'))}</span>` : ''} ${hl(note.data[f], query)}</div>`)
         .join('');
     // 物件的數量：直接用 −／＋ 改。
     const qty = note.type === 'item' ? `
@@ -1568,8 +1613,10 @@ function renderNotesTab(types = NOTE_TYPES) {
               </button>
               ${open ? hint : ''}
               <span class="lp-spacer"></span>
+              ${type === 'character' ? `<button type="button" class="menu_button lp-btn lp-mini" data-action="note-card-fill"${cardFillBusy() ? ' disabled' : ''} title="${esc(t('notes.cardFill.hint', { char: ctx()?.name2 || '{{char}}', user: ctx()?.name1 || '{{user}}' }))}">${esc(t(cardFillBusy() ? 'notes.cardFill.busy' : 'notes.cardFill'))}</button>` : ''}
               <button type="button" class="menu_button lp-btn lp-mini" data-action="note-add" data-type="${type}">${esc(t('notes.add'))}</button>
             </div>
+            ${type === 'character' && view.notes.cardMsg ? `<div class="lp-note" role="status" data-role="card-msg">${esc(view.notes.cardMsg)}</div>` : ''}
             ${adding}
             ${open ? `<div class="lp-card-grid">${list.map((n) => noteCard(n, query, today, roles)).join('')}</div>` : ''}
           </section>`;
@@ -2577,6 +2624,14 @@ function onClick(e) {
             render();
             return;
         }
+        case 'note-card-fill':
+            view.notes.cardMsg = t('notes.cardFill.busy');
+            render();
+            fillFromCard()
+                .then((r) => { view.notes.cardMsg = r ? t('notes.cardFill.done', r) : ''; })
+                .catch((e) => { view.notes.cardMsg = t('notes.cardFill.fail', { error: errorText(e) }); })
+                .finally(() => { if (isPanelOpen()) render(); });
+            return;
         case 'note-role':
             setRoleManual(btn.dataset.id, btn.dataset.roleSet || null);
             render();
@@ -2586,6 +2641,13 @@ function onClick(e) {
             view.sum.limit = SUMMARY_PAGE;
             render();
             return;
+        case 'sum-hide-skip': {
+            const s = getSettings();
+            s.ui = { ...(s.ui ?? {}), hideSkip: !hideSkipped() };
+            saveSettings();
+            render();
+            return;
+        }
         case 'sum-sort':
             view.sum.newest = !view.sum.newest;
             render();
@@ -2702,7 +2764,7 @@ function onClick(e) {
                 view.catchup = { open: true, from: null, to: null, fine: 30, block: null };
             } else if (x) {
                 fixIssue(x);
-                view.check.message = t('check.fixedOne');
+                view.check.message = t(x.kind === 'longField' ? 'check.tidy.started' : 'check.fixedOne', { title: x.title ?? '' });
             }
             render();
             return;

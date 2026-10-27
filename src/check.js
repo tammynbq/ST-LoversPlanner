@@ -6,7 +6,7 @@
 // auditFloors() 會呼叫模型：拿原文對照摘要，找寫錯、漏掉、人物搞錯。
 // 每個問題附修正方法；autoFix 為 true 的會被「全部修正」處理。
 
-import { ctx, LOG_PREFIX } from './util.js';
+import { ctx, LOG_PREFIX, toast } from './util.js';
 import { getSettings, isTracked } from './settings.js';
 import { t } from './i18n.js';
 import { getTemplate } from './prompts.js';
@@ -15,13 +15,14 @@ import { errorText } from './errors.js';
 import { parseJsonLenient } from './json.js';
 import { cleanForSummary } from './filter.js';
 import { aiIndices, floorSource, getChat, getEntry } from './chat.js';
-import { completeNoteManual, deleteNoteManual, getNotes, NOTE_FIELDS, noteTitle, updateNoteManual } from './notes.js';
+import { completeNoteManual, deleteNoteManual, fieldLabel, getNotes, NOTE_FIELDS, noteTitle, updateNoteManual } from './notes.js';
 import { compressionDue, digestLabel, structure } from './compress.js';
 import { enqueue, enqueueCompress, floorState, unsummarizedIndices } from './summarize.js';
 import { getCatchup, resumeCatchup } from './catchup.js';
 import { condenseRecap, getRecap } from './carry.js';
 import { aliasesOf } from './recall.js';
 import { estimateTokens } from './hide.js';
+import { longFields, tidyCharacter } from './tidy.js';
 
 /** 一層最多列幾個「時間／地點空白」的樓層（其他的只算數量）。 */
 const MAX_LISTED = 12;
@@ -104,6 +105,9 @@ export function runChecks() {
         if (n.type === 'item' && n.state === 'active' && Number.parseInt(n.data.quantity, 10) === 0) {
             out.push(issue('zeroItem', 'warn', { ids: [n.id], title: noteTitle(n), autoFix: true }));
         }
+        // 人物欄位太長（狀態寫成一段摘要、備註裡寫了發生過的事）：請模型整理，每個人物一次呼叫，所以不算進「全部修正」。
+        const long = longFields(n);
+        if (long.length) out.push(issue('longField', 'warn', { ids: [n.id], title: noteTitle(n), fields: long.map((f) => fieldLabel('character', f)).join('、') }));
     }
     return out;
 }
@@ -165,6 +169,12 @@ export function fixIssue(x) {
             return mergeNotes(x.ids[0], x.ids[1]);
         case 'zeroItem':
             return completeNoteManual(x.ids[0], 'used');
+        case 'longField':
+            // 非同步：整理好時記事會變，畫面自己重畫。
+            tidyCharacter(x.ids[0])
+                .then((r) => toast(t('check.tidy.done', r), 'success'))
+                .catch((e) => toast(t('check.tidy.fail', { title: x.title, error: errorText(e) }), 'error'));
+            return true;
         default:
             return false;
     }

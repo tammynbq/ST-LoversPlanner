@@ -42,7 +42,7 @@ await page.evaluate(async () => {
 // ===== 1. 提示詞 =====
 const prompt = async () => page.evaluate(async () => (await (await import('/src/summarize.js')).buildL1Prompt(3)).prompt);
 let p = await prompt();
-check('field-by-field rules', p.includes('appearance：外貌和身體特徵') && p.includes('note：放不進上面任何欄位的才寫這裡') && p.includes('relUser：和 小雨 的關係'), p.slice(p.indexOf('character：'), p.indexOf('character：') + 300));
+check('field-by-field rules', p.includes('appearance：外貌和身體特徵') && p.includes('note：長期有用、上面欄位放不下的設定') && p.includes('不要寫發生過的事') && p.includes('status：會持續一段時間的狀態，用短詞組、20～40 字') && p.includes('relUser：和 小雨 的關係'), p.slice(p.indexOf('character：'), p.indexOf('character：') + 300));
 check('json example lists new fields', p.includes('"alias": "…"') && p.includes('"relChar": "…"') && !p.includes('"relation"'));
 check('leads marked in the notes list', p.includes('[c_shen] 主角：沈言｜') && p.includes('[c_yu] 主角：小雨｜') && !p.includes('[c_lin] 主角'), p.slice(p.indexOf('[c_'), p.indexOf('[c_') + 400));
 await page.evaluate(() => { SillyTavern.getContext().extensionSettings.lovers_planner.track.fields.age = false; });
