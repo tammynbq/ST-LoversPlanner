@@ -4,7 +4,7 @@ import { ctx, escapeHtml as esc, toast } from '../util.js';
 import { getSettings, isTracked } from '../settings.js';
 import { t } from '../i18n.js';
 import { getChat, getEntry, isAiMessage, lastAiIndex } from '../chat.js';
-import { enqueue, floorState, floorVersions, isActive, onSummaryChange, restoreVersion, skipFloor, unskipFloor, writeSummary } from '../summarize.js';
+import { enqueue, floorState, floorVersions, isActive, onSummaryChange, restoreVersion, sideFloor, skipFloor, unsideFloor, unskipFloor, writeSummary } from '../summarize.js';
 import { describeOp, getNotes, onNotesChange, opType, setFloorOpUndone } from '../notes.js';
 import { computeHidden } from '../hide.js';
 import { calendarOn, calTracked } from '../calendar.js';
@@ -20,7 +20,9 @@ export const STATUS_ICONS = {
     ok: 'fa-solid fa-check',
     stale: 'fa-solid fa-triangle-exclamation',
     fail: 'fa-solid fa-circle-xmark',
-    skip: 'fa-solid fa-forward',
+    // 👻／⭐ 已經寫在文字裡。
+    skip: '',
+    side: '',
 };
 
 /** 每種狀態可以做的操作。摘要區塊和大視窗共用。 */
@@ -28,11 +30,12 @@ export function actionsFor(state, index = null) {
     // 粗略補建的樓層：沒有單層摘要，要細摘請到大視窗的那一章按「改成逐層細摘」。
     if (state === 'ok' && index !== null && getEntry(index)?.coarse) return [];
     switch (state) {
-        case 'none': return ['summarize', 'skip'];
-        case 'ok': return memoriesOn() ? ['edit', 'redo', 'skip', 'keep'] : ['edit', 'redo', 'skip'];
-        case 'stale': return ['redo', 'edit', 'skip'];
-        case 'fail': return ['retry', 'write', 'skip'];
-        case 'skip': return ['unskip'];
+        case 'none': return ['summarize', 'skip', 'side'];
+        case 'ok': return memoriesOn() ? ['edit', 'redo', 'skip', 'side', 'keep'] : ['edit', 'redo', 'skip', 'side'];
+        case 'stale': return ['redo', 'edit', 'skip', 'side'];
+        case 'fail': return ['retry', 'write', 'skip', 'side'];
+        case 'skip': return ['unskip', 'side'];
+        case 'side': return ['unside', 'sideredo', 'skip'];
         default: return [];
     }
 }
@@ -50,6 +53,7 @@ export function hintFor(index, state) {
             return t('sum.hint.manual');
         }
         case 'skip': return t('sum.hint.skip');
+        case 'side': return entry?.error ? t('sum.hint.sideFail', { error: entry.error }) : t('sum.hint.side');
         case 'fail': return t('sum.hint.fail', { error: entry?.error ?? '' });
         case 'stale': return t('sum.hint.stale');
         case 'ok': return entry?.coarse ? t('sum.hint.coarse') : '';
@@ -107,6 +111,13 @@ export function runAction(index, act) {
             return false;
         case 'unskip':
             unskipFloor(index);
+            return false;
+        case 'side':
+        case 'sideredo':
+            sideFloor(index);
+            return false;
+        case 'unside':
+            unsideFloor(index);
             return false;
         case 'edit':
         case 'write':
@@ -202,13 +213,13 @@ function blockHtml(index) {
         if (editing.has(index)) {
             body = editorHtml(state === 'skip' ? null : entry);
         } else {
-            let hint = summary && (state === 'stale' || state === 'fail') ? `<div class="lp-sum-hint">${esc(hintFor(index, state))}</div>` : '';
+            let hint = summary && ['stale', 'fail', 'side'].includes(state) ? `<div class="lp-sum-hint">${esc(hintFor(index, state))}</div>` : '';
             if (state === 'ok' && entry?.repaired) hint = `<div class="lp-sum-hint lp-warn">${esc(t('sum.hint.repaired'))}</div>`;
-            const scene = state === 'skip' ? '' : sceneHtml(entry);
+            const scene = state === 'skip' || state === 'side' ? '' : sceneHtml(entry);
             const text = summary ? `<div class="lp-sum-text">${esc(summary)}</div>` : `<div class="lp-sum-hint">${esc(hintFor(index, state))}</div>`;
-            const changes = state === 'ok' || state === 'stale' ? changesHtml(index) : '';
+            const changes = ['ok', 'stale', 'side'].includes(state) ? changesHtml(index) : '';
             const actions = actionsFor(state, index).map((a) =>
-                `<button type="button" class="menu_button lp-btn${['summarize', 'redo', 'retry'].includes(a) ? ' lp-primary' : ''}" data-lp-act="${a}">${esc(t(`act.${a}`))}</button>`).join('');
+                `<button type="button" class="menu_button lp-btn${['summarize', 'redo', 'retry'].includes(a) || (a === 'sideredo' && entry?.error) ? ' lp-primary' : ''}" data-lp-act="${a}">${esc(t(`act.${a}`))}</button>`).join('');
             const by = summary && entry?.by ? `<div class="lp-note lp-sum-by">${esc(byLine(entry.by))}</div>` : '';
             body = `${hint}${scene}${text}${by}${changes}${actions ? `<div class="lp-sum-actions">${actions}</div>` : ''}${versionsHtml(index)}`;
         }

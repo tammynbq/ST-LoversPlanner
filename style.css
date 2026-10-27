@@ -311,6 +311,7 @@
 .lp-st-stale { color: var(--lp-warn); }
 .lp-st-fail { color: var(--lp-error); }
 .lp-st-skip { color: var(--lp-muted); }
+.lp-st-side { color: var(--lp-muted); }
 
 .lp-sum-text { line-height: 1.7; white-space: pre-wrap; }
 .lp-sum-hint { color: var(--lp-muted); font-size: 0.9em; }

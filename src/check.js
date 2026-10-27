@@ -59,7 +59,7 @@ export function runChecks() {
         if (state === 'fail') out.push(issue('fail', 'error', { floor: i, autoFix: true, text: e?.error ?? '' }));
         else if (state === 'stale') out.push(issue('stale', 'error', { floor: i, autoFix: true }));
         if (state !== 'ok' || !e || e.coarse) {
-            if (state !== 'skip') prevSummary = null;
+            if (state !== 'skip' && state !== 'side') prevSummary = null;
             continue;
         }
         if (e.repaired) out.push(issue('repaired', 'warn', { floor: i, autoFix: true }));

@@ -19,7 +19,7 @@ import {
 } from './chat.js';
 import { formatNotesForPrompt, normalizeModelOps, replay } from './notes.js';
 import {
-    cancelQueue, enqueue, enqueueCoarse, isActive, parseL1, pendingCount, previousDate, setAfterSummaryHook, setCoarseHandler, skipFloor,
+    cancelQueue, enqueue, enqueueCoarse, isActive, parseL1, pendingCount, previousDate, setAfterSummaryHook, setCoarseHandler, sideFloor, skipFloor,
 } from './summarize.js';
 import { refreshDigestMeta, saveChapter, setCoarseRedo, structure } from './compress.js';
 import { estimateTokens } from './hide.js';
@@ -136,7 +136,7 @@ function schedule(rec) {
 // ===== 番外／小劇場／IF 線（v0.13.5，使用者要求） =====
 // 開始或繼續補建前，先掃一遍還沒補的樓層：使用者的發言、AI 回覆的開頭，或回覆裡很短的一行（像標題）
 // 出現了這些字眼，就先停下來列給使用者看（附上一部分正文），決定要跳過還是照常摘要，決定完才開始。
-// 決定記在 catchup.extras（send_date → 'skip'|'keep'），不會再問。
+// 決定記在 catchup.extras（send_date → 'skip'|'side'|'keep'），不會再問。
 
 /** AI 回覆從開頭看多少字；之後只看很短的行（標題）。 */
 const EXTRA_HEAD = 300;
@@ -148,7 +148,7 @@ function extraWords() {
     return String(s.extraWords ?? '').split(/[,，、;；\n]+/).map((x) => x.trim()).filter(Boolean);
 }
 
-/** 決定過的（send_date → 'skip'|'keep'）：存在聊天資料裡，補建結束後也還在。舊版存在 catchup.extras。 */
+/** 決定過的（send_date → 'skip'|'side'|'keep'）：存在聊天資料裡，補建結束後也還在。舊版存在 catchup.extras。 */
 function decidedExtras() {
     const rec = chatRecord(false);
     return { ...(rec?.catchup?.extras ?? {}), ...(rec?.extras ?? {}) };
@@ -164,7 +164,7 @@ export function findExtras(from, to) {
  * 每一項多一個 chapter：已經在第幾章裡（跳過後那一章要重新壓縮）。
  */
 export function findExtrasAll() {
-    const list = scanExtras(aiIndices().filter((i) => floorStatus(i) !== 'skip'));
+    const list = scanExtras(aiIndices().filter((i) => !['skip', 'side'].includes(floorStatus(i))));
     const st = structure();
     return list.map((x) => ({ ...x, chapter: st.chapters.find((c) => c.indices.includes(x.index))?.number ?? null }));
 }
@@ -208,7 +208,8 @@ function holdForExtras(rec) {
 }
 
 /**
- * 使用者決定了：choices = { index: 'skip' | 'keep' }。跳過的標成「跳過」（和平常的跳過一樣，之後可以取消），
+ * 使用者決定了：choices = { index: 'skip' | 'side' | 'keep' }。跳過的標成 👻 跳過、小劇場的標成 ⭐ 小劇場並排隊讀一次
+ * （和平常的一樣，之後可以取消），
  * 照常的記下來不再問；然後繼續補建。
  */
 export function decideExtras(choices) {
@@ -220,7 +221,7 @@ export function decideExtras(choices) {
     return resumeCatchup();
 }
 
-/** 套用選擇（不管補建）：跳過的標成跳過，照常的記下來不再問。回傳跳過了幾層。 */
+/** 套用選擇（不管補建）：跳過的標成跳過、小劇場的標成小劇場，照常的記下來不再問。回傳改了幾層。 */
 export function applyExtras(choices) {
     const rec = chatRecord(true);
     const chat = getChat();
@@ -229,11 +230,12 @@ export function applyExtras(choices) {
     for (const [k, choice] of Object.entries(choices)) {
         const i = Number(k);
         if (!chat[i]) continue;
-        extras[chat[i].send_date ?? `#${i}`] = choice === 'keep' ? 'keep' : 'skip';
-        if (choice !== 'keep') {
-            skipFloor(i);
-            skipped++;
-        }
+        const c = ['keep', 'side'].includes(choice) ? choice : 'skip';
+        extras[chat[i].send_date ?? `#${i}`] = c;
+        if (c === 'keep') continue;
+        if (c === 'side') sideFloor(i);
+        else skipFloor(i);
+        skipped++;
     }
     rec.extras = extras;
     saveMeta();

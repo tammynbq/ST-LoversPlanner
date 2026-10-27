@@ -152,7 +152,7 @@ export async function chatCompletion({ url, key, model, timeout }, messages, { m
         throw new ApiError('empty_length');
     }
     if (typeof text !== 'string') throw new ApiError('bad_response', JSON.stringify(json).slice(0, 120));
-    // 服務商回報的實際用量（花費紀錄用）；沒有就是 null。
+    // 服務商回報的實際用量（調用紀錄用）；沒有就是 null。
     const u = json?.usage;
     const usage = u && (Number.isFinite(u.prompt_tokens) || Number.isFinite(u.completion_tokens))
         ? { input: Number(u.prompt_tokens) || 0, output: Number(u.completion_tokens) || 0 } : null;

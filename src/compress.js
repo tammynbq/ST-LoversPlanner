@@ -17,7 +17,7 @@ import { getTemplate } from './prompts.js';
 import { ApiError } from './api/custom.js';
 import { generateText } from './llm.js';
 import { errorText } from './errors.js';
-import { getChat, getEntry, isAiMessage } from './chat.js';
+import { floorStatus, getChat, getEntry, isAiMessage } from './chat.js';
 import { sceneLine } from './lines.js';
 import { enqueueCompress, floorState, isActive, previousDate, setAfterSummaryHook, setCompressHandler } from './summarize.js';
 import { normDate } from './calendar.js';
@@ -157,7 +157,7 @@ export function dueChapterFloors(st = structure()) {
             continue;
         }
         const state = floorState(i);
-        if (state === 'skip') continue;
+        if (['skip', 'side'].includes(floorStatus(i))) continue;
         // 粗略補建的樓層沒有單層摘要，不能拿來合併。
         if (state !== 'ok' || getEntry(i)?.coarse) return null;
         picked.push(i);
@@ -181,7 +181,7 @@ export function checkManualChapter(indices, st = structure()) {
     const picked = new Set(floors);
     for (let i = floors[0]; i < floors[floors.length - 1]; i++) {
         if (!isAiMessage(chat[i]) || picked.has(i) || st.claimed.has(i)) continue;
-        if (floorState(i) !== 'skip') return { error: 'gap' };
+        if (!['skip', 'side'].includes(floorStatus(i))) return { error: 'gap' };
     }
     return { floors };
 }

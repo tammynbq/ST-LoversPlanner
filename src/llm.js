@@ -73,7 +73,7 @@ export function systemText() {
     return [s.adultNote ? t('prompt.adultNote') : '', String(s.preface ?? '').trim()].filter(Boolean).join('\n\n');
 }
 
-/** 呼叫一次模型，回傳整理過的回覆（cleanReply），並記進花費紀錄（成功、失敗、空回都記；重試的每一次都算一次呼叫）。 */
+/** 呼叫一次模型，回傳整理過的回覆（cleanReply），並記進調用紀錄（成功、失敗、空回都記；重試的每一次都算一次呼叫）。 */
 async function generateOnce(prompt, { maxTokens = 512, purpose = 'other' } = {}) {
     const s = getSettings();
     const system = systemText();

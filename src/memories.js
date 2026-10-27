@@ -81,7 +81,7 @@ export function listMemories() {
     const out = [];
     for (const i of aiIndices()) {
         const e = getEntry(i);
-        if (e?.status !== 'ok' || !Array.isArray(e.keepsakes)) continue;
+        if ((e?.status !== 'ok' && e?.status !== 'side') || !Array.isArray(e.keepsakes)) continue;
         e.keepsakes.forEach((m, k) => {
             const key = `${chat[i]?.send_date ?? `#${i}`}#${k}`;
             if (removed.has(key)) return;

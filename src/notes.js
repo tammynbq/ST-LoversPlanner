@@ -294,10 +294,10 @@ function manualOps() {
     return Array.isArray(ops) ? ops : [];
 }
 
-/** 會影響記事的樓層：已摘要和過期的（跳過、失敗的不算）。 */
+/** 會影響記事的樓層：已摘要和過期的，還有 ⭐ 小劇場（只會有新增的約定、待辦）。跳過、失敗的不算。 */
 function floorOps(index) {
     const e = getEntry(index);
-    if (!e || e.status !== 'ok' || !Array.isArray(e.ops)) return null;
+    if (!e || (e.status !== 'ok' && e.status !== 'side') || !Array.isArray(e.ops)) return null;
     return e.ops;
 }
 

@@ -27,7 +27,7 @@ import { getLastStats, onStatsChange, previewInjection } from '../hide.js';
 import { aiIndices, chatKey, getChat, getEntry } from '../chat.js';
 import { hl, isExpanded, isSectionOpen, matches, setExpanded, setSectionOpen, terms, toggleExpanded, toggleSection } from './fold.js';
 import {
-    cancelQueue, enqueue, enqueueCompress, floorState, isActive, onSummaryChange, pendingCount, restoreVersion, skipFloor, unskipFloor, unsummarizedIndices,
+    cancelQueue, enqueue, enqueueCompress, floorState, isActive, onSummaryChange, pendingCount, restoreVersion, sideFloor, skipFloor, unsideFloor, unskipFloor, unsummarizedIndices,
 } from '../summarize.js';
 import { closedDateOf, noteDates, storyToday } from '../notedates.js';
 import { fillTitles, onTitleProgress, TITLE_BATCH, titleProgress } from '../titles.js';
@@ -65,7 +65,7 @@ function visibleTabs() {
         return true;
     });
 }
-const SUMMARY_FILTERS = ['all', 'none', 'ok', 'fail', 'stale', 'skip'];
+const SUMMARY_FILTERS = ['all', 'none', 'ok', 'fail', 'stale', 'skip', 'side'];
 const SUMMARY_PAGE = 100;
 
 /** 數字欄位的範圍。 */
@@ -473,14 +473,14 @@ function summaryRow(index, state, query = '') {
           <span class="lp-row-preview">${open ? '' : hl(summary || hint, query)}</span>
         </button>`;
     if (!open) return `<div class="lp-floor-row lp-folded" data-fold-key="${esc(key)}">${head}</div>`;
-    const showHint = hint && (!summary || state === 'stale' || state === 'fail');
+    const showHint = hint && (!summary || ['stale', 'fail', 'side'].includes(state));
     const actions = [...actionsFor(state, index), 'jump'].map((a) =>
         `<button type="button" class="menu_button lp-btn${['summarize', 'redo', 'retry'].includes(a) ? ' lp-primary' : ''}" data-action="sum-act" data-act="${a}" data-index="${index}">${esc(t(`act.${a}`))}</button>`).join('');
     return `
       <div class="lp-floor-row lp-unfolded" data-fold-key="${esc(key)}">
         ${head}
         <div class="lp-floor-main">
-          ${state === 'skip' ? '' : sceneHtml(entry)}
+          ${state === 'skip' || state === 'side' ? '' : sceneHtml(entry)}
           ${summary ? `<div class="lp-sum-text">${hl(summary, query)}</div>` : ''}
           ${summary && entry?.by ? `<div class="lp-note lp-sum-by">${esc(byLine(entry.by))}</div>` : ''}
           ${showHint ? `<div class="lp-sum-hint">${esc(hint)}</div>` : ''}
@@ -511,7 +511,7 @@ function listedFloors() {
 
 /** 選到的樓層裡，每個動作能用在哪幾層。 */
 function bulkGroups(picked) {
-    const g = { summarize: [], redo: [], skip: [], unskip: [] };
+    const g = { summarize: [], redo: [], skip: [], unskip: [], side: [], unside: [] };
     for (const i of [...picked].sort((a, b) => a - b)) {
         const state = floorState(i);
         const coarse = Boolean(getEntry(i)?.coarse);
@@ -519,6 +519,8 @@ function bulkGroups(picked) {
         if (state === 'ok' && !coarse) g.redo.push(i);
         if (['none', 'ok', 'stale', 'fail'].includes(state) && !coarse) g.skip.push(i);
         if (state === 'skip') g.unskip.push(i);
+        if (['none', 'ok', 'stale', 'fail', 'skip'].includes(state) && !coarse) g.side.push(i);
+        if (state === 'side') g.unside.push(i);
     }
     return g;
 }
@@ -539,6 +541,8 @@ function bulkBar() {
         g.redo.length && btn('bulk-redo', redoLabel, g.redo.length),
         g.skip.length && btn('bulk-skip', t('bulk.skip', { n: g.skip.length }), g.skip.length),
         g.unskip.length && btn('bulk-unskip', t('bulk.unskip', { n: g.unskip.length }), g.unskip.length),
+        g.side.length && btn('bulk-side', t('bulk.side', { n: g.side.length }), g.side.length),
+        g.unside.length && btn('bulk-unside', t('bulk.unside', { n: g.unside.length }), g.unside.length),
         picked.size >= 2 && btn('bulk-compress', t('bulk.compress', { n: manual.floors?.length ?? picked.size }), 0, { disabled: !manual.floors }),
     ].filter(Boolean);
     const why = picked.size >= 2 && manual.error ? `<div class="lp-note" data-role="bulk-why">${esc(t(`bulk.compress.${manual.error}`))}</div>` : '';
@@ -619,6 +623,14 @@ function onBulkAction(action) {
         case 'bulk-unskip':
             for (const i of g.unskip) unskipFloor(i);
             done('bulk.done.unskip', g.unskip.length);
+            return true;
+        case 'bulk-side':
+            for (const i of g.side) sideFloor(i);
+            done('bulk.done.side', g.side.length);
+            return true;
+        case 'bulk-unside':
+            for (const i of g.unside) unsideFloor(i);
+            done('bulk.done.unside', g.unside.length);
             return true;
         case 'bulk-compress': {
             const res = compressSelected([...sum.picked]);
@@ -1099,10 +1111,12 @@ function extrasCard(cu) {
         return `<div class="lp-callout lp-row" data-role="extras"><span>${esc(t('extras.rescanNone'))}</span><span class="lp-spacer"></span>
           <button type="button" class="menu_button lp-btn" data-action="extras-close">${esc(t('extras.close'))}</button></div>`;
     }
-    const choice = (i) => view.extras.choice.get(i) ?? 'skip';
+    const choice = (i) => view.extras.choice.get(i) ?? 'side';
     const skips = list.filter((x) => choice(x.index) === 'skip').length;
+    const sides = list.filter((x) => choice(x.index) === 'side').length;
+    const counts = { skip: skips, side: sides, keep: list.length - skips - sides };
     const rows = list.map((x) => {
-        const opts = ['skip', 'keep'].map((c) => `<option value="${c}"${choice(x.index) === c ? ' selected' : ''}>${esc(t(`extras.${c}`))}</option>`).join('');
+        const opts = ['skip', 'side', 'keep'].map((c) => `<option value="${c}"${choice(x.index) === c ? ' selected' : ''}>${esc(t(`extras.${c}`))}</option>`).join('');
         const head = x.excerpt.slice(0, 150);
         return `<li class="lp-extra-row" data-extra="${x.index}">
           <div class="lp-row"><b>#${x.index}</b><span class="lp-badge">${esc(t('extras.word', { word: x.word }))}</span>${x.chapter ? `<span class="lp-badge lp-st-stale">${esc(t('extras.inChapter', { n: x.chapter }))}</span>` : ''}<span class="lp-spacer"></span>
@@ -1119,14 +1133,15 @@ function extrasCard(cu) {
         <div class="lp-note">${esc(t(rescan ? 'extras.rescanDesc' : 'extras.desc'))}</div>
         <div class="lp-row">
           <button type="button" class="menu_button lp-btn" data-action="extras-all" data-choice="skip">${esc(t('extras.allSkip'))}</button>
+          <button type="button" class="menu_button lp-btn" data-action="extras-all" data-choice="side">${esc(t('extras.allSide'))}</button>
           <button type="button" class="menu_button lp-btn" data-action="extras-all" data-choice="keep">${esc(t('extras.allKeep'))}</button>
         </div>
         <ul class="lp-extras-list">${rows}</ul>
         <div class="lp-row">
           ${rescan
-        ? `<button type="button" class="menu_button lp-btn lp-primary" data-action="extras-apply">${esc(t('extras.apply', { skip: skips, keep: list.length - skips }))}</button>
+        ? `<button type="button" class="menu_button lp-btn lp-primary" data-action="extras-apply">${esc(t('extras.apply', counts))}</button>
           <button type="button" class="menu_button lp-btn" data-action="extras-close">${esc(t('extras.close'))}</button>`
-        : `<button type="button" class="menu_button lp-btn lp-primary" data-action="extras-go">${esc(t('extras.go', { skip: skips, keep: list.length - skips }))}</button>
+        : `<button type="button" class="menu_button lp-btn lp-primary" data-action="extras-go">${esc(t('extras.go', counts))}</button>
           <button type="button" class="menu_button lp-btn" data-action="catchup-abandon">${esc(t('catchup.abandon'))}</button>`}
         </div>
       </div>`;
@@ -1358,7 +1373,7 @@ onCarryChange(scheduleRefresh);
 onCalendarChange(scheduleRefresh);
 onMemoriesChange(scheduleRefresh);
 onTitleProgress(() => { if (isPanelOpen() && ['notes', 'done'].includes(view.tab)) render(); });
-// 花費紀錄有新的一筆：設定頁的那一區打開著才重畫（不要打斷其他操作）。
+// 調用紀錄有新的一筆：設定頁的那一區打開著才重畫（不要打斷其他操作）。
 onUsageChange(() => { if (isPanelOpen() && view.tab === 'settings' && view.openSections.has('usage') && canAutoRefresh()) render(); });
 // 每次送出後更新標題列的統計（不整頁重畫）。
 onStatsChange(() => {
@@ -1578,7 +1593,7 @@ function renderNotesTab(types = NOTE_TYPES) {
 
 const USAGE_ERRORS = ['empty', 'empty_notice', 'empty_length', 'timeout', 'http', 'network', 'parse', 'bad_response'];
 
-/** 設定 › 花費紀錄（v0.13.14）：今天／7 天／30 天、各模型、各用途、最近幾次。 */
+/** 設定 › 調用紀錄（v0.13.14）：今天／7 天／30 天、各模型、各用途、最近幾次。 */
 function renderUsageSection() {
     const fmt = (n) => Math.round(n).toLocaleString();
     const tok = (v) => `${v.est ? '≈' : ''}${fmt(v.input)} / ${fmt(v.output)}`;
@@ -2780,6 +2795,8 @@ function onClick(e) {
         case 'bulk-redo':
         case 'bulk-skip':
         case 'bulk-unskip':
+        case 'bulk-side':
+        case 'bulk-unside':
         case 'bulk-compress':
             onBulkAction(btn.dataset.action);
             return;
@@ -2814,7 +2831,7 @@ function onClick(e) {
             render();
             return;
         case 'extras-apply': {
-            const choices = Object.fromEntries(view.extras.list.map((x) => [x.index, view.extras.choice.get(x.index) ?? 'skip']));
+            const choices = Object.fromEntries(view.extras.list.map((x) => [x.index, view.extras.choice.get(x.index) ?? 'side']));
             const chapters = new Set(view.extras.list.filter((x) => choices[x.index] !== 'keep' && x.chapter).map((x) => x.chapter)).size;
             const n = applyExtras(choices);
             view.extras = { key: null, list: [], choice: new Map(), rescan: false };
@@ -2867,7 +2884,7 @@ function onClick(e) {
             render();
             return;
         case 'extras-go': {
-            const choices = Object.fromEntries(view.extras.list.map((x) => [x.index, view.extras.choice.get(x.index) ?? 'skip']));
+            const choices = Object.fromEntries(view.extras.list.map((x) => [x.index, view.extras.choice.get(x.index) ?? 'side']));
             view.extras = { key: null, list: [], choice: new Map() };
             decideExtras(choices);
             render();

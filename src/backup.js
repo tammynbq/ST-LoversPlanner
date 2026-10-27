@@ -29,7 +29,7 @@ function clone(v) {
 
 function withoutSecrets(settings) {
     const out = clone(settings) ?? {};
-    // 角色的快照屬於各個聊天，不放進設定的備份；花費紀錄也不放。
+    // 角色的快照屬於各個聊天，不放進設定的備份；調用紀錄也不放。
     delete out.characters;
     delete out.usage;
     for (const path of SECRET_PATHS) {

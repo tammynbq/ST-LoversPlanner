@@ -31,8 +31,10 @@ const ROLE_SYSTEM = 0;
  * 粗略補建的樓層沒有單層摘要，只有它所在的章有效時才算（章過期就照送原文）。
  */
 function isCovered(index, st) {
+    // 跳過、小劇場：排隊讀小劇場的時候也不送原文。
+    const stored = floorStatus(index);
+    if (stored === 'skip' || stored === 'side') return true;
     const state = floorState(index);
-    if (state === 'skip') return true;
     if (state !== 'ok') return false;
     if (!getEntry(index)?.coarse) return true;
     return st().covered.has(index);

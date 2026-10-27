@@ -1,4 +1,4 @@
-// 花費紀錄（v0.13.14，使用者要求）：戀人手帳自己每次呼叫模型的紀錄。不多花任何呼叫，只是記下來。
+// 調用紀錄（v0.13.14，使用者要求）：戀人手帳自己每次呼叫模型的紀錄。不多花任何呼叫，只是記下來。
 // 不包含平常聊天本身（那是酒館的，戀人手帳看不到）。
 //
 // 存在 extensionSettings.lovers_planner.usage：
@@ -9,7 +9,7 @@
 import { getSettings, saveSettings } from './settings.js';
 import { chatKey } from './chat.js';
 
-export const PURPOSES = ['l1', 'catchup', 'compress', 'recap', 'check', 'titles', 'other'];
+export const PURPOSES = ['l1', 'side', 'catchup', 'compress', 'recap', 'check', 'titles', 'other'];
 const DAYS_KEPT = 120;
 const RECENT_MAX = 200;
 

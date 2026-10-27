@@ -67,10 +67,11 @@ export function pendingCount() {
     return queue.length + (running === null ? 0 : 1);
 }
 
-export function enqueue(index, { front = false } = {}) {
+/** side：⭐ 小劇場，只讀回憶和約定，不寫正劇摘要。 */
+export function enqueue(index, { front = false, side = false } = {}) {
     if (!isActive() || !isAiMessage(getChat()[index])) return false;
     if (queued.has(index) || running === index) return true;
-    const item = { index, chatId: chatKey() };
+    const item = { index, chatId: chatKey(), ...(side ? { side: true } : {}) };
     if (front) queue.unshift(item);
     else queue.push(item);
     queued.add(index);
@@ -197,7 +198,7 @@ async function drain() {
     running = item.index;
     notify(item.index);
     try {
-        await summarizeFloor(item.index);
+        await (item.side ? readSideFloor(item.index) : summarizeFloor(item.index));
     } finally {
         running = null;
         notify(item.index);
@@ -263,7 +264,7 @@ function notesSection(notesBefore) {
     return `${t('prompt.notesLabel')}\n${formatNotesForPrompt(notesBefore)}`;
 }
 
-export async function buildL1Prompt(index) {
+export async function buildL1Prompt(index, { side = false } = {}) {
     const s = getSettings();
     const c = ctx();
     const src = floorSource(index);
@@ -276,16 +277,17 @@ export async function buildL1Prompt(index) {
     }
     parts.push(`${src.ai.name ?? c?.name2 ?? 'Character'}: ${cleanForSummary(src.ai.mes)}`);
     // 小劇場（番外）：不算正文，另外附上，讓模型只挑有意義的收進回憶錄。
-    const theater = memoriesOn() && s.memories?.auto ? extractTheater(src.ai.mes) : '';
+    const theater = !side && memoriesOn() && s.memories?.auto ? extractTheater(src.ai.mes) : '';
     // 只當參考的標籤（狀態欄）：抽出日期、時間、地點那幾行另外附上。
-    const ref = extractRef(src.ai.mes);
-    const content = parts.join('\n\n') + (theater ? `\n\n${t('prompt.theaterLabel')}\n${theater}` : '') + (ref ? `\n\n${t('prompt.refLabel')}\n${ref}` : '');
+    const ref = side ? '' : extractRef(src.ai.mes);
+    // ⭐ 小劇場：整層都是番外，標明一下。
+    const content = (side ? `${t('prompt.theaterLabel')}\n` : '') + parts.join('\n\n') + (theater ? `\n\n${t('prompt.theaterLabel')}\n${theater}` : '') + (ref ? `\n\n${t('prompt.refLabel')}\n${ref}` : '');
 
     const tokens = await countTokens(content);
     const ratio = (s.summary.ratioMin + s.summary.ratioMax) / 200;
     const targetTokens = Math.min(s.summary.maxTokens, Math.max(s.summary.minTokens, Math.round(tokens * ratio)));
     const length = lengthUnits(content, tokens, targetTokens);
-    const { rules, format } = buildL1Parts({ length, char: c?.name2 ?? '', user: c?.name1 ?? '', previousDate: previousDate(index), theater: Boolean(theater) });
+    const { rules, format } = buildL1Parts({ length, char: c?.name2 ?? '', user: c?.name1 ?? '', previousDate: previousDate(index), theater: Boolean(theater), side });
     const prompt = fillTemplate(getTemplate('l1'), {
         char: c?.name2 ?? '',
         user: c?.name1 ?? '',
@@ -294,7 +296,7 @@ export async function buildL1Prompt(index) {
         rules,
         format,
         notes: notesSection(notesBefore),
-        previous: previousSceneText(index),
+        previous: side ? '' : previousSceneText(index),
     }).replace(/\n{3,}/g, '\n\n'); // 空掉的段落不要留下一堆空行
     // 摘要本身＋時間、地點、人物＋記事 JSON 的空間要給夠，不然 JSON 會被截斷；
     // 會先「思考」的模型也會吃掉一部分額度。只按實際用到的計費，給多不會多花錢。
@@ -429,12 +431,74 @@ async function summarizeFloor(index) {
     saveChatSoon();
 }
 
+// ===== ⭐ 小劇場 =====
+// v0.13.15，使用者要求：「跳過」分成兩種。👻 跳過：不摘要、不呼叫模型。⭐ 小劇場：整層是番外，
+// 不寫進正劇摘要、原文也不再送（和跳過一樣），但讀一次，把回憶（keepsakes）和之後正劇也算數的約定／待辦（只新增）記下。
+// entry：{ status: 'side', summary（一句話，只給使用者看，不送給角色、不壓縮）, ops, keepsakes, prev（原本的 entry，取消時換回來）}。
+// 讀取失敗也還是 'side'（照樣不送），帶 error，可以重新讀。
+
+/** 跳過、小劇場前原本的 entry（取消時換回來）。 */
+function baseEntry(e) {
+    return e?.status === 'skip' || e?.status === 'side' ? (e.prev ?? null) : (e ?? null);
+}
+
+async function readSideFloor(index) {
+    const chatId = chatKey();
+    const msg = getChat()[index];
+    if (!isAiMessage(msg)) return;
+    // 讀的途中被取消小劇場（或改成跳過）就不寫回去。
+    const stillHere = () => chatKey() === chatId && getChat()[index] === msg && getEntry(index)?.status === 'side';
+    let hash = floorSource(index).hash;
+    const base = () => baseEntry(getEntry(index));
+    try {
+        const built = await buildL1Prompt(index, { side: true });
+        hash = built.hash;
+        const raw = await generateText(built.prompt, { maxTokens: built.maxTokens, purpose: 'side' });
+        const parsed = parseL1(raw);
+        if (!stillHere()) return;
+        const types = trackedNoteTypes().filter((x) => x === 'promise' || x === 'todo');
+        // 只收新增的約定、待辦；其他記事不讓小劇場動。
+        const ops = normalizeModelOps((parsed.ops ?? []).filter((op) => op?.op === 'add'), built.notesBefore, [], { types })
+            .filter((op) => op.op === 'add' && types.includes(op.type));
+        const keepsakes = memoriesOn() && getSettings().memories?.auto
+            ? cleanKeepsakes(parsed.keepsakes).map((m) => ({ ...m, theater: true }))
+            : [];
+        setEntry(index, { v: 2, status: 'side', summary: parsed.summary, ops, keepsakes, hash, at: Date.now(), by: modelLabel(), prev: base() });
+    } catch (e) {
+        console.warn(LOG_PREFIX, `第 ${index} 層小劇場讀取失敗`, e);
+        if (!stillHere()) return;
+        const message = errorText(e);
+        setEntry(index, { v: 2, status: 'side', error: message, summary: '', ops: [], keepsakes: [], hash, at: Date.now(), prev: base() });
+        toast(t('toast.summaryFailed', { n: index, error: message }), 'error');
+    }
+    saveChatSoon();
+}
+
+/** 設成 ⭐ 小劇場：先標起來（馬上不送），再排隊讀一次。 */
+export function sideFloor(index) {
+    const prev = getEntry(index);
+    if (prev?.status !== 'side') {
+        setEntry(index, { v: 2, status: 'side', summary: '', ops: [], keepsakes: [], hash: floorSource(index).hash, at: Date.now(), pending: true, prev: baseEntry(prev) });
+        saveChatSoon();
+    }
+    notify(index);
+    return enqueue(index, { side: true });
+}
+
+export function unsideFloor(index) {
+    const e = getEntry(index);
+    if (e?.status !== 'side') return;
+    setEntry(index, e.prev ?? null);
+    saveChatSoon();
+    notify(index);
+}
+
 // ===== 手動操作 =====
 
 export function skipFloor(index) {
     const prev = getEntry(index);
     if (prev?.status === 'skip') return;
-    setEntry(index, { v: 2, status: 'skip', hash: floorSource(index).hash, prev: prev ?? null });
+    setEntry(index, { v: 2, status: 'skip', hash: floorSource(index).hash, prev: baseEntry(prev) });
     saveChatSoon();
     notify(index);
 }

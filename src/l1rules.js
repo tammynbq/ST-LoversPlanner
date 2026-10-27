@@ -59,6 +59,9 @@ const TEXT = {
         evAnniversary: 'anniversary：紀念日或生日（每年重複），date 寫 MM-DD，title 寫是什麼日子（例如「小雨的生日」）。',
         keepsakes: 'keepsakes：真正值得珍藏、以後兩人可能會一起回想的時刻（第一次做某件事、告白、和好、很甜或很重要的對話、特別的約定或禮物）。大部分樓層沒有，寧缺勿濫，沒有就是空陣列。title 不超過 15 字；content 用一兩句寫清楚發生了什麼、說了什麼關鍵的話。',
         keepsakesTheater: '「小劇場」是番外，不是正劇：不要寫進 summary 和 ops；但裡面有意義的時刻可以收進 keepsakes，加上 "from": "theater"。',
+        summarySide: 'summary：這一整層是「小劇場」（番外、IF 線），不是正劇。用一句話（不超過 50 字）寫這段小劇場在演什麼，只給使用者看，不會當成劇情。',
+        keepsakesSide: '小劇場裡有意義的時刻可以收進 keepsakes（寧缺勿濫）。',
+        opsSide: 'ops：只在小劇場裡明確說好、之後正劇也要算數的約定或待辦才用 add 新增；其他記事（人物、物件）不要動，也不要 update 或 complete。沒有就是空陣列。',
         sep: '／',
     },
     'zh-CN': {
@@ -112,6 +115,9 @@ const TEXT = {
         evAnniversary: 'anniversary：纪念日或生日（每年重复），date 写 MM-DD，title 写是什么日子（例如「小雨的生日」）。',
         keepsakes: 'keepsakes：真正值得珍藏、以后两人可能会一起回想的时刻（第一次做某件事、告白、和好、很甜或很重要的对话、特别的约定或礼物）。大部分楼层没有，宁缺毋滥，没有就是空数组。title 不超过 15 字；content 用一两句写清楚发生了什么、说了什么关键的话。',
         keepsakesTheater: '「小剧场」是番外，不是正剧：不要写进 summary 和 ops；但里面有意义的时刻可以收进 keepsakes，加上 "from": "theater"。',
+        summarySide: 'summary：这一整层是「小剧场」（番外、IF 线），不是正剧。用一句话（不超过 50 字）写这段小剧场在演什么，只给用户看，不会当成剧情。',
+        keepsakesSide: '小剧场里有意义的时刻可以收进 keepsakes（宁缺毋滥）。',
+        opsSide: 'ops：只在小剧场里明确说好、之后正剧也要算数的约定或待办才用 add 新增；其他记事（人物、物品）不要动，也不要 update 或 complete。没有就是空数组。',
         sep: '／',
     },
     en: {
@@ -165,6 +171,9 @@ const TEXT = {
         evAnniversary: 'anniversary: an anniversary or birthday (repeats every year); date as MM-DD, title says what day it is (e.g. "Xiaoyu\'s birthday").',
         keepsakes: 'keepsakes: moments truly worth treasuring that the two might look back on later (a first time, a confession, making up, a very sweet or important conversation, a special promise or gift). Most floors have none; less is more; leave it as an empty array if none. title at most 8 words; content in one or two sentences says what happened and the key words said.',
         keepsakesTheater: 'The "side scene" is an extra, not the main story: keep it out of summary and ops, but meaningful moments from it may go into keepsakes with "from": "theater".',
+        summarySide: 'summary: this whole floor is a "side scene" (an extra or IF line), not the main story. In one sentence (at most 25 words) say what the side scene is about; it is only shown to the user, never treated as the plot.',
+        keepsakesSide: 'Meaningful moments in the side scene may go into keepsakes (less is more).',
+        opsSide: 'ops: only add a promise or to-do that is clearly agreed in the side scene and should still count in the main story; leave other notes (characters, items) alone, and do not update or complete anything. Empty array if none.',
         sep: ' / ',
     },
 };
@@ -178,10 +187,11 @@ function fill(text, vars) {
     return text.replace(/\{(\w+)\}/g, (m, k) => (k in vars ? String(vars[k]) : m));
 }
 
-/** 產生 {{rules}} 和 {{format}}。chapter：補建時一次讀一整段、寫成一章的版本。 */
-export function buildL1Parts({ length, char, user, chapter = false, previousDate = '', theater = false }) {
+/** 產生 {{rules}} 和 {{format}}。chapter：補建時一次讀一整段、寫成一章的版本。side：⭐ 小劇場那一層。 */
+export function buildL1Parts({ length, char, user, chapter = false, previousDate = '', theater = false, side = false }) {
     const T = TEXT[currentLocale()] ?? TEXT.en;
     const vars = { length, char, user };
+    if (side) return sideParts(T, vars);
     const types = trackedNoteTypes();
     const scene = ['time', 'location', 'cast'].filter(isTracked);
 
@@ -253,4 +263,24 @@ export function buildL1Parts({ length, char, user, chapter = false, previousDate
     }
     lines.push('}');
     return { rules: numbered, format: lines.join('\n') };
+}
+
+/**
+ * ⭐ 小劇場（v0.13.15，使用者要求）：整層是番外，不寫進正劇。只要一句話的說明（給使用者看）、
+ * 值得珍藏的回憶，和之後正劇也算數的約定／待辦（只能新增）。時間、地點、日期、人物、物件都不要。
+ */
+function sideParts(T, vars) {
+    const types = trackedNoteTypes().filter((x) => x === 'promise' || x === 'todo');
+    const keep = memoriesOn() && getSettings().memories?.auto;
+    const rules = [T.summarySide];
+    if (keep) rules.push([T.keepsakes, `   - ${T.keepsakesSide}`].join('\n'));
+    if (types.length) rules.push([T.ops, ...[T.opsSide, fill(T.opsAdd, { types: types.join(T.sep) }), T.noteTitle, T.noDup].map((x) => `   - ${x}`)].join('\n'));
+    const lines = ['{', '  "summary": "…"' + (keep || types.length ? ',' : '')];
+    if (keep) lines.push('  "keepsakes": [{ "title": "…", "content": "…" }]' + (types.length ? ',' : ''));
+    if (types.length) {
+        const ex = types.map((type) => `    { "op": "add", "type": "${type}", "data": { ${NOTE_FIELDS[type].filter((f) => f !== 'due').map((f) => `"${f}": "…"`).join(', ')} } }`);
+        lines.push('  "ops": [', ex.join(',\n'), '  ]');
+    }
+    lines.push('}');
+    return { rules: rules.map((r, i) => `${i + 1}. ${r}`).join('\n'), format: lines.join('\n') };
 }

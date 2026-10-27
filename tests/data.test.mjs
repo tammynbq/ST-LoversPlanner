@@ -133,7 +133,7 @@ check('summarized floor listed', (await page.textContent('[data-extra="5"]')).in
 check('chapter badge for floors inside a chapter', await page.evaluate(async () => { const { findExtrasAll } = await import('/src/catchup.js'); window.__chat[1].mes = '番外：一'; const r = findExtrasAll().find((x) => x.index === 1); window.__chat[1].mes = 'AI1'; return r?.chapter === 1; }));
 await page.click('[data-action="extras-apply"]');
 const rs = await page.evaluate(async () => ({ s5: (await import('/src/chat.js')).floorStatus(5), again: (await import('/src/catchup.js')).findExtrasAll().length }));
-check('one click skips it', rs.s5 === 'skip' && rs.again === 0, JSON.stringify(rs));
+check('one click marks it a side scene', rs.s5 === 'side' && rs.again === 0, JSON.stringify(rs));
 await page.screenshot({ path: `${OUT}/data.png` });
 
 const missing = await page.evaluate(async () => (await import('/src/i18n.js')).missingKeys());

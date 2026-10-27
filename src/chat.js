@@ -136,13 +136,14 @@ export function saveChatSoon() {
 }
 
 /**
- * 存起來的狀態：'none' 尚未摘要、'ok' 已摘要、'stale' 過期（原文改過）、'fail' 失敗、'skip' 跳過。
+ * 存起來的狀態：'none' 尚未摘要、'ok' 已摘要、'stale' 過期（原文改過）、'fail' 失敗、'skip' 👻 跳過、'side' ⭐ 小劇場（不送、不壓縮，只記回憶和約定）。
  * 「排隊中／摘要中」不存檔，由 summarize.js 另外判斷。
  */
 export function floorStatus(index) {
     const e = getEntry(index);
     if (!e) return 'none';
     if (e.status === 'skip') return 'skip';
+    if (e.status === 'side') return 'side';
     if (e.status === 'fail') return 'fail';
     if (e.status === 'ok') return e.hash === floorSource(index).hash || e.hash === legacyHash(index) ? 'ok' : 'stale';
     return 'none';

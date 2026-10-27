@@ -137,8 +137,10 @@ check('lists them with text', card.includes('發現 3 層') && card.includes('#2
 check('shows where a later word appears', (await page.textContent('[data-extra="29"] [data-role="extra-around"]')).includes('IF線：如果沒有遇見'));
 check('long text expandable', await page.isVisible('[data-extra="29"] .lp-tag-full summary'));
 await page.screenshot({ path: `${OUT}/extras.png` });
+check('defaults to side scene', (await page.inputValue('[data-role="extra-choice"][data-index="25"]')) === 'side');
+await page.selectOption('[data-role="extra-choice"][data-index="23"]', 'skip');
 await page.selectOption('[data-role="extra-choice"][data-index="29"]', 'keep');
-check('button shows counts', (await page.textContent('[data-action="extras-go"]')).includes('跳過 2 層、照常 1 層'));
+check('button shows counts', (await page.textContent('[data-action="extras-go"]')).includes('跳過 1 層、小劇場 1 層、照常 1 層'));
 await page.click('[data-action="extras-go"]');
 for (let k = 0; k < 50; k++) {
   if (await page.evaluate(async () => !(await import('/src/summarize.js')).pendingCount() && window.__coarse > 0)) break;
@@ -148,7 +150,7 @@ const after = await page.evaluate(async () => {
   const { floorStatus } = await import('/src/chat.js');
   return { s23: floorStatus(23), s25: floorStatus(25), s29: floorStatus(29), s21: floorStatus(21), coarse: window.__coarse };
 });
-check('skipped ones marked skip, kept one summarized', after.s23 === 'skip' && after.s25 === 'skip' && after.s29 === 'ok' && after.s21 === 'ok' && after.coarse > 0, JSON.stringify(after));
+check('skip, side scene and kept one', after.s23 === 'skip' && after.s25 === 'side' && after.s29 === 'ok' && after.s21 === 'ok' && after.coarse > 0, JSON.stringify(after));
 const again = await page.evaluate(async () => (await import('/src/catchup.js')).findExtras(0, 39).length);
 check('not asked again', again === 0);
 
