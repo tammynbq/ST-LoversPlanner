@@ -55,7 +55,7 @@ for (const [v, bgWant] of [['night-mint', 'rgb(29, 39, 35)'], ['night-sky', 'rgb
   await page.screenshot({ path: `${OUT}/look-${v}.png` });
 }
 // 白天換色（v0.13.24）：小草、白雲、櫻花
-for (const [v, cl, bgWant] of [['day-grass', 'grass', 'rgb(243, 248, 241)'], ['day-cloud', 'cloud', 'rgb(242, 246, 251)'], ['day-blossom', 'blossom', 'rgb(253, 243, 245)']]) {
+for (const [v, cl, bgWant] of [['day-grass', 'grass', 'rgb(243, 248, 241)'], ['day-cloud', 'cloud', 'rgb(242, 246, 251)'], ['day-blossom', 'blossom', 'rgb(255, 246, 249)']]) {
   await page.selectOption('#lp-theme', v);
   await page.waitForFunction((cl) => document.documentElement.classList.contains(`lp-techo-${cl}`), cl);
   const c = await cls();
@@ -63,6 +63,16 @@ for (const [v, cl, bgWant] of [['day-grass', 'grass', 'rgb(243, 248, 241)'], ['d
   check(`${v}: light paper, no night`, c.includes('lp-theme-techo') && !c.includes('lp-techo-night') && bgNow === bgWant, `${c} ${bgNow}`);
   await page.screenshot({ path: `${OUT}/look-${v}.png` });
 }
+// 花朵主題（v0.13.25）：不是手帳換色，分頁是膠囊、標題列是花圈、卡片角落有小花
+await page.selectOption('#lp-theme', 'day-blossom');
+await page.waitForFunction(() => document.documentElement.classList.contains('lp-techo-blossom'));
+const fl = await page.evaluate(() => {
+  const tab = getComputedStyle(document.querySelector('.lp-tab'));
+  const head = getComputedStyle(document.querySelector('.lp-header')).backgroundImage;
+  const sec = getComputedStyle(document.querySelector('.lp-sec'), '::after').backgroundImage;
+  return { radius: tab.borderTopLeftRadius, head: head.includes('svg'), sec: sec.includes('svg') };
+});
+check('blossom: pill tabs, flower garland, corner flowers', fl.radius === '999px' && fl.head && fl.sec, JSON.stringify(fl));
 await page.selectOption('#lp-theme', 'techo');
 check('cream planner drops color classes', !/lp-techo-(grass|cloud|blossom)/.test(await cls()));
 check('back to day planner drops night classes', !(await cls()).includes('lp-techo-night') && (await cls()).includes('lp-theme-techo'));

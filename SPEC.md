@@ -780,3 +780,4 @@ L0 原文 → L1 單層摘要 → L2（每 10 個 L1）→ L3（每 10 份 L2）
 - 2026-10-27（v0.13.22，使用者要求）：外觀選項（settings.ui.theme：tavern 跟隨酒館｜techo 日系手帳；ui.themeBlocks 聊天裡的摘要區塊也套用）。theme.js 在 <html> 加 .lp-theme-techo／.lp-theme-techo-blocks，第一次用時載入 Google Fonts 的「粉圓」Huninn（Zen Maru Gothic 沒有繁中字，會混字）。樣式在 style.css 最後一段：方格紙底、斜紋紙膠帶標題列、索引貼分頁（7 色）、便條紙卡片、螢光筆標題、設定區塊左側紙膠帶、回憶錄卡片貼紙膠帶、圓按鈕、月曆週日紅週六藍。
 - 2026-10-27（v0.13.23，使用者要求）：夜間護眼手帳三色（ui.theme：night-mint／night-sky／night-sakura）。手帳樣式的顏色全部改成變數（--lp-dot、--lp-control、--lp-tab-1～7…），夜間版只換變數：.lp-techo-night 共用（紙膠帶調暗、狀態色柔和），.lp-techo-mint／sky／sakura 各自的底色、卡片、強調色和同色系的索引貼。
 - 2026-10-27（v0.13.24，使用者要求）：使用者要的其實是白天的換色版：🌱 小草淡綠（day-grass）、☁️ 白雲淺藍（day-cloud）、🌸 櫻花粉色（day-blossom），各有一點裝飾（小草叢、雲、花瓣）。夜間三色先保留，名字改成「🌙 夜間護眼・…」。裝飾規則要用 html.lp-techo-xxx 提高優先，不然會被後面通用的 .lp-theme-techo 規則蓋掉。
+- 2026-10-27（v0.13.25，使用者要求）：🌸 改成獨立的花朵主題（ui.theme 仍是 day-blossom，名稱「花朵粉色」）：沿用手帳的按鈕、輸入框結構，但手帳元素全部換成花（SVG 五瓣花 data URI）：粉色漸層＋四角大花的底、小花花圈的標題列、花瓣膠囊分頁（選中的漸層粉＋✿）、花邊卡片＋右上角小花、壓花貼紙、✿ 區塊標題、波浪底線、今天墊一朵花。

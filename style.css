@@ -1041,14 +1041,152 @@ html.lp-techo-cloud .lp-header {
     --lp-callout-bg: #fff4f6; --lp-callout-border: #f6d3dc;
     --lp-cal-cell: #fffafb; --lp-cal-line: #f3dfe5; --lp-cal-period: #fbd5df;
 }
-/* 櫻花：紙上飄幾片花瓣 */
+/* ===== 🌸 花朵主題（v0.13.25，使用者要求：要的是花朵花朵的粉色美化，不是手帳換粉色） =====
+ * 沿用手帳的按鈕、輸入框等結構，但把手帳的元素（方格紙、紙膠帶、索引貼、螢光筆）全部換成花：
+ * 粉色漸層的底和四角的大花、小花花圈的標題列、花瓣膠囊分頁、花邊卡片＋角落小花、壓花貼紙、✿ 標題、波浪底線、花朵墊底的今天。 */
+html.lp-techo-blossom .lp-overlay,
+html.lp-techo-blossom.lp-theme-techo-blocks .lp-sum {
+    --lp-flower: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'><g fill='%23f6aec2' fill-opacity='1'><ellipse cx='20' cy='10.5' rx='6.2' ry='9.5' transform='rotate(0 20 20)'/><ellipse cx='20' cy='10.5' rx='6.2' ry='9.5' transform='rotate(72 20 20)'/><ellipse cx='20' cy='10.5' rx='6.2' ry='9.5' transform='rotate(144 20 20)'/><ellipse cx='20' cy='10.5' rx='6.2' ry='9.5' transform='rotate(216 20 20)'/><ellipse cx='20' cy='10.5' rx='6.2' ry='9.5' transform='rotate(288 20 20)'/></g><circle cx='20' cy='20' r='4' fill='%23fde3a7'/></svg>");
+    --lp-flower-light: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'><g fill='%23fbd3de' fill-opacity='1'><ellipse cx='20' cy='10.5' rx='6.2' ry='9.5' transform='rotate(0 20 20)'/><ellipse cx='20' cy='10.5' rx='6.2' ry='9.5' transform='rotate(72 20 20)'/><ellipse cx='20' cy='10.5' rx='6.2' ry='9.5' transform='rotate(144 20 20)'/><ellipse cx='20' cy='10.5' rx='6.2' ry='9.5' transform='rotate(216 20 20)'/><ellipse cx='20' cy='10.5' rx='6.2' ry='9.5' transform='rotate(288 20 20)'/></g><circle cx='20' cy='20' r='4' fill='%23fff0c4'/></svg>");
+    --lp-flower-white: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'><g fill='%23ffffff' fill-opacity='0.95'><ellipse cx='20' cy='10.5' rx='6.2' ry='9.5' transform='rotate(0 20 20)'/><ellipse cx='20' cy='10.5' rx='6.2' ry='9.5' transform='rotate(72 20 20)'/><ellipse cx='20' cy='10.5' rx='6.2' ry='9.5' transform='rotate(144 20 20)'/><ellipse cx='20' cy='10.5' rx='6.2' ry='9.5' transform='rotate(216 20 20)'/><ellipse cx='20' cy='10.5' rx='6.2' ry='9.5' transform='rotate(288 20 20)'/></g><circle cx='20' cy='20' r='4' fill='%23f9d3a0'/></svg>");
+    --lp-flower-deep: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'><g fill='%23ec8fa8' fill-opacity='1'><ellipse cx='20' cy='10.5' rx='6.2' ry='9.5' transform='rotate(0 20 20)'/><ellipse cx='20' cy='10.5' rx='6.2' ry='9.5' transform='rotate(72 20 20)'/><ellipse cx='20' cy='10.5' rx='6.2' ry='9.5' transform='rotate(144 20 20)'/><ellipse cx='20' cy='10.5' rx='6.2' ry='9.5' transform='rotate(216 20 20)'/><ellipse cx='20' cy='10.5' rx='6.2' ry='9.5' transform='rotate(288 20 20)'/></g><circle cx='20' cy='20' r='4' fill='%23fde3a7'/></svg>");
+    --lp-border: #f4cfda;
+    --lp-card: #fffafc;
+    --lp-shadow: 0 2px 10px rgba(236, 143, 168, 0.13);
+}
+/* 底：粉色漸層＋四角的大花（不用方格紙） */
 html.lp-techo-blossom .lp-panel {
+    background-color: #fff6f9;
     background-image:
-        radial-gradient(ellipse 5px 3px at 12% 18%, rgba(240, 150, 175, 0.35) 98%, transparent),
-        radial-gradient(ellipse 4px 3px at 78% 42%, rgba(240, 150, 175, 0.3) 98%, transparent),
-        radial-gradient(ellipse 5px 3px at 36% 76%, rgba(240, 150, 175, 0.3) 98%, transparent),
-        radial-gradient(circle, var(--lp-dot) 1px, transparent 1.3px);
-    background-size: 260px 260px, 300px 300px, 340px 340px, 20px 20px;
+        var(--lp-flower-light), var(--lp-flower-light), var(--lp-flower-light),
+        linear-gradient(170deg, #fff8fa 0%, #fdeef3 55%, #fbe4ec 100%);
+    background-repeat: no-repeat;
+    background-size: 130px 130px, 80px 80px, 110px 110px, 100% 100%;
+    background-position: right -38px top 72px, left -26px bottom 140px, right -30px bottom -30px, 0 0;
+    box-shadow: 0 18px 50px rgba(120, 50, 75, 0.28), inset 0 0 0 1.5px #f6d6e0;
+}
+/* 標題列：一排小花的花圈 */
+html.lp-techo-blossom .lp-header {
+    background:
+        var(--lp-flower) bottom 2px left 6px / 18px 18px repeat-x,
+        linear-gradient(180deg, #fde3ec, #fff1f5);
+    border-bottom: none;
+    padding-bottom: 22px;
+}
+html.lp-techo-blossom .lp-title::before { content: '✿ '; color: var(--lp-accent); }
+/* 分頁：花瓣膠囊 */
+html.lp-techo-blossom .lp-tabs { gap: 6px; padding: 8px 10px 6px; border-bottom: 1.5px dashed #f2c3d1; }
+html.lp-techo-blossom .lp-tab {
+    min-height: 34px;
+    margin: 0;
+    padding: 0 14px;
+    border: 1.5px solid #f4cfda;
+    border-radius: 999px;
+    background: #fffafc;
+    color: #a0687a;
+    transform: none;
+}
+html.lp-techo-blossom .lp-tab.lp-on {
+    transform: none;
+    background: linear-gradient(135deg, #f7b2c5, #ec8fa8);
+    border-color: #ec8fa8;
+    color: #fff;
+    box-shadow: 0 3px 8px rgba(236, 143, 168, 0.35);
+}
+html.lp-techo-blossom .lp-tab.lp-on::before { content: '✿ '; }
+/* 卡片：花邊＋右上角一朵小花 */
+html.lp-techo-blossom .lp-note-card,
+html.lp-techo-blossom .lp-floor-row,
+html.lp-techo-blossom .lp-group,
+html.lp-techo-blossom .lp-card,
+html.lp-techo-blossom .lp-sec,
+html.lp-techo-blossom .lp-preview,
+html.lp-techo-blossom .lp-check-row,
+html.lp-techo-blossom .lp-result {
+    border: 1.5px solid #f6d3dd;
+    border-radius: 18px;
+    background: rgba(255, 250, 252, 0.92);
+    box-shadow: var(--lp-shadow);
+}
+html.lp-techo-blossom .lp-note-card,
+html.lp-techo-blossom .lp-card,
+html.lp-techo-blossom .lp-sec,
+html.lp-techo-blossom .lp-group { position: relative; }
+html.lp-techo-blossom .lp-note-card::after,
+html.lp-techo-blossom .lp-card::after,
+html.lp-techo-blossom .lp-sec::after,
+html.lp-techo-blossom .lp-group::after {
+    content: '';
+    position: absolute;
+    top: -7px;
+    right: 12px;
+    width: 18px;
+    height: 18px;
+    background: var(--lp-flower) center / contain no-repeat;
+    pointer-events: none;
+}
+html.lp-techo-blossom .lp-group-body { border-left: 2px dotted #f2bccb; }
+html.lp-techo-blossom .lp-callout {
+    background: linear-gradient(135deg, #fff4f7, #fff9ec);
+    border: 1.5px dashed #f2bfcd;
+    border-radius: 18px;
+}
+/* 標題：波浪底線（不用螢光筆） */
+html.lp-techo-blossom .lp-group-title,
+html.lp-techo-blossom .lp-scope-title {
+    background: none;
+    text-decoration: underline wavy #f2a7bc;
+    text-decoration-thickness: 1.5px;
+    text-underline-offset: 5px;
+}
+/* 設定的每一區：✿ 開頭（不用紙膠帶） */
+html.lp-techo-blossom .lp-sec > summary { border-left: none; border-radius: 18px; }
+html.lp-techo-blossom .lp-sec-title::before { content: '✿ '; color: var(--lp-accent); }
+/* 回憶錄：壓花貼紙（不用紙膠帶） */
+html.lp-techo-blossom .lp-memories .lp-note-card::before {
+    top: -12px;
+    left: 14px;
+    width: 28px;
+    height: 28px;
+    transform: rotate(-12deg);
+    background: var(--lp-flower-deep) center / contain no-repeat;
+    border: none;
+    filter: drop-shadow(0 1px 1px rgba(160, 70, 100, 0.25));
+}
+html.lp-techo-blossom .lp-memories .lp-note-card:nth-of-type(odd)::before { background-image: var(--lp-flower); transform: rotate(18deg); }
+html.lp-techo-blossom .lp-memories .lp-note-card::after { display: none; }
+/* 按鈕、標籤：粉色漸層 */
+html.lp-techo-blossom .lp-overlay .menu_button.lp-btn,
+html.lp-techo-blossom.lp-theme-techo-blocks .lp-sum .menu_button.lp-btn {
+    background: linear-gradient(180deg, #fffdfe, #fff1f5);
+    border: 1.5px solid #f4c6d3;
+    box-shadow: 0 2px 6px rgba(236, 143, 168, 0.18);
+}
+html.lp-techo-blossom .lp-overlay .menu_button.lp-btn.lp-primary,
+html.lp-techo-blossom.lp-theme-techo-blocks .lp-sum .menu_button.lp-btn.lp-primary {
+    background: linear-gradient(135deg, #f7b2c5, #ea86a1);
+    border-color: #ea86a1;
+    color: #fff;
+    box-shadow: 0 3px 8px rgba(234, 134, 161, 0.4);
+}
+html.lp-techo-blossom .lp-chip { border-color: #f4cfda; background: #fffafc; color: #a0687a; }
+html.lp-techo-blossom .lp-chip.lp-on { background: linear-gradient(135deg, #f7b2c5, #ec8fa8); border-color: #ec8fa8; color: #fff; }
+html.lp-techo-blossom .lp-badge { border-radius: 999px; }
+/* 月曆：今天墊一朵花 */
+html.lp-techo-blossom .lp-cal-cell { border-radius: 12px; border-color: #f6dbe3; background: rgba(255, 250, 252, 0.9); }
+html.lp-techo-blossom .lp-cal-empty { background: transparent; border: none; }
+html.lp-techo-blossom .lp-cal-today .lp-cal-num {
+    background: var(--lp-flower) center / 2.1em 2.1em no-repeat;
+    color: #8a3550;
+    font-weight: 700;
+    padding: 0.35em 0.5em;
+}
+/* 聊天裡的摘要區塊（也套用時） */
+html.lp-techo-blossom.lp-theme-techo-blocks .lp-sum {
+    background: linear-gradient(170deg, #fff8fa, #fdeef3);
+    border: 1.5px solid #f6d3dd;
+    border-radius: 18px;
+    position: relative;
 }
 /* 小草：標題列下緣一排小草 */
 html.lp-techo-grass .lp-header {
