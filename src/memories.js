@@ -72,6 +72,48 @@ function aiOrdinal() {
 /**
  * 所有回憶，依故事順序：[{ key, source: 'floor'|'manual', floor, title, content, theater, date, time, surfaced, pinnedNext }]。
  */
+/**
+ * 回憶是故事裡的哪時候（使用者要求：回憶錄要看得出是哪時候的）。
+ * 那一層有日期就用；沒有（沒開行事曆、粗略補建、小劇場）就往前找最近有日期的樓層，再不行往後找，標成「約」。
+ * 時間（例如「第三天 晚上」）也一樣往前找。一次算好整個聊天，回傳 (index) => { date, time, dateGuessed }。
+ */
+function storyWhen() {
+    const idx = aiIndices();
+    const pos = new Map(idx.map((i, k) => [i, k]));
+    const dates = idx.map((i) => {
+        const e = getEntry(i);
+        return e?.status === 'ok' ? String(e.date ?? '') : '';
+    });
+    const times = idx.map((i) => {
+        const e = getEntry(i);
+        return e?.status === 'ok' ? String(e.time ?? '') : '';
+    });
+    const prevDate = [];
+    const prevTime = [];
+    let d = '';
+    let tm = '';
+    for (let k = 0; k < idx.length; k++) {
+        if (dates[k]) d = dates[k];
+        if (times[k]) tm = times[k];
+        prevDate[k] = d;
+        prevTime[k] = tm;
+    }
+    const nextDate = [];
+    d = '';
+    for (let k = idx.length - 1; k >= 0; k--) {
+        if (dates[k]) d = dates[k];
+        nextDate[k] = d;
+    }
+    return (i) => {
+        const k = pos.get(i);
+        if (k === undefined) return { date: '', time: '', dateGuessed: false };
+        const own = getEntry(i);
+        const date = (own?.date ? String(own.date) : '') || prevDate[k] || nextDate[k] || '';
+        const time = (own?.time ? String(own.time) : '') || prevTime[k] || '';
+        return { date, time, dateGuessed: Boolean(date && !own?.date) };
+    };
+}
+
 export function listMemories() {
     const rec = record(false);
     const removed = new Set(rec?.removed ?? []);
@@ -79,19 +121,20 @@ export function listMemories() {
     const surfaced = rec?.surfaced ?? {};
     const chat = getChat();
     const out = [];
+    const when = storyWhen();
     for (const i of aiIndices()) {
         const e = getEntry(i);
         if ((e?.status !== 'ok' && e?.status !== 'side') || !Array.isArray(e.keepsakes)) continue;
         e.keepsakes.forEach((m, k) => {
             const key = `${chat[i]?.send_date ?? `#${i}`}#${k}`;
             if (removed.has(key)) return;
-            out.push({ ...m, ...(edited[key] ?? {}), key, source: 'floor', floor: i, date: e.date ?? '', time: e.time ?? '', surfaced: surfaced[key] ?? null });
+            out.push({ ...m, ...(edited[key] ?? {}), key, source: 'floor', floor: i, ...when(i), surfaced: surfaced[key] ?? null });
         });
     }
     for (const m of rec?.manual ?? []) {
         const floor = chat.findIndex((x) => x?.send_date && x.send_date === m.sendDate);
-        const e = floor >= 0 ? getEntry(floor) : null;
-        out.push({ ...m, key: m.id, source: 'manual', floor: floor >= 0 ? floor : null, date: m.date ?? e?.date ?? '', time: e?.time ?? '', surfaced: surfaced[m.id] ?? null });
+        const w = floor >= 0 ? when(floor) : { date: '', time: '', dateGuessed: false };
+        out.push({ ...m, key: m.id, source: 'manual', floor: floor >= 0 ? floor : null, ...w, ...(m.date ? { date: m.date, dateGuessed: false } : {}), surfaced: surfaced[m.id] ?? null });
     }
     return out.sort((a, b) => (a.floor ?? Infinity) - (b.floor ?? Infinity));
 }
@@ -231,7 +274,7 @@ export function markSurfaced(list) {
 export function remindersText(list) {
     if (!list.length) return '';
     const lines = list.map((m) => {
-        const when = m.date || m.time;
+        const when = [m.date, m.time].filter(Boolean).join(' ');
         return `- ${when ? `${when}｜` : ''}${m.title}：${m.content}`;
     });
     return `${t('mem.inject.intro')}\n${lines.join('\n')}`;

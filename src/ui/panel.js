@@ -772,7 +772,9 @@ function memoryCard(m, pinned) {
     if (view.mem.editing === m.key) return memoryForm(m);
     const key = `mem:${m.key}`;
     const open = isExpanded(key);
-    const when = m.date || m.time;
+    // 故事裡的哪時候：日期（星期）＋時間；日期是從附近樓層推來的標「約」。
+    const day = m.date ? `${m.dateGuessed ? t('mem.about') : ''}${m.date}（${weekdayName(m.date)}）` : '';
+    const when = [day, m.time].filter(Boolean).join('・');
     const tags = `${m.theater ? `<span class="lp-badge">${esc(t('mem.theater'))}</span>` : ''}${pinned ? `<span class="lp-badge lp-st-ok">${esc(t('mem.nextOn'))}</span>` : ''}`;
     const head = `
         <button type="button" class="lp-row-head" data-action="fold" data-key="${esc(key)}" aria-expanded="${open}">
@@ -787,7 +789,7 @@ function memoryCard(m, pinned) {
     return `
       <div class="lp-note-card" data-fold-key="${esc(key)}" data-mem-key="${esc(m.key)}">
         ${head}
-        ${when ? `<div class="lp-note-line"><span class="lp-label">${esc(t('meta.date'))}</span> ${esc(when)}</div>` : ''}
+        <div class="lp-note-line" data-role="mem-when"><span class="lp-label">${esc(t('mem.when'))}</span> ${esc(when || t('mem.noWhen'))}</div>
         <div class="lp-note-line lp-mem-content">${esc(m.content)}</div>
         <div class="lp-note-trace">${from} · ${esc(last)}</div>
         <div class="lp-sum-actions">

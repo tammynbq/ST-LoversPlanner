@@ -1,6 +1,6 @@
 // 🩺 整理人物（v0.13.16，使用者要求）：人物的狀態寫成一大段、備註和經歷裡寫了發生過的事（和摘要、回憶錄重複）。
 // 檢查時列出欄位太長的人物；按「請模型整理」會把欄位縮短，備註／經歷裡「發生過的事」拿掉：
-// 回憶錄裡已經有的直接刪，沒有的搬進回憶錄（使用者決定）。每個人物一次呼叫。
+// 回憶錄裡已經有的直接刪，沒有的搬進回憶錄（使用者決定；出處算這個人物最後被更新的那一層，回憶錄才有大概的時間）。每個人物一次呼叫。
 // 來自人設的欄位（cardFields）不算：它們不送給角色，長一點沒關係。
 
 import { ctx, LOG_PREFIX } from './util.js';
@@ -86,7 +86,7 @@ export async function tidyCharacter(id) {
         let moved = 0;
         for (const m of res.memories) {
             if (alreadyKept(m, existing)) continue;
-            if (addMemory({ title: m.title, content: m.content })) {
+            if (addMemory({ title: m.title, content: m.content, floor: now.updatedFloor ?? now.createdFloor ?? null })) {
                 existing.push(m);
                 moved++;
             }
