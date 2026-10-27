@@ -53,6 +53,7 @@ window.SillyTavern = { getContext: () => ({
   name1: '小雨', name2: '沈言', chatId: window.__chatId || '雨天的約定', getCurrentLocale: () => window.__locale || 'zh-tw',
   chat: window.__chat, chatMetadata: window.__chatMetadata ?? chatMetadata,
   saveChat: async () => { window.__chatSaves++; },
+  getChatCompletionModel: () => window.__model ?? '',
   saveMetadata: async () => {},
   setExtensionPrompt: (key, value, position, depth, scan, role) => { window.__extPrompts[key] = { value, position, depth, role }; },
   getTokenCountAsync: async (text) => Math.ceil(text.length / 1.5),

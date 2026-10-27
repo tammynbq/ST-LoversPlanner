@@ -87,6 +87,15 @@ async function generateOnce(prompt, { maxTokens = 512 } = {}) {
     return await c.generateRaw({ prompt, ...(system ? { systemPrompt: system } : {}), responseLength: maxTokens, trimNames: false });
 }
 
+/** 現在是哪個模型在摘要（記在摘要上，方便比較不同模型寫的版本）。 */
+export function modelLabel() {
+    const s = getSettings();
+    if (s.source === 'custom') return s.custom?.model || t('model.custom');
+    let name = '';
+    try { name = ctx()?.getChatCompletionModel?.() ?? ''; } catch (e) { /* 舊版沒有 */ }
+    return name ? `${t('model.main')}・${name}` : t('model.main');
+}
+
 /** 估算 token 數：優先用酒館的分詞器，沒有就粗估。 */
 export async function countTokens(text) {
     try {

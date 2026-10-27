@@ -27,13 +27,13 @@ import { getLastStats, onStatsChange, previewInjection } from '../hide.js';
 import { aiIndices, chatKey, getChat, getEntry } from '../chat.js';
 import { hl, isExpanded, isSectionOpen, matches, setExpanded, setSectionOpen, terms, toggleExpanded, toggleSection } from './fold.js';
 import {
-    cancelQueue, enqueue, enqueueCompress, floorState, isActive, onSummaryChange, pendingCount, skipFloor, unskipFloor, unsummarizedIndices,
+    cancelQueue, enqueue, enqueueCompress, floorState, isActive, onSummaryChange, pendingCount, restoreVersion, skipFloor, unskipFloor, unsummarizedIndices,
 } from '../summarize.js';
 import { closedDateOf, noteDates, storyToday } from '../notedates.js';
 import { fillTitles, onTitleProgress, TITLE_BATCH, titleProgress } from '../titles.js';
 import { buildBackup, downloadBackup, importBackup, parseBackup, wipeChat } from '../backup.js';
 import { acceptAllDigests, acceptDigest, checkManualChapter, compressSelected, compressionDue, deleteChapter, digestLabel, editChapter, editVolume, structure } from '../compress.js';
-import { actionsFor, eventLabel, hintFor, revealFloor, runAction, sceneHtml, STATUS_ICONS } from './message.js';
+import { actionsFor, byLine, eventLabel, hintFor, revealFloor, runAction, sceneHtml, STATUS_ICONS, versionsHtml } from './message.js';
 import {
     addManualEvent, buildCalendar, CAL_TYPES, calendarOn, calTracked, dayInfo, daysBetween, monthGrid, monthTitle, onCalendarChange,
     periodStatus, removeEvent, restoreRemoved, shiftMonth, upcoming, weekdayName,
@@ -480,8 +480,10 @@ function summaryRow(index, state, query = '') {
         <div class="lp-floor-main">
           ${state === 'skip' ? '' : sceneHtml(entry)}
           ${summary ? `<div class="lp-sum-text">${hl(summary, query)}</div>` : ''}
+          ${summary && entry?.by ? `<div class="lp-note lp-sum-by">${esc(byLine(entry.by))}</div>` : ''}
           ${showHint ? `<div class="lp-sum-hint">${esc(hint)}</div>` : ''}
           <div class="lp-sum-actions">${actions}</div>
+          ${versionsHtml(index, { panel: true })}
         </div>
       </div>`;
 }
@@ -2708,6 +2710,10 @@ function onClick(e) {
         }
         case 'sum-act':
             onSummaryAction(Number(btn.dataset.index), btn.dataset.act);
+            return;
+        case 'sum-restore':
+            restoreVersion(Number(btn.dataset.index), Number(btn.dataset.k));
+            render();
             return;
         case 'sum-pick': {
             const i = Number(btn.dataset.index);

@@ -4,7 +4,7 @@ import { ctx, escapeHtml as esc, toast } from '../util.js';
 import { getSettings, isTracked } from '../settings.js';
 import { t } from '../i18n.js';
 import { getChat, getEntry, isAiMessage, lastAiIndex } from '../chat.js';
-import { enqueue, floorState, isActive, onSummaryChange, skipFloor, unskipFloor, writeSummary } from '../summarize.js';
+import { enqueue, floorState, floorVersions, isActive, onSummaryChange, restoreVersion, skipFloor, unskipFloor, writeSummary } from '../summarize.js';
 import { describeOp, getNotes, onNotesChange, opType, setFloorOpUndone } from '../notes.js';
 import { computeHidden } from '../hide.js';
 import { calendarOn, calTracked } from '../calendar.js';
@@ -55,6 +55,43 @@ export function hintFor(index, state) {
         case 'ok': return entry?.coarse ? t('sum.hint.coarse') : '';
         default: return '';
     }
+}
+
+/** 「誰寫的」：模型名稱，手動改的寫「手動修改」。 */
+export function byLabel(by) {
+    if (!by) return '';
+    return by === 'manual' ? t('ver.manual') : by;
+}
+
+/** 摘要下面那一行：「由 deepseek-chat 摘要」或「手動修改過」。 */
+export function byLine(by) {
+    return by === 'manual' ? t('ver.editedByHand') : t('ver.by', { by });
+}
+
+function ago(at) {
+    const m = Math.max(0, Math.round((Date.now() - (Number(at) || 0)) / 60000));
+    if (m < 1) return t('ver.justNow');
+    if (m < 60) return t('ver.minutes', { n: m });
+    const h = Math.round(m / 60);
+    return h < 48 ? t('ver.hours', { n: h }) : t('ver.days', { n: Math.round(h / 24) });
+}
+
+/**
+ * 其他版本（重做、手動修改之前的）：可以展開比較，按「用這一版」換回來。
+ * attr：按鈕要帶的屬性（摘要區塊用 data-lp-act，大視窗用 data-action）。
+ */
+export function versionsHtml(index, { panel = false } = {}) {
+    const list = floorVersions(index);
+    if (!list.length) return '';
+    const btn = (k) => (panel
+        ? `<button type="button" class="menu_button lp-btn lp-mini" data-action="sum-restore" data-index="${index}" data-k="${k}">${esc(t('ver.use'))}</button>`
+        : `<button type="button" class="menu_button lp-btn lp-mini" data-lp-act="restore" data-k="${k}">${esc(t('ver.use'))}</button>`);
+    const rows = list.map((v, k) => `
+        <li class="lp-ver" data-ver="${k}">
+          <div class="lp-row"><span class="lp-note">${esc([byLabel(v.by) || t('ver.unknown'), ago(v.at)].join('・'))}</span><span class="lp-spacer"></span>${btn(k)}</div>
+          <div class="lp-ver-text">${esc(v.summary ?? '')}</div>
+        </li>`).join('');
+    return `<details class="lp-versions" data-role="versions"><summary>${esc(t('ver.title', { n: list.length }))}</summary><ul class="lp-ver-list">${rows}</ul></details>`;
 }
 
 /** 執行一個操作；回傳 true 表示需要進入編輯模式。 */
@@ -172,7 +209,8 @@ function blockHtml(index) {
             const changes = state === 'ok' || state === 'stale' ? changesHtml(index) : '';
             const actions = actionsFor(state, index).map((a) =>
                 `<button type="button" class="menu_button lp-btn${['summarize', 'redo', 'retry'].includes(a) ? ' lp-primary' : ''}" data-lp-act="${a}">${esc(t(`act.${a}`))}</button>`).join('');
-            body = `${hint}${scene}${text}${changes}${actions ? `<div class="lp-sum-actions">${actions}</div>` : ''}`;
+            const by = summary && entry?.by ? `<div class="lp-note lp-sum-by">${esc(byLine(entry.by))}</div>` : '';
+            body = `${hint}${scene}${text}${by}${changes}${actions ? `<div class="lp-sum-actions">${actions}</div>` : ''}${versionsHtml(index)}`;
         }
     }
 
@@ -275,6 +313,8 @@ function onChatClick(e) {
         return;
     } else if (act === 'cancel') {
         editing.delete(index);
+    } else if (act === 'restore') {
+        restoreVersion(index, Number(btn.dataset.k));
     } else if (runAction(index, act)) {
         editing.add(index);
         expanded.add(index);

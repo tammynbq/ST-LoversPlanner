@@ -11,7 +11,7 @@ import { getSettings, isTracked, trackedNoteTypes } from './settings.js';
 import { currentLocale, t } from './i18n.js';
 import { getTemplate } from './prompts.js';
 import { ApiError } from './api/custom.js';
-import { countTokens, generateText } from './llm.js';
+import { countTokens, generateText, modelLabel } from './llm.js';
 import { errorText } from './errors.js';
 import { formatNotesForPrompt, invalidateNotes, normalizeModelOps, replay } from './notes.js';
 import { buildL1Parts } from './l1rules.js';
@@ -339,6 +339,46 @@ export function cleanScene(obj) {
 
 // ===== 摘要一層 =====
 
+// 版本（v0.13.12，使用者要求：重做後不滿意可以回到上一版，也方便比較不同模型）：
+// 重做或手動修改時，把原本的版本存進 entry.history（新的在前，最多 HISTORY_MAX 個）。
+// 每個版本記著是誰寫的（by：模型名稱，手動改的是 manual）。粗略補建的樓層沒有單層摘要，不存。
+const HISTORY_MAX = 5;
+
+function snapshot(entry) {
+    if (!entry || entry.status !== 'ok' || !entry.summary || entry.coarse) return null;
+    const { history, ...rest } = entry;
+    return rest;
+}
+
+/** 新的 entry 接上舊版本：舊的那一版放最前面。 */
+function withHistory(next, prev) {
+    const old = snapshot(prev);
+    const list = [...(old ? [old] : []), ...(prev?.history ?? [])].slice(0, HISTORY_MAX);
+    return list.length ? { ...next, history: list } : next;
+}
+
+/** 這一層的其他版本（新的在前）。 */
+export function floorVersions(index) {
+    const e = getEntry(index);
+    return Array.isArray(e?.history) ? e.history : [];
+}
+
+/** 換成第 k 個舊版本；現在的這一版存回版本裡（可以再換回來）。 */
+export function restoreVersion(index, k) {
+    const cur = getEntry(index);
+    const list = floorVersions(index);
+    const ver = list[k];
+    if (!ver) return false;
+    const rest = list.filter((_, j) => j !== k);
+    const curSnap = snapshot(cur);
+    const history = [...(curSnap ? [curSnap] : []), ...rest].slice(0, HISTORY_MAX);
+    // at 換成現在：這一層的內容變了，所在的章會變過期（照常）。hash 用那一版的（原文改過就會顯示過期）。
+    setEntry(index, { ...ver, at: Date.now(), ...(history.length ? { history } : {}) });
+    saveChatSoon();
+    notify(index);
+    return true;
+}
+
 async function summarizeFloor(index) {
     const chatId = chatKey();
     const msg = getChat()[index];
@@ -361,9 +401,9 @@ async function summarizeFloor(index) {
         // 沒勾的欄位模型不會回報；沿用舊值，重新勾起來時資料還在。
         const keep = (key, field) => (isTracked(key) ? parsed[field] : (prev?.[field] ?? parsed[field]));
         // 摘要途中原文被改的話，hash 對不上，會自動顯示成「過期」。
-        setEntry(index, {
+        setEntry(index, withHistory({
             v: 2, status: 'ok', time: keep('time', 'time'), location: keep('location', 'location'),
-            characters: keep('cast', 'characters'), summary: parsed.summary, ops, hash, at: Date.now(),
+            characters: keep('cast', 'characters'), summary: parsed.summary, ops, hash, at: Date.now(), by: modelLabel(),
             // 行事曆：沒開的話沿用舊的，重新打開時資料還在。
             ...(calendarOn()
                 ? { date: normDate(parsed.date) || previousDate(index), events: cleanEvents(parsed.events) }
@@ -372,18 +412,18 @@ async function summarizeFloor(index) {
             keepsakes: memoriesOn() && getSettings().memories?.auto ? cleanKeepsakes(parsed.keepsakes) : (prev?.keepsakes ?? []),
             // 回覆被截斷、是救回來的：摘要或記事可能不完整，畫面上會提醒。
             ...(parsed.repaired ? { repaired: true } : {}),
-        });
+        }, prev));
     } catch (e) {
         console.warn(LOG_PREFIX, `第 ${index} 層摘要失敗`, e);
         if (!stillHere()) return;
         const message = errorText(e);
         const previous = getEntry(index);
-        setEntry(index, {
+        setEntry(index, withHistory({
             v: 2, status: 'fail', error: message, hash, at: Date.now(),
             // 保留舊內容，讓使用者手動寫時可以從它改起。失敗的樓層不套用記事變化。
             time: previous?.time ?? '', location: previous?.location ?? '',
             characters: previous?.characters ?? [], summary: previous?.summary ?? '',
-        });
+        }, previous));
         toast(t('toast.summaryFailed', { n: index, error: message }), 'error');
     }
     saveChatSoon();
@@ -416,10 +456,10 @@ export function writeSummary(index, fields) {
     const events = prev?.status === 'ok' && Array.isArray(prev.events) ? prev.events : [];
     const keepsakes = prev?.status === 'ok' && Array.isArray(prev.keepsakes) ? prev.keepsakes : [];
     const date = fields?.date !== undefined ? normDate(fields.date) : (prev?.date ?? '');
-    setEntry(index, {
+    setEntry(index, withHistory({
         v: 2, status: 'ok', ...cleanScene(fields), summary, ops, events, date, keepsakes,
-        hash: floorSource(index).hash, at: Date.now(), manual: true,
-    });
+        hash: floorSource(index).hash, at: Date.now(), manual: true, by: 'manual',
+    }, prev));
     saveChatSoon();
     notify(index);
     return true;
