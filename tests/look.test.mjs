@@ -54,7 +54,17 @@ for (const [v, bgWant] of [['night-mint', 'rgb(29, 39, 35)'], ['night-sky', 'rgb
   check(`${v}: classes and dark paper`, c.includes('lp-theme-techo') && c.includes('lp-techo-night') && bgNow === bgWant && ['mint', 'sky', 'sakura'].filter((x) => c.includes(`lp-techo-${x}`)).length === 1, `${c} ${bgNow}`);
   await page.screenshot({ path: `${OUT}/look-${v}.png` });
 }
+// 白天換色（v0.13.24）：小草、白雲、櫻花
+for (const [v, cl, bgWant] of [['day-grass', 'grass', 'rgb(243, 248, 241)'], ['day-cloud', 'cloud', 'rgb(242, 246, 251)'], ['day-blossom', 'blossom', 'rgb(253, 243, 245)']]) {
+  await page.selectOption('#lp-theme', v);
+  await page.waitForFunction((cl) => document.documentElement.classList.contains(`lp-techo-${cl}`), cl);
+  const c = await cls();
+  const bgNow = await page.evaluate(() => getComputedStyle(document.querySelector('.lp-panel')).backgroundColor);
+  check(`${v}: light paper, no night`, c.includes('lp-theme-techo') && !c.includes('lp-techo-night') && bgNow === bgWant, `${c} ${bgNow}`);
+  await page.screenshot({ path: `${OUT}/look-${v}.png` });
+}
 await page.selectOption('#lp-theme', 'techo');
+check('cream planner drops color classes', !/lp-techo-(grass|cloud|blossom)/.test(await cls()));
 check('back to day planner drops night classes', !(await cls()).includes('lp-techo-night') && (await cls()).includes('lp-theme-techo'));
 await page.selectOption('#lp-theme', 'tavern');
 await page.waitForFunction(() => !document.documentElement.classList.contains('lp-theme-techo'));

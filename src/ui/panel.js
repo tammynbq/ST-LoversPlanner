@@ -1414,7 +1414,11 @@ let summaryRefreshTimer = null;
 function canAutoRefresh() {
     if (!isPanelOpen() || !(view.check.open || ['summary', 'notes', 'done', 'memories'].includes(view.tab))) return false;
     // 正在填表單（記事、章／卷總結、回憶）時不重畫，免得打到一半的字不見。
-    return !(view.notes.editing || view.notes.adding || view.sum.editing || view.mem.editing || view.mem.adding);
+    if (view.notes.editing || view.notes.adding || view.sum.editing || view.mem.editing || view.mem.adding) return false;
+    // 其他輸入框（例如月曆的「新增」）正在打字時也不重畫（搜尋框重畫時會自己保留，不算）。
+    const active = document.activeElement;
+    if (active && panel?.contains(active) && active.matches('input:not([type=checkbox]):not([type=radio]), textarea') && !active.dataset.search && active.value) return false;
+    return true;
 }
 
 function scheduleRefresh() {

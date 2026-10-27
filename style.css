@@ -966,6 +966,98 @@
     --lp-cal-period: rgba(235, 162, 181, 0.22);
 }
 
+/* ===== 白天的換色版（v0.13.24，使用者要求）：🌱 小草淡綠、☁️ 白雲淺藍、🌸 櫻花粉色。只換變數 ===== */
+/* 🌱 小草淡綠 */
+.lp-techo-grass .lp-overlay,
+.lp-techo-grass.lp-theme-techo-blocks .lp-sum {
+    --lp-text: #3f5146; --lp-muted: #8aa092; --lp-accent: #74ba93; --lp-border: #d3e3d4;
+    --lp-bg: #f3f8f1; --lp-card: #fcfefb; --lp-dot: #d9e8d6;
+    --lp-stripe: rgba(124, 191, 154, 0.18);
+    --lp-panel-shadow: 0 18px 50px rgba(40, 70, 50, 0.3), inset 0 0 0 1px #dbe9db;
+    --lp-shadow: 0 1px 0 #e1ede0, 0 3px 8px rgba(60, 100, 70, 0.07);
+    --lp-overlay-bg: rgba(40, 60, 46, 0.4);
+    --lp-hl: rgba(170, 215, 140, 0.5);
+    --lp-tab-1: #dcefdc; --lp-tab-2: #e7f3d6; --lp-tab-3: #d3ece4; --lp-tab-4: #eef5d8;
+    --lp-tab-5: #d8eadf; --lp-tab-6: #e3f0e8; --lp-tab-7: #e9efe2;
+    --lp-tab-text: #5d7364; --lp-tab-on-text: #2f4637; --lp-tab-on-mix: #6faa88;
+    --lp-control: #fcfefb; --lp-control-shadow: #d6e5d6;
+    --lp-hover: #eef8f1; --lp-hover-border: #b9dcc7; --lp-focus-ring: #dff2e7;
+    --lp-primary-shadow: #5a9a77;
+    --lp-chip-text: #5d7364; --lp-chip-on-bg: #dff2e7; --lp-chip-on-text: #3f8a63;
+    --lp-kind-bg: #e7f3d6; --lp-kind-text: #5d7a2e;
+    --lp-link: #4f9a73; --lp-pick: #a9c4b3;
+    --lp-callout-bg: #f4f9e6; --lp-callout-border: #dbe9b8;
+    --lp-cal-cell: #fcfefb; --lp-cal-line: #dde9dc;
+}
+/* ☁️ 白雲淺藍 */
+.lp-techo-cloud .lp-overlay,
+.lp-techo-cloud.lp-theme-techo-blocks .lp-sum {
+    --lp-text: #3e4a5a; --lp-muted: #8a98aa; --lp-accent: #79acdc; --lp-border: #d6e1ee;
+    --lp-bg: #f2f6fb; --lp-card: #fdfeff; --lp-dot: #d8e3f0;
+    --lp-stripe: rgba(127, 178, 224, 0.18);
+    --lp-panel-shadow: 0 18px 50px rgba(40, 60, 90, 0.3), inset 0 0 0 1px #dce6f2;
+    --lp-shadow: 0 1px 0 #e2eaf4, 0 3px 8px rgba(60, 90, 130, 0.07);
+    --lp-overlay-bg: rgba(40, 52, 70, 0.4);
+    --lp-hl: rgba(150, 195, 235, 0.45);
+    --lp-tab-1: #dbe9f7; --lp-tab-2: #e4eefa; --lp-tab-3: #d6ecf2; --lp-tab-4: #e8e6f7;
+    --lp-tab-5: #dfeef5; --lp-tab-6: #eaf1f8; --lp-tab-7: #e3e8ef;
+    --lp-tab-text: #5b6b80; --lp-tab-on-text: #2c3b50; --lp-tab-on-mix: #7aa4cf;
+    --lp-control: #fdfeff; --lp-control-shadow: #d8e2ee;
+    --lp-hover: #eef5fc; --lp-hover-border: #bcd5ee; --lp-focus-ring: #dceafa;
+    --lp-primary-shadow: #5b8bb9;
+    --lp-chip-text: #5b6b80; --lp-chip-on-bg: #dceafa; --lp-chip-on-text: #3d75ad;
+    --lp-kind-bg: #e4eefa; --lp-kind-text: #456c99;
+    --lp-link: #4a83bd; --lp-pick: #a8bcd2;
+    --lp-callout-bg: #f0f6fd; --lp-callout-border: #cfe0f3;
+    --lp-cal-cell: #fdfeff; --lp-cal-line: #dfe7f1;
+}
+/* 白雲：標題列加幾朵雲 */
+html.lp-techo-cloud .lp-header {
+    background:
+        radial-gradient(ellipse 34px 14px at 82% 34%, rgba(255, 255, 255, 0.95) 98%, transparent),
+        radial-gradient(ellipse 22px 12px at 88% 28%, rgba(255, 255, 255, 0.95) 98%, transparent),
+        radial-gradient(ellipse 28px 11px at 64% 70%, rgba(255, 255, 255, 0.85) 98%, transparent),
+        linear-gradient(180deg, #d9eaf8, #eef5fc);
+}
+/* 🌸 櫻花粉色 */
+.lp-techo-blossom .lp-overlay,
+.lp-techo-blossom.lp-theme-techo-blocks .lp-sum {
+    --lp-text: #5a4048; --lp-muted: #b08f99; --lp-accent: #ea8aa4; --lp-border: #f0d6de;
+    --lp-bg: #fdf3f5; --lp-card: #fffafb; --lp-dot: #f2d9e0;
+    --lp-stripe: rgba(236, 143, 168, 0.2);
+    --lp-panel-shadow: 0 18px 50px rgba(90, 40, 55, 0.3), inset 0 0 0 1px #f3dde4;
+    --lp-shadow: 0 1px 0 #f5e2e7, 0 3px 8px rgba(130, 70, 90, 0.07);
+    --lp-overlay-bg: rgba(70, 40, 50, 0.4);
+    --lp-hl: rgba(244, 170, 190, 0.45);
+    --lp-tab-1: #fcdbe4; --lp-tab-2: #fbe5ea; --lp-tab-3: #f8dde8; --lp-tab-4: #fde8e0;
+    --lp-tab-5: #f3e0ee; --lp-tab-6: #fdeef1; --lp-tab-7: #f0e4e8;
+    --lp-tab-text: #8a6470; --lp-tab-on-text: #5a2f3c; --lp-tab-on-mix: #e07c97;
+    --lp-control: #fffafb; --lp-control-shadow: #f1dbe2;
+    --lp-hover: #fff0f4; --lp-hover-border: #f4c1cf; --lp-focus-ring: #fde1e9;
+    --lp-primary-shadow: #c66a83;
+    --lp-chip-text: #8a6470; --lp-chip-on-bg: #fde1e9; --lp-chip-on-text: #c04f6e;
+    --lp-kind-bg: #fde1e9; --lp-kind-text: #b0506b;
+    --lp-link: #c9607d; --lp-pick: #e0b3c0;
+    --lp-callout-bg: #fff4f6; --lp-callout-border: #f6d3dc;
+    --lp-cal-cell: #fffafb; --lp-cal-line: #f3dfe5; --lp-cal-period: #fbd5df;
+}
+/* 櫻花：紙上飄幾片花瓣 */
+html.lp-techo-blossom .lp-panel {
+    background-image:
+        radial-gradient(ellipse 5px 3px at 12% 18%, rgba(240, 150, 175, 0.35) 98%, transparent),
+        radial-gradient(ellipse 4px 3px at 78% 42%, rgba(240, 150, 175, 0.3) 98%, transparent),
+        radial-gradient(ellipse 5px 3px at 36% 76%, rgba(240, 150, 175, 0.3) 98%, transparent),
+        radial-gradient(circle, var(--lp-dot) 1px, transparent 1.3px);
+    background-size: 260px 260px, 300px 300px, 340px 340px, 20px 20px;
+}
+/* 小草：標題列下緣一排小草 */
+html.lp-techo-grass .lp-header {
+    background:
+        radial-gradient(ellipse 5px 9px at 50% 100%, rgba(108, 178, 128, 0.55) 96%, transparent) bottom left / 9px 10px repeat-x,
+        radial-gradient(ellipse 4px 7px at 50% 100%, rgba(150, 204, 150, 0.5) 96%, transparent) bottom 0 left 4px / 13px 8px repeat-x,
+        repeating-linear-gradient(-45deg, var(--lp-stripe) 0 8px, var(--lp-stripe-2) 8px 16px);
+}
+
 .lp-theme-techo .lp-overlay { background: var(--lp-overlay-bg); }
 
 /* 紙：方格點點 */
