@@ -16,6 +16,18 @@ import { aiIndices, getChat, getEntry } from './chat.js';
 
 export const CAL_TYPES = ['plan', 'period', 'intimacy', 'anniversary'];
 
+/**
+ * 現在還在用的事件類型。plan（行程）在 v0.13.18 併進約定／待辦（使用者決定），模型不再回報、不能手動新增，
+ * 舊資料由 planmerge.js 轉成約定；這裡只留著 CAL_TYPES 讓舊資料讀得懂。
+ */
+export const ACTIVE_CAL_TYPES = CAL_TYPES.filter((x) => x !== 'plan');
+
+// 有預定日期的約定／待辦（planmerge.js 提供，避免互相 import）：[{ date, kind: 'promise'|'todo', title }]。
+let datedNotesProvider = null;
+export function setDatedNotesProvider(fn) {
+    datedNotesProvider = fn;
+}
+
 // ===== 日期小工具（一律用 UTC，免得時區讓日期差一天） =====
 
 const DATE_RE = /^(\d{4})-(\d{1,2})-(\d{1,2})$/;
@@ -81,7 +93,7 @@ export function shiftMonth(ym, n) {
 
 export function calendarOn() {
     const c = getSettings().calendar;
-    return Boolean(c?.enabled) && CAL_TYPES.some((x) => c.track?.[x]);
+    return Boolean(c?.enabled) && ACTIVE_CAL_TYPES.some((x) => c.track?.[x]);
 }
 
 export function calTracked(type) {
@@ -96,7 +108,7 @@ export function cleanEvents(raw) {
     const out = [];
     for (const ev of Array.isArray(raw) ? raw : []) {
         const type = String(ev?.type ?? '').toLowerCase();
-        if (!CAL_TYPES.includes(type) || !calTracked(type)) continue;
+        if (!ACTIVE_CAL_TYPES.includes(type) || !calTracked(type)) continue;
         const title = String(ev.title ?? ev.content ?? '').trim().slice(0, 60);
         if (type === 'plan') {
             if (title) out.push({ type, date: normDate(ev.date), title });
@@ -196,7 +208,8 @@ export function buildCalendar() {
         if (d) cur = d;
         if (cur) today = cur;
         (e.events ?? []).forEach((ev, k) => {
-            if (!calTracked(ev.type)) return;
+            // 行程已經轉成約定（planmerge.js），不再顯示。
+            if (ev.type === 'plan' || !calTracked(ev.type)) return;
             const key = `${chat[i]?.send_date ?? `#${i}`}#${k}`;
             if (removed.has(key)) return;
             const date = ev.type === 'plan' ? (normDate(ev.date) || cur) : ev.type === 'anniversary' ? ev.date : cur;
@@ -204,7 +217,7 @@ export function buildCalendar() {
             items.push({ ...ev, date, source: 'floor', floor: i, key });
         });
     }
-    for (const ev of rec?.manual ?? []) if (calTracked(ev.type)) items.push({ ...ev, source: 'manual' });
+    for (const ev of rec?.manual ?? []) if (ev.type !== 'plan' && calTracked(ev.type)) items.push({ ...ev, source: 'manual' });
     if (!today) today = normDate(s.start) || null;
 
     // 生理期（v0.13.1 使用者要求：不是每個人都有固定週期，不設週期、不預測）：
@@ -314,12 +327,15 @@ export function upcoming(cal, ahead = Number(getSettings().calendar?.ahead) || 7
     const end = addDays(cal.today, ahead);
     const out = [];
     for (const x of cal.items) {
-        if (x.type === 'plan' && x.date >= cal.today && x.date <= end) out.push({ date: x.date, kind: 'plan', title: x.title });
         if (x.type === 'anniversary') {
             const d = nextAnniversary(x.date, cal.today);
             if (d <= end) out.push({ date: d, kind: 'anniversary', title: x.title });
         }
     }
+    // 有預定日期的約定／待辦（過了還沒做的不列，那由記事清單提醒）。
+    let dated = [];
+    try { dated = datedNotesProvider?.() ?? []; } catch (e) { console.error(e); }
+    for (const x of dated) if (x.date >= cal.today && x.date <= end) out.push(x);
     return out.map((x) => ({ ...x, in: daysBetween(cal.today, x.date) })).sort((a, b) => a.date.localeCompare(b.date));
 }
 
@@ -379,7 +395,9 @@ export function calendarInjection() {
     if (list.length) {
         const parts = list.map((x) => {
             const when = x.in === 0 ? t('cal.today') : t('cal.inDays', { n: x.in });
-            return `${x.date.slice(5)}（${when}）${x.kind === 'anniversary' ? t('cal.anniversaryOf', { title: x.title }) : x.title}`;
+            const label = x.kind === 'anniversary' ? t('cal.anniversaryOf', { title: x.title })
+                : x.kind === 'promise' || x.kind === 'todo' ? t(`cal.${x.kind}Of`, { title: x.title }) : x.title;
+            return `${x.date.slice(5)}（${when}）${label}`;
         });
         lines.push(t('cal.inject.upcoming', { list: parts.join('；') }));
     }

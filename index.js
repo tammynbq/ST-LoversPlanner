@@ -16,6 +16,7 @@ import { initCarry, onChatOpened } from './src/carry.js';
 import { initCatchup } from './src/catchup.js';
 import { scheduleStHide, syncStHide } from './src/sthide.js';
 import { onSummaryChange } from './src/summarize.js';
+import { mergePlans } from './src/planmerge.js';
 
 function onSettingChanged(path) {
     if (path === 'language') relabelEntries();
@@ -53,6 +54,7 @@ async function start() {
     initUpdateWatch();
     // 啟動時已經開著的聊天，也走一次「打開聊天」的流程。
     onChatOpened().catch((e) => console.error(LOG_PREFIX, e));
+    try { mergePlans(); } catch (e) { console.error(LOG_PREFIX, e); }
 
     const c = ctx();
     if (c?.eventSource && c.eventTypes) {
@@ -60,6 +62,8 @@ async function start() {
         // 換聊天時清掉上一個聊天的注入；下一次生成時攔截器會重新算。
         c.eventSource.on(c.eventTypes.CHAT_CHANGED, clearInjection);
         c.eventSource.on(c.eventTypes.CHAT_CHANGED, scheduleStHide);
+        // 以前的行程轉成約定（每個聊天一次，v0.13.18）。
+        c.eventSource.on(c.eventTypes.CHAT_CHANGED, () => { try { mergePlans(); } catch (e) { console.error(LOG_PREFIX, e); } });
     }
     // 摘要、壓縮變了：用酒館隱藏標起來的樓層跟著同步。
     onSummaryChange(scheduleStHide);

@@ -175,7 +175,9 @@ function applyOp(state, op, floor, stamp = 0) {
                 ...(op.card ? { cardFields: Object.keys(data), fromCard: true } : {}),
                 ...(op.card && op.role ? { role: op.role } : {}),
                 id: op.id, type: op.type, data, fieldAt: stampFields(null, data, stamp), state: 'active', result: null,
-                createdFloor: at, updatedFloor: null, closedFloor: null, manual: floor === null,
+                // fromFloor：從某一層的行程轉過來的（v0.13.18），畫面上照樣顯示「第 N 層新增」。
+                createdFloor: at ?? (Number.isInteger(op.fromFloor) ? op.fromFloor : null), updatedFloor: null, closedFloor: null,
+                manual: floor === null && !Number.isInteger(op.fromFloor),
                 // 手動新增的：新增當時的故事日期（樓層的看那一層的 date）。
                 ...(op.made ? { made: op.made } : {}),
             });
@@ -562,6 +564,23 @@ export function fillFromCardManual(fills) {
         else c?.saveMetadata?.();
     } catch (e) { /* 忽略 */ }
     return { added, updated };
+}
+
+/** 一次新增很多條（行程轉成約定用）：list = [{ type, data, made?, fromFloor? }]。回傳新增了幾條。 */
+export function addNotesManualBatch(list) {
+    const at = Date.now();
+    const ops = [];
+    for (const x of list ?? []) {
+        const data = cleanData(x.type, x.data);
+        if (!NOTE_TYPES.includes(x.type) || !data[TITLE_FIELD[x.type]]) continue;
+        ops.push({ op: 'add', id: newNoteId(x.type), type: x.type, data, ...(x.made ? { made: x.made } : {}), ...(Number.isInteger(x.fromFloor) ? { fromFloor: x.fromFloor } : {}), at });
+    }
+    if (!ops.length) return 0;
+    const rec = chatRecord(true);
+    if (!rec) return 0;
+    rec.manualOps = [...manualOps(), ...ops];
+    emitNotesChange();
+    return ops.length;
 }
 
 export function reopenNoteManual(id) {

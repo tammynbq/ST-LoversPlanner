@@ -39,7 +39,7 @@ import { clearUsage, localDay, onUsageChange, recentUsage, usageSummary } from '
 import { acceptAllDigests, acceptDigest, checkManualChapter, compressSelected, compressionDue, deleteChapter, digestLabel, editChapter, editVolume, structure } from '../compress.js';
 import { actionsFor, byLine, eventLabel, hintFor, revealFloor, runAction, sceneHtml, STATUS_ICONS, versionsHtml } from './message.js';
 import {
-    addManualEvent, buildCalendar, CAL_TYPES, calendarOn, calTracked, dayInfo, daysBetween, monthGrid, monthTitle, onCalendarChange,
+    addManualEvent, buildCalendar, ACTIVE_CAL_TYPES, calendarOn, calTracked, dayInfo, daysBetween, monthGrid, monthTitle, onCalendarChange,
     periodStatus, removeEvent, restoreRemoved, shiftMonth, upcoming, weekdayName,
 } from '../calendar.js';
 import {
@@ -917,7 +917,7 @@ function calendarStatus(cal) {
     if (list.length) {
         const items = list.map((x) => {
             const when = x.in === 0 ? t('cal.today') : t('cal.inDays', { n: x.in });
-            const what = x.kind === 'anniversary' ? `🎂 ${x.title}` : `📌 ${x.title}`;
+            const what = `${{ anniversary: '🎂', promise: '🤝', todo: '📝' }[x.kind] ?? '📌'} ${x.title}`;
             return `<li>${esc(`${x.date.slice(5)}（${when}）${what}`)}</li>`;
         }).join('');
         lines.push(`<div class="lp-label">${esc(t('cal.upcoming'))}</div><ul class="lp-recall-list">${items}</ul>`);
@@ -941,13 +941,14 @@ function calendarDay(cal) {
     if (info.period === 'actual' && !info.items.some((x) => x.type === 'period')) rows.push(`<li class="lp-note">🩸 ${esc(t('cal.status.during', { day: info.periodDay }))}${info.periodOpen ? ` ${esc(t('cal.status.open'))}` : ''}</li>`);
     if (info.period === 'predicted') rows.push(`<li class="lp-note">🩸 ${esc(t('cal.predicted'))}</li>`);
     if (info.fertile) rows.push(`<li class="lp-note">🌸 ${esc(t('cal.fertile'))}</li>`);
-    const types = CAL_TYPES.filter(calTracked);
+    // 行程併進約定（v0.13.18）：在月曆上新增的「約定」「待辦」直接寫成記事，預定日期就是這一天。
+    const types = [...['promise', 'todo'].filter(isTracked), ...ACTIVE_CAL_TYPES.filter(calTracked)];
     const type = types.includes(view.cal.addType) ? view.cal.addType : types[0];
     let fields = '';
-    if (type === 'plan' || type === 'anniversary') fields = `<input type="text" class="text_pole lp-grow" data-role="cal-title-input" placeholder="${esc(t(type === 'plan' ? 'cal.add.planPh' : 'cal.add.annivPh'))}" aria-label="${esc(t('cal.add.title'))}">`;
+    if (['promise', 'todo', 'anniversary'].includes(type)) fields = `<input type="text" class="text_pole lp-grow" data-role="cal-title-input" placeholder="${esc(t(type === 'anniversary' ? 'cal.add.annivPh' : 'cal.add.planPh'))}" aria-label="${esc(t('cal.add.title'))}">`;
     else if (type === 'intimacy') fields = `<input type="number" class="text_pole lp-num" data-role="cal-count" min="1" max="20" value="1" aria-label="${esc(t('cal.add.count'))}">`;
     else if (type === 'period') fields = `<select class="text_pole lp-select" data-role="cal-state" aria-label="${esc(t('cal.add.state'))}"><option value="start">${esc(t('cal.periodStart'))}</option><option value="end">${esc(t('cal.periodEnd'))}</option></select>`;
-    const typeSel = `<select class="text_pole lp-select" data-role="cal-type" aria-label="${esc(t('cal.add.type'))}">${types.map((x) => `<option value="${x}"${x === type ? ' selected' : ''}>${esc(t(`cal.type.${x}`))}</option>`).join('')}</select>`;
+    const typeSel = `<select class="text_pole lp-select" data-role="cal-type" aria-label="${esc(t('cal.add.type'))}">${types.map((x) => `<option value="${x}"${x === type ? ' selected' : ''}>${esc(x === 'promise' || x === 'todo' ? typeLabel(x) : t(`cal.type.${x}`))}</option>`).join('')}</select>`;
     return `
       <div class="lp-card lp-cal-day" data-role="cal-day">
         <div class="lp-scope-title">${esc(`${d}（${weekdayName(d, 'long')}）`)}</div>
@@ -2204,7 +2205,7 @@ function renderSettings() {
       ${checkbox('calendar.enabled', t('set.cal.enabled'), true)}
       <div class="lp-note">${esc(t('set.cal.desc'))}</div>
       ${c.enabled ? `
-        <div class="lp-track-group"><span class="lp-label">${esc(t('set.cal.track'))}</span>${CAL_TYPES.map((x) => checkbox(`calendar.track.${x}`, t(`cal.type.${x}`), true)).join('')}</div>
+        <div class="lp-track-group"><span class="lp-label">${esc(t('set.cal.track'))}</span>${ACTIVE_CAL_TYPES.map((x) => checkbox(`calendar.track.${x}`, t(`cal.type.${x}`), true)).join('')}</div>
         <label class="lp-field" for="lp-cal-start"><span class="lp-label">${esc(t('set.cal.start'))}</span>
           <input id="lp-cal-start" type="date" class="text_pole" data-path="calendar.start" value="${esc(c.start ?? '')}"></label>
         <div class="lp-note">${esc(t('set.cal.start.note'))}</div>
@@ -2727,6 +2728,16 @@ function onClick(e) {
         case 'cal-add': {
             const box = panel.querySelector('[data-role="cal-day"]');
             const type = box?.querySelector('[data-role="cal-type"]')?.value;
+            if (type === 'promise' || type === 'todo') {
+                const text = String(box?.querySelector('[data-role="cal-title-input"]')?.value ?? '').trim();
+                if (!text) {
+                    box?.querySelector('[data-role="cal-title-input"]')?.focus();
+                    return;
+                }
+                addNoteManual(type, { content: text, title: text.slice(0, 15), due: view.cal.selected });
+                render();
+                return;
+            }
             const ok = addManualEvent({
                 type, date: type === 'anniversary' ? view.cal.selected.slice(5) : view.cal.selected,
                 title: box?.querySelector('[data-role="cal-title-input"]')?.value ?? '',

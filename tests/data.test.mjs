@@ -38,7 +38,7 @@ await page.evaluate(async () => {
   const meta = SillyTavern.getContext().chatMetadata;
   meta.lovers_planner = { ...(meta.lovers_planner ?? {}), chapters: [{ id: 'ch_x', members: ['d1', 'd3'], memberIdx: [1, 3], memberAts: [1001, 1003], time: '', location: '山門', summary: '第一章', status: 'ok', at: 5 }] };
   (await import('/src/notes.js')).addNoteManual('promise', { content: '一起看海', title: '看海' });
-  (await import('/src/calendar.js')).addManualEvent({ type: 'plan', date: '2025-03-08', title: '去看海' });
+  (await import('/src/calendar.js')).addManualEvent({ type: 'anniversary', date: '03-08', title: '紀念日' });
   // 角色那邊這個聊天的快照
   const s = SillyTavern.getContext().extensionSettings.lovers_planner;
   s.characters = { 'shenyan.png': { chats: { '雨天的約定': { at: 1, lines: ['x'], notes: [] }, '別的聊天': { at: 1, lines: ['y'], notes: [] } } } };

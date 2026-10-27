@@ -30,7 +30,7 @@ await page.waitForFunction(() => Boolean(document.getElementById('lp_wand_entry'
 
 // ===== 1. 提示詞 =====
 const p = await page.evaluate(async () => (await (await import('/src/summarize.js')).buildL1Prompt(1)).prompt);
-check('asks for a short title and detail', p.includes('15 字內的短標題') && p.includes('detail') && p.includes('"title": "…"') && p.includes('"detail": "…"'));
+check('asks for a short title and detail', p.includes('15 字內、看得出是什麼事的短標題') && p.includes('detail') && p.includes('"title": "…"') && p.includes('"detail": "…"'));
 check('todo has "with"', /"type": "todo", "data": \{ "content": "…", "title": "…", "with": "…"/.test(p), p.slice(p.indexOf('"type": "todo"'), p.indexOf('"type": "todo"') + 120));
 
 // ===== 2. 資料 =====

@@ -43,7 +43,8 @@ await page.evaluate(() => {
     1: { date: '2025-03-01', events: [{ type: 'anniversary', date: '03-10', title: '小雨的生日' }] },
     3: { date: '2025-03-02', events: [{ type: 'period', state: 'start' }] },
     5: { date: '', events: [{ type: 'intimacy', count: 2 }] },
-    7: { date: '2025/3/4', events: [{ type: 'plan', date: '2025-03-08', title: '去看海' }, { type: 'period', state: 'end' }, { type: 'bogus' }] },
+    // 行程（plan）v0.13.18 起併進約定：模型回報的 plan 不收，有日期的事記成約定（due）。
+    7: { date: '2025/3/4', events: [{ type: 'plan', date: '2025-03-08', title: '去看海' }, { type: 'period', state: 'end' }, { type: 'bogus' }], ops: [{ op: 'add', type: 'promise', data: { title: '去看海', content: '週六一起去看海', with: '沈言答應小雨', due: '2025-03-08' } }] },
     9: { date: '2025-03-05', events: [] },
   };
   window.__generateRaw = async ({ prompt }) => {
@@ -74,6 +75,7 @@ check('prompt asks for date', p3.prompt.includes('date：這一層發生在故�
 check('prompt has previous date', p3.prompt.includes('日期：2025-03-01'));
 check('prompt asks for events', p3.prompt.includes('events：') && p3.prompt.includes('生理期') && p3.prompt.includes('親熱') && p3.prompt.includes('紀念日'));
 check('format has date and events', p3.prompt.includes('"date": "YYYY-MM-DD"') && p3.prompt.includes('"type": "intimacy"'));
+check('no plan events asked (merged into promises)', !p3.prompt.includes('"type": "plan"') && p3.prompt.includes('不另外記行程'));
 const p1 = await page.evaluate(async () => (await import('/src/summarize.js')).buildL1Prompt(1));
 check('first floor gets a start date', /從 \d{4}-\d{2}-\d{2} 開始算/.test(p1.prompt));
 
@@ -84,7 +86,7 @@ const entries = await page.evaluate(() => window.__chat.map((m) => m.extra?.love
 check('dates stored', entries[1].date === '2025-03-01' && entries[3].date === '2025-03-02');
 check('missing date carried from previous floor', entries[5].date === '2025-03-02', entries[5].date);
 check('date normalized', entries[7].date === '2025-03-04', entries[7].date);
-check('unknown event types dropped', entries[7].events.length === 2, JSON.stringify(entries[7].events));
+check('unknown and plan events dropped', entries[7].events.length === 1 && entries[7].events[0].type === 'period', JSON.stringify(entries[7].events));
 let cal = await page.evaluate(async () => {
   const c = await import('/src/calendar.js');
   const cal = c.buildCalendar();
@@ -94,13 +96,13 @@ check('today is latest dated floor', cal.today === '2025-03-05');
 check('period from start to end', JSON.stringify(cal.periods) === JSON.stringify([{ start: '2025-03-02', end: '2025-03-04', open: false }]), JSON.stringify(cal.periods));
 check('no cycle, no prediction', cal.next === undefined && cal.cycle === undefined);
 check('period status: last one', cal.status.kind === 'last' && cal.status.date === '2025-03-02' && cal.status.days === 3, JSON.stringify(cal.status));
-check('upcoming within 7 days', cal.up.map((x) => `${x.date}:${x.kind}:${x.in}`).join() === '2025-03-08:plan:3,2025-03-10:anniversary:5', JSON.stringify(cal.up));
+check('upcoming within 7 days', cal.up.map((x) => `${x.date}:${x.kind}:${x.in}`).join() === '2025-03-08:promise:3,2025-03-10:anniversary:5', JSON.stringify(cal.up));
 
 // ===== 3. 注入 =====
 let r = await page.evaluate(() => window.__runInterceptor('normal'));
 const inj = r.injection?.value ?? '';
 check('injection has calendar', inj.includes('【行事曆】\n今天是 2025-03-05'), inj);
-check('injection lists upcoming', inj.includes('03-08（3 天後）去看海') && inj.includes('03-10（5 天後）小雨的生日'), inj);
+check('injection lists upcoming', inj.includes('03-08（3 天後）約定：去看海') && inj.includes('03-10（5 天後）小雨的生日'), inj);
 check('far-away period not mentioned', !inj.includes('生理期'));
 
 // ===== 4. 摘要區塊 =====
@@ -110,7 +112,7 @@ const block = await page.evaluate(async () => {
   document.querySelector('.mes[mesid="7"] [data-lp-act="toggle"]')?.click();
   return document.querySelector('.mes[mesid="7"] .lp-sum')?.textContent ?? '';
 });
-check('block shows date and events', block.includes('2025-03-04') && block.includes('03-08 去看海') && block.includes('生理期結束'), block);
+check('block shows date and events', block.includes('2025-03-04') && block.includes('約定：去看海') && !block.includes('📌') && block.includes('生理期結束'), block);
 
 // ===== 5. 月曆畫面 =====
 await openPanel('notes'); // 行事曆和約定／待辦在同一個分頁
@@ -118,7 +120,7 @@ check('calendar tab shows March', (await page.textContent('[data-role="cal-title
 check('status shows today', (await page.textContent('[data-role="cal-status"]')).includes('2025-03-05'));
 check('today highlighted', Boolean(await page.$('[data-date="2025-03-05"].lp-cal-today')));
 check('period days marked', Boolean(await page.$('[data-date="2025-03-03"].lp-cal-period')) && !(await page.$('[data-date="2025-03-05"].lp-cal-period')));
-check('plan marked', (await page.textContent('[data-date="2025-03-08"]')).includes('📌'));
+check('promise due marked', (await page.textContent('[data-date="2025-03-08"]')).includes('🤝'));
 check('anniversary marked', (await page.textContent('[data-date="2025-03-10"]')).includes('🎂'));
 check('intimacy marked with count', (await page.textContent('[data-date="2025-03-02"]')).includes('💕2'));
 check('nothing predicted', !(await page.textContent('[data-date="2025-03-30"]')).includes('🩸') && !(await page.textContent('[data-role="cal-status"]')).includes('預計'));
@@ -133,13 +135,23 @@ check('manual event shown', (await page.textContent('[data-role="cal-day"]')).in
 r = await page.evaluate(() => window.__runInterceptor('normal'));
 check('today intimacy injected', r.injection.value.includes('今天已經親熱過 1 次'));
 
-// 刪掉摘要記下的行程，再恢復
-await page.click('[data-date="2025-03-08"]');
+// 刪掉摘要記下的紀念日，再恢復
+await page.click('[data-date="2025-03-10"]');
 await page.click('[data-role="cal-day"] [data-action="cal-remove"]');
-check('floor event removed', !(await page.textContent('[data-date="2025-03-08"]')).includes('📌'));
+check('floor event removed', !(await page.textContent('[data-date="2025-03-10"]')).includes('🎂'));
 check('restore offered', await page.isVisible('[data-action="cal-restore"]'));
 await page.click('[data-action="cal-restore"]');
-check('restored', (await page.textContent('[data-date="2025-03-08"]')).includes('📌'));
+check('restored', (await page.textContent('[data-date="2025-03-10"]')).includes('🎂'));
+
+// 在月曆上新增約定：直接寫成記事，預定日期是那一天
+await page.click('[data-date="2025-03-12"]');
+check('no plan type to add', !(await page.$('[data-role="cal-type"] option[value="plan"]')) && Boolean(await page.$('[data-role="cal-type"] option[value="promise"]')));
+await page.selectOption('[data-role="cal-type"]', 'promise');
+await page.fill('[data-role="cal-title-input"]', '一起去遊樂園');
+await page.click('[data-action="cal-add"]');
+const added = await page.evaluate(async () => [...(await import('/src/notes.js')).getNotes().notes.values()].find((n) => n.data.content === '一起去遊樂園'));
+check('calendar add makes a promise', added?.type === 'promise' && added.data.due === '2025-03-12', JSON.stringify(added));
+check('shown on the calendar', (await page.textContent('[data-date="2025-03-12"]')).includes('🤝'));
 
 // 第二次生理期：只記了開始 → 最多標 10 天
 await page.click('[data-date="2025-03-28"]');

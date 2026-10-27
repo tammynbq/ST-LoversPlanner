@@ -4,7 +4,7 @@
 import { currentLocale } from './i18n.js';
 import { charFields, getSettings, isTracked, trackedNoteTypes } from './settings.js';
 import { NOTE_FIELDS } from './notes.js';
-import { CAL_TYPES, calendarOn, calTracked, normDate } from './calendar.js';
+import { ACTIVE_CAL_TYPES, calendarOn, calTracked, normDate } from './calendar.js';
 import { memoriesOn } from './memories.js';
 
 const TEXT = {
@@ -39,11 +39,12 @@ const TEXT = {
         },
         charMore: '有新發現時用 update 只補上變了的欄位，不要每層重複寫一樣的內容。人物不會被移除。清單裡標了「主角：」的就是 {user}／{char} 本人，更新他們的資料用那一條的 id，不要另外新增。',
         item: 'item：只記 {char} 和 {user} 的所有物，其他人的東西不用記。一件東西一條，數量寫在 quantity（只寫數字）。在兩人之間轉手時用 update 改 holder；用掉一部分時用 update 改 quantity；全部用完、遺失、送給別人時用 complete，result 是 used／lost／gone。',
-        promise: 'promise 是和別人的約定或承諾。履行用 complete 加 kept；被打破用 complete 加 broken。',
-        todo: 'todo 是主角自己打算做的事。完成用 complete 加 done。',
-        noteTitle: 'promise 和 todo 都要有 title：15 字內的短標題（例如「求婚」「泡溫泉」）；content 寫完整內容；with 寫和誰（todo 寫為誰或和誰一起，沒有就不寫）。complete 時加上 detail，用 50～100 字寫怎麼完成的（或怎麼被打破的）。',
+        promise: 'promise（約定）：說好、答應、承諾將來要做的具體的事，對象是另一個人。算：明確約好的（「週六一起看電影」）、答應對方的請求、隨口但認真的「下次帶你去…」。不算：這一層裡馬上就做完的事、玩笑、假設、只是想想的願望（願望記成 todo）。沒有具體要做什麼的承諾（例如「我會一直陪著你」）不記成約定；值得珍藏的話收進 keepsakes，寫清楚是在什麼情況下、為什麼說的。with 寫誰答應誰（例如「{char}答應{user}」）。',
+        todo: 'todo（待辦）：主角自己打算做、還沒做、沒有和別人約好的事（例如「想偷偷準備生日驚喜」「打算週末大掃除」）。',
+        noteTitle: 'promise 和 todo 都要有 title：15 字內、看得出是什麼事的短標題（例如「看電影＋宵夜」，不要寫「晚上的約定」）；content：具體寫要做什麼，有提到的話連時間、地點、怎麼做、誰負責都寫進去，照原文的關鍵細節，100 字內（✗「約好晚上要做事」 ✓「今晚回家後一起看電影，{char}負責煮宵夜」）。原文沒說清楚做什麼的照原文寫，不要自己補；之後說清楚了再用 update 補上 content 和 title。對話最後說好的事最容易漏，請特別看最後幾段。',
+        promiseCheck: '每一層都對照清單裡進行中的 promise 和 todo：這一層真的做到了才 complete（promise 用 kept，todo 用 done），加上 detail 用 50～100 字寫怎麼做到的；只是提起、準備中、還沒做到的不要 complete；明確取消、做不到、被違背才 complete 加 broken（detail 寫怎麼被打破的）；改期就用 update 改 when。',
         both: '同一件事不要同時記成 promise 和 todo。',
-        due: 'promise 和 todo 的 when 照原文寫（例如「明天早上」「明年秋天」）；due 是預定哪一天，用這一層的 date 換算成 YYYY-MM-DD（明天＝date 加一天，下週三、10月21日也換算好）。沒有確切哪一天就不寫 due。',
+        due: 'when 照原文寫（例如「今晚」「明年秋天」）；due 是預定哪一天，用這一層的 date 換算成 YYYY-MM-DD（今晚、今天＝date；明天＝date 加一天；下週三、10月21日也換算好）。沒有確切哪一天就不寫 due；改期時 due 也一起改。有日期的安排一律記成 promise（和別人一起）或 todo（自己做），不另外記行程。',
         noDup: '清單裡已經有的不要重複新增。沒有值得記的變化就讓 ops 是空陣列。',
         timeChapter: 'time：這一整段的故事內時間範圍（例如「第三天 → 第五天」）。完全無法判斷就留空字串。',
         locationChapter: 'location：這一整段主要的地點，歸納成 1～2 個（用上一層的地名，例如「恋语市郊区・银杏林营地」，不要把每個小地點都列出來）。',
@@ -95,11 +96,12 @@ const TEXT = {
         },
         charMore: '有新发现时用 update 只补上变了的栏位，不要每层重复写一样的内容。人物不会被移除。清单里标了「主角：」的就是 {user}／{char} 本人，更新他们的资料用那一条的 id，不要另外新增。',
         item: 'item：只记 {char} 和 {user} 的所有物，其他人的东西不用记。一件东西一条，数量写在 quantity（只写数字）。在两人之间转手时用 update 改 holder；用掉一部分时用 update 改 quantity；全部用完、遗失、送给别人时用 complete，result 是 used／lost／gone。',
-        promise: 'promise 是和别人的约定或承诺。履行用 complete 加 kept；被打破用 complete 加 broken。',
-        todo: 'todo 是主角自己打算做的事。完成用 complete 加 done。',
-        noteTitle: 'promise 和 todo 都要有 title：15 字内的短标题（例如「求婚」「泡温泉」）；content 写完整内容；with 写和谁（todo 写为谁或和谁一起，没有就不写）。complete 时加上 detail，用 50～100 字写怎么完成的（或怎么被打破的）。',
+        promise: 'promise（约定）：说好、答应、承诺将来要做的具体的事，对象是另一个人。算：明确约好的（「周六一起看电影」）、答应对方的请求、随口但认真的「下次带你去…」。不算：这一层里马上就做完的事、玩笑、假设、只是想想的愿望（愿望记成 todo）。没有具体要做什么的承诺（例如「我会一直陪着你」）不记成约定；值得珍藏的话收进 keepsakes，写清楚是在什么情况下、为什么说的。with 写谁答应谁（例如「{char}答应{user}」）。',
+        todo: 'todo（待办）：主角自己打算做、还没做、没有和别人约好的事（例如「想偷偷准备生日惊喜」「打算周末大扫除」）。',
+        noteTitle: 'promise 和 todo 都要有 title：15 字内、看得出是什么事的短标题（例如「看电影＋宵夜」，不要写「晚上的约定」）；content：具体写要做什么，有提到的话连时间、地点、怎么做、谁负责都写进去，照原文的关键细节，100 字内（✗「约好晚上要做事」 ✓「今晚回家后一起看电影，{char}负责煮宵夜」）。原文没说清楚做什么的照原文写，不要自己补；之后说清楚了再用 update 补上 content 和 title。对话最后说好的事最容易漏，请特别看最后几段。',
+        promiseCheck: '每一层都对照清单里进行中的 promise 和 todo：这一层真的做到了才 complete（promise 用 kept，todo 用 done），加上 detail 用 50～100 字写怎么做到的；只是提起、准备中、还没做到的不要 complete；明确取消、做不到、被违背才 complete 加 broken（detail 写怎么被打破的）；改期就用 update 改 when。',
         both: '同一件事不要同时记成 promise 和 todo。',
-        due: 'promise 和 todo 的 when 照原文写（例如「明天早上」「明年秋天」）；due 是预定哪一天，用这一层的 date 换算成 YYYY-MM-DD（明天＝date 加一天，下周三、10月21日也换算好）。没有确切哪一天就不写 due。',
+        due: 'when 照原文写（例如「今晚」「明年秋天」）；due 是预定哪一天，用这一层的 date 换算成 YYYY-MM-DD（今晚、今天＝date；明天＝date 加一天；下周三、10月21日也换算好）。没有确切哪一天就不写 due；改期时 due 也一起改。有日期的安排一律记成 promise（和别人一起）或 todo（自己做），不另外记行程。',
         noDup: '清单里已经有的不要重复新增。没有值得记的变化就让 ops 是空数组。',
         timeChapter: 'time：这一整段的故事内时间范围（例如「第三天 → 第五天」）。完全无法判断就留空字符串。',
         locationChapter: 'location：这一整段主要的地点，归纳成 1～2 个（用上一层的地名，例如「恋语市郊区・银杏林营地」，不要把每个小地点都列出来）。',
@@ -151,11 +153,12 @@ const TEXT = {
         },
         charMore: 'When you learn something new, update only the fields that changed; don\'t repeat the same details every floor. Characters are never removed. Entries marked "Lead:" are {user} / {char} themselves: update them by that id, never add another entry for them.',
         item: 'item: only things owned by {char} or {user}; other people\'s belongings are not recorded. One entry per item, with the count in quantity (a number only). When it changes hands between them, update holder; when part of it is used, update quantity; when all used up, lost or given to someone else, use complete with result used / lost / gone.',
-        promise: 'promise is a commitment made with someone. Kept: complete + kept; broken: complete + broken.',
-        todo: 'todo is something a lead plans to do. Finished: complete + done.',
-        noteTitle: 'Every promise and todo needs a title: a short label of at most 8 words (e.g. "Proposal", "Hot spring"); content holds the full text; with says with whom (for a todo: for whom or together with whom; leave out if none). When completing one, add detail: 50–100 words on how it was done (or how it was broken).',
+        promise: 'promise: something concrete that someone agreed, said yes to, or committed to doing later, with another person. Counts: clear plans ("movie together on Saturday"), saying yes to a request, a casual but sincere "I\'ll take you to … next time". Doesn\'t count: something done within this same floor, jokes, hypotheticals, mere wishes (a wish is a todo). A vow with nothing concrete to do (e.g. "I\'ll always be by your side") is not a promise; if it is worth treasuring, put it in keepsakes and say in what situation and why it was said. with says who promised whom (e.g. "{char} promised {user}").',
+        todo: 'todo: something a lead plans to do, hasn\'t done yet, and hasn\'t arranged with anyone (e.g. "secretly plan a birthday surprise", "clean the house this weekend").',
+        noteTitle: 'Every promise and todo needs a title: a short label of at most 8 words that says what it is (e.g. "Movie + late-night snack", never "Tonight\'s plan"); content says concretely what will be done, including time, place, how, and who does what if mentioned, keeping the key details from the text, at most 50 words (✗ "agreed to do something tonight" ✓ "watch a movie together after getting home tonight; {char} makes a late-night snack"). If the text doesn\'t say what, write what it says and don\'t fill in; once the story makes it clear, update content and title. Plans made at the end of the conversation are the easiest to miss: read the last paragraphs carefully.',
+        promiseCheck: 'Every floor, check the active promises and todos in the list: complete one only if it was actually done in this floor (kept for a promise, done for a todo), with detail of 50–100 words on how; if it was only mentioned, being prepared, or not done yet, don\'t complete it; use complete with broken only if it was clearly cancelled, impossible, or betrayed (detail says how); if it was rescheduled, update when.',
         both: 'Never record the same thing as both a promise and a todo.',
-        due: 'For promise and todo, write when as the text says it (e.g. "tomorrow morning", "next autumn"); due is the planned day as YYYY-MM-DD, worked out from this floor\'s date (tomorrow = date + 1 day; also convert "next Wednesday", "October 21"). Leave out due if there is no specific day.',
+        due: 'Write when as the text says it (e.g. "tonight", "next autumn"); due is the planned day as YYYY-MM-DD, worked out from this floor\'s date (tonight/today = date; tomorrow = date + 1 day; also convert "next Wednesday", "October 21"). Leave out due if there is no specific day; when rescheduled, update due too. Anything arranged for a date is always a promise (with someone) or a todo (alone); never record it separately as a plan.',
         noDup: "Don't add anything that is already in the list. If nothing worth recording changed, leave ops as an empty array.",
         timeChapter: 'time: the span of story time this whole section covers (e.g. "day three → day five"). If impossible to tell, use an empty string.',
         locationChapter: 'location: the main places of this whole section, generalized to 1–2 (use the broader place name, e.g. "Riverside Campground" rather than every spot within it).',
@@ -225,14 +228,14 @@ export function buildL1Parts({ length, char, user, chapter = false, previousDate
             const fields = charFields().map((f) => `     · ${fill(T.charFields[f], vars)}`);
             sub.push([fill(T.character, vars), ...fields, `     ${fill(T.charMore, vars)}`].join('\n'));
         }
-        if (types.includes('promise') || types.includes('todo')) sub.push(T.noteTitle);
+        if (types.includes('promise') || types.includes('todo')) sub.push(fill(T.noteTitle, vars), T.promiseCheck);
         if (types.includes('promise') && types.includes('todo')) sub.push(T.both);
         // 預定日期要靠故事日期換算，沒開行事曆就不要求。
         if (cal && (types.includes('promise') || types.includes('todo'))) sub.push(T.due);
         sub.push(T.noDup);
         rules.push([T.ops, ...sub.map((x) => `   - ${x}`)].join('\n'));
     }
-    const evTypes = cal ? CAL_TYPES.filter(calTracked) : [];
+    const evTypes = cal ? ACTIVE_CAL_TYPES.filter(calTracked) : [];
     if (evTypes.length) {
         const key = { plan: 'evPlan', period: 'evPeriod', intimacy: 'evIntimacy', anniversary: 'evAnniversary' };
         rules.push([T.events, ...evTypes.map((x) => `   - ${fill(T[key[x]], vars)}`)].join('\n'));
@@ -280,7 +283,7 @@ function sideParts(T, vars) {
     const keep = memoriesOn() && getSettings().memories?.auto;
     const rules = [T.summarySide];
     if (keep) rules.push([T.keepsakes, `   - ${T.keepsakesSide}`].join('\n'));
-    if (types.length) rules.push([T.ops, ...[T.opsSide, fill(T.opsAdd, { types: types.join(T.sep) }), T.noteTitle, T.noDup].map((x) => `   - ${x}`)].join('\n'));
+    if (types.length) rules.push([T.ops, ...[T.opsSide, fill(T.opsAdd, { types: types.join(T.sep) }), fill(T.noteTitle, vars), T.noDup].map((x) => `   - ${x}`)].join('\n'));
     const lines = ['{', '  "summary": "…"' + (keep || types.length ? ',' : '')];
     if (keep) lines.push('  "keepsakes": [{ "title": "…", "content": "…" }]' + (types.length ? ',' : ''));
     if (types.length) {
