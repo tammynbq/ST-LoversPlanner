@@ -739,3 +739,41 @@
 .lp-usage-recent { margin: 6px 0 0; padding-left: 1.2em; font-size: 0.88em; overflow-wrap: anywhere; }
 .lp-world-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; max-height: 50vh; overflow-y: auto; }
 .lp-world-list .lp-row-head { gap: 8px; width: 100%; }
+
+/* ===== 排版美化（v0.13.21，使用者要求）：手機上少佔幾行、看得出可以左右滑 ===== */
+.lp-preview > summary .lp-sec-title { flex: none; white-space: nowrap; }
+.lp-preview > summary .lp-sec-hint { flex: 1; min-width: 0; text-align: right; }
+.lp-sum-toolbar .lp-chips { min-width: 0; }
+@media (max-width: 560px) {
+    /* 篩選：一排，左右滑（以前會擠成兩三排） */
+    .lp-chips {
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        scrollbar-width: none;
+        -webkit-overflow-scrolling: touch;
+        padding: 2px 24px 2px 2px;
+        margin: -2px;
+        mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
+        -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
+    }
+    .lp-chips::-webkit-scrollbar { display: none; }
+    .lp-chip { flex: none; }
+    .lp-sum-toolbar .lp-chips { flex: 1 1 100%; }
+    .lp-sum-toolbar .lp-spacer { display: none; }
+    .lp-sum-toolbar > .lp-btn { flex: 1 1 0; min-width: 0; padding-inline: 6px; }
+    /* 分頁列：右邊淡出，看得出還有分頁 */
+    .lp-tabs {
+        padding-right: 32px;
+        mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent);
+        -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent);
+    }
+    /* 記事區塊的標題列：按鈕一排靠右，說明放到下一行 */
+    .lp-sec-head { flex-wrap: wrap; row-gap: 6px; }
+    .lp-sec-head .lp-sec-hint-text { order: 10; flex: 1 1 100%; }
+    .lp-sec-head .lp-spacer { flex: 1 1 0; }
+    [data-role="sum-actions"] { flex-wrap: wrap; }
+    /* 月曆：格子矮一點，一個月不會佔滿整個畫面 */
+    .lp-cal-cell { min-height: 2.6em; padding: 2px 1px; border-radius: 5px; }
+    .lp-cal-marks { font-size: 0.65em; }
+}
+.lp-tabs::-webkit-scrollbar { display: none; }

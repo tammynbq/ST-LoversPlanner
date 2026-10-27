@@ -694,10 +694,10 @@ function renderSummaryTab() {
         const todo = unsummarizedIndices();
         if (todo.length && view.catchup.open) queueArea = catchupCard(todo);
         else if (todo.length) {
-            queueArea = `<div class="lp-row"><button type="button" class="menu_button lp-btn" data-action="backfill-ask">${esc(t('sum.backfill', { n: todo.length }))}</button></div>`;
+            queueArea = `<div class="lp-row" data-role="sum-actions"><button type="button" class="menu_button lp-btn" data-action="backfill-ask">${esc(t('sum.backfill', { n: todo.length }))}</button><!--compress--></div>`;
         } else {
             // 沒有可以補建的也顯示按鈕（灰的），並說明原因，免得找不到。
-            queueArea = `<div class="lp-row"><button type="button" class="menu_button lp-btn" data-action="backfill-ask" disabled>${esc(t('sum.backfill', { n: 0 }))}</button>
+            queueArea = `<div class="lp-row" data-role="sum-actions"><button type="button" class="menu_button lp-btn" data-action="backfill-ask" disabled>${esc(t('sum.backfill', { n: 0 }))}</button><!--compress-->
               <span class="lp-note">${esc(t('sum.backfill.none'))}</span></div>`;
         }
     }
@@ -725,7 +725,9 @@ function renderSummaryTab() {
             : '';
     }
     if (!pending && compressionDue()) {
-        queueArea += `<div class="lp-row"><button type="button" class="menu_button lp-btn" data-action="compress-now">${esc(t('compress.now'))}</button></div>`;
+        // 和「補建舊樓層」放在同一排（手機上少佔一行）。
+        const btn = `<button type="button" class="menu_button lp-btn" data-action="compress-now">${esc(t('compress.now'))}</button>`;
+        queueArea = queueArea.includes('<!--compress-->') ? queueArea.replace('<!--compress-->', btn) : `${queueArea}<div class="lp-row">${btn}</div>`;
     }
 
     // 送出預覽：先畫框，token 算好再填進去（fillPreview）。
@@ -741,7 +743,7 @@ function renderSummaryTab() {
         ${preview}
         ${recapCard()}
         ${searchBox('summary')}
-        <div class="lp-row">
+        <div class="lp-row lp-sum-toolbar">
           <div class="lp-chips">${chips}</div>
           <span class="lp-spacer"></span>
           <button type="button" class="menu_button lp-btn" data-action="sum-select" aria-pressed="${view.sum.select}">${esc(t(view.sum.select ? 'sum.select.done' : 'sum.select'))}</button>
@@ -1649,13 +1651,13 @@ function renderNotesTab(types = NOTE_TYPES) {
         const count = query || list.length !== all.length ? t('search.countOf', { n: list.length, total: all.length }) : t('notes.count', { n: all.length });
         return `
           <section class="lp-note-section">
-            <div class="lp-row">
+            <div class="lp-row lp-sec-head">
               <button type="button" class="lp-sec-toggle" data-action="fold-sec" data-key="${secKey}" aria-expanded="${open}">
                 <span class="lp-sum-chev" aria-hidden="true">${open ? '▾' : '▸'}</span>
                 <span class="lp-scope-title">${esc(t(`kind.${KIND_KEY[type]}`))}</span>
                 <span class="lp-note">${esc(count)}</span>
               </button>
-              ${open ? hint : ''}
+              ${open && hint ? hint.replace('class="lp-note"', 'class="lp-note lp-sec-hint-text"') : ''}
               <span class="lp-spacer"></span>
               ${type === 'character' ? `<button type="button" class="menu_button lp-btn lp-mini" data-action="note-card-fill"${cardFillBusy() ? ' disabled' : ''} title="${esc(t('notes.cardFill.hint', { char: ctx()?.name2 || '{{char}}', user: ctx()?.name1 || '{{user}}' }))}">${esc(t(cardFillBusy() ? 'notes.cardFill.busy' : 'notes.cardFill'))}</button>` : ''}
               ${type === 'character' ? `<button type="button" class="menu_button lp-btn lp-mini" data-action="note-world-open" aria-pressed="${view.notes.world.open}">${esc(t('world.open'))}</button>` : ''}
