@@ -21,6 +21,16 @@ export function isHiddenByUser(m) {
     return Boolean(m) && Boolean(m.is_system) && (Boolean(m.is_user) || !m.extra?.type);
 }
 
+/**
+ * 使用者「自己」隱藏的：被隱藏、但不是戀人手帳用酒館隱藏標的（設定 › 隱藏 › 也用酒館的隱藏，記在 stHidden）。
+ * 「保留最新幾層原文」只把使用者自己隱藏的當成不算；戀人手帳自己標的照樣算，不然窗口會亂跑。
+ */
+export function isHiddenBySelf(m) {
+    if (!isHiddenByUser(m)) return false;
+    const mine = ctx()?.chatMetadata?.[MODULE]?.stHidden;
+    return !(Array.isArray(mine) && m.send_date && mine.includes(m.send_date));
+}
+
 export function isAiMessage(m) {
     return Boolean(m) && !m.is_user && (!m.is_system || isHiddenByUser(m)) && typeof m.mes === 'string';
 }

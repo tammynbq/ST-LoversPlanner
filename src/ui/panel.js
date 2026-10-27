@@ -32,6 +32,7 @@ import {
 import { closedDateOf, noteDates, storyToday } from '../notedates.js';
 import { fillTitles, onTitleProgress, TITLE_BATCH, titleProgress } from '../titles.js';
 import { buildBackup, downloadBackup, importBackup, parseBackup, wipeChat } from '../backup.js';
+import { stHiddenCount } from '../sthide.js';
 import { acceptAllDigests, acceptDigest, checkManualChapter, compressSelected, compressionDue, deleteChapter, digestLabel, editChapter, editVolume, structure } from '../compress.js';
 import { actionsFor, byLine, eventLabel, hintFor, revealFloor, runAction, sceneHtml, STATUS_ICONS, versionsHtml } from './message.js';
 import {
@@ -2141,7 +2142,10 @@ function renderSettings() {
     const hide = `
       <div>${esc(t('set.hide.desc'))}</div>
       ${checkbox('hide.markHidden', t('set.hide.mark'))}
-      <div class="lp-note">${esc(t('set.hide.note'))}</div>`;
+      <div class="lp-note">${esc(t('set.hide.note'))}</div>
+      ${checkbox('hide.stHide', t('set.hide.st'), true)}
+      <div class="lp-note">${esc(t('set.hide.st.note'))}</div>
+      ${s.hide.stHide || stHiddenCount() ? `<div class="lp-note" data-role="st-hidden">${esc(t('set.hide.st.count', { n: stHiddenCount() }))}</div>` : ''}`;
 
     const scope = renderScope();
 

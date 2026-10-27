@@ -82,6 +82,8 @@ export const DEFAULTS = Object.freeze({
     memories: { enabled: true, auto: true, recall: true, everyN: 10, count: 2, minAge: 20, cooldown: 30 },
     hide: {
         markHidden: true,
+        // 也用酒館自己的「隱藏」（像 /hide）標起已摘要的舊樓層（v0.13.13，預設關）。
+        stHide: false,
     },
     // 角色還沒有自己的「共同設定」時用的初始值：'none' | 'copy' | 'share'（見 scope.js）
     scope: {
