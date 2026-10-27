@@ -6,7 +6,7 @@
 import { ctx, MODULE } from './util.js';
 import { DEFAULTS, getSettings, saveSettings } from './settings.js';
 
-export const SCOPE_KINDS = ['summary', 'characters', 'items', 'promises', 'todos'];
+export const SCOPE_KINDS = ['summary', 'characters', 'items', 'promises', 'todos', 'memories'];
 export const CHAR_SCOPE_VALUES = ['none', 'copy', 'share'];
 export const CHAT_SCOPE_VALUES = ['inherit', 'own', 'share'];
 

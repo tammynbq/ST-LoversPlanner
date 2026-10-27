@@ -92,6 +92,8 @@ export const DEFAULTS = Object.freeze({
         items: 'copy',
         promises: 'copy',
         todos: 'none',
+        // 回憶錄（v0.13.20，使用者要求）：複製帶走＝新聊天有一份；即時共用＝讀來源聊天最新的回憶（唯讀）。
+        memories: 'copy',
     },
     // 只送相關的記事＋回憶召回（第 6 步）。
     recall: {

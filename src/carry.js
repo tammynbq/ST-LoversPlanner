@@ -10,6 +10,10 @@
 // 記事（人物／物件／約定／待辦，每類各自選）：
 //   複製帶走 → 存成這個聊天的基底（chat_metadata.lovers_planner.base），之後各自獨立。
 //   即時共用 → 同角色共用一份（characters[頭像].shared.notes），兩邊都能改，以最新的修改為準。
+// 回憶錄（v0.13.20，使用者要求）：
+//   複製帶走 → 存在這個聊天的 base.memories（之後各自獨立，可以改、刪）。
+//   即時共用 → 新聊天記住來源（memoriesLink），每次讀來源聊天最新快照裡的回憶，唯讀。
+//   每條回憶有 origin（最早是哪個聊天的哪一條），一路帶下去也認得出是同一條，不會重複。
 // 這個版本之前就有的舊聊天，第一次打開時記憶範圍設成「獨立」，不會突然和別的聊天混在一起。
 
 import { ctx, LOG_PREFIX, MODULE, toast, toastActions } from './util.js';
@@ -21,6 +25,7 @@ import { errorText } from './errors.js';
 import { aiIndices, chatKey, getChat, getEntry, isUserMessage } from './chat.js';
 import { getNotes, invalidateNotes, NOTE_TYPES, noteTitle, onNotesChange, setNotesBase, setNotesSync } from './notes.js';
 import { sceneLine } from './lines.js';
+import { listMemories, memoryOrigin, onMemoriesChange, setMemoriesBase } from './memories.js';
 import { digestLabel, structure } from './compress.js';
 import { isActive, onSummaryChange } from './summarize.js';
 import {
@@ -135,6 +140,28 @@ function syncShared(result) {
     if (changed) saveSettings();
 }
 
+// ===== 回憶錄 =====
+
+function plainMemory(m, from) {
+    return {
+        origin: memoryOrigin(m), title: m.title ?? '', content: m.content ?? '', date: m.date ?? '', time: m.time ?? '',
+        ...(m.theater ? { theater: true } : {}), from: m.from ?? from,
+    };
+}
+
+/** 帶來的回憶：複製帶走的（base.memories）＋即時共用來源最新的。 */
+function baseMemories() {
+    if (!characterKey()) return [];
+    const rec = chatRecord(false);
+    const out = [];
+    if (effectiveScope('memories') === 'share' && rec?.memoriesLink?.source) {
+        const snap = getSnapshot(rec.memoriesLink.source);
+        for (const m of snap?.memories ?? []) out.push({ ...m, linked: true });
+    }
+    for (const m of Object.values(rec?.base?.memories ?? {})) out.push(m);
+    return out;
+}
+
 // ===== 摘要的文字 =====
 
 /** 這個聊天自己的摘要，一行一段：卷 → 章 → 沒被章涵蓋的單層摘要。 */
@@ -201,10 +228,12 @@ export function writeSnapshot() {
     if (rec?.recap?.text) lines.push(`${t('recap.label')}${rec.recap.text}`);
     lines.push(...ownSummaryLines());
     const notes = [...getNotes().notes.values()].filter((n) => n.state !== 'done').map((n) => plainNote(n, 0));
-    if (!lines.length && !notes.length) return;
+    // 回憶：自己的和複製帶來的（即時共用讀來的不放，免得兩個聊天互相讀成一圈）。
+    const memories = listMemories().filter((m) => !m.linked).map((m) => plainMemory(m, id));
+    if (!lines.length && !notes.length && !memories.length) return;
     const all = snapshots(true);
     const prev = all[id];
-    const next = { at: Date.now(), floors: aiIndices().length, lines, notes };
+    const next = { at: Date.now(), floors: aiIndices().length, lines, notes, ...(memories.length ? { memories } : {}) };
     if (prev && JSON.stringify({ ...prev, at: 0 }) === JSON.stringify({ ...next, at: 0 })) return;
     all[id] = next;
     const ids = Object.keys(all);
@@ -336,10 +365,10 @@ export function deleteRecap() {
 function carryFrom(snap, kinds, { condense }) {
     const rec = chatRecord(true);
     const undo = {
-        recap: rec.recap ?? null, base: rec.base ?? null, summaryLink: rec.summaryLink ?? null,
+        recap: rec.recap ?? null, base: rec.base ?? null, summaryLink: rec.summaryLink ?? null, memoriesLink: rec.memoriesLink ?? null,
         scope: rec.scope ? { ...rec.scope } : null,
     };
-    const out = { summary: false, notes: 0, condense: false };
+    const out = { summary: false, notes: 0, memories: 0, condense: false };
 
     if (kinds.summary === 'copy' && snap.lines?.length) {
         const raw = snap.lines.join('\n');
@@ -371,7 +400,21 @@ function carryFrom(snap, kinds, { condense }) {
         }
         out.notes++;
     }
-    rec.base = { notes: base };
+    // 回憶錄
+    const memories = { ...(rec.base?.memories ?? {}) };
+    if (kinds.memories === 'copy') {
+        const have = new Set([...listMemories().map((m) => memoryOrigin(m)), ...Object.keys(memories)]);
+        for (const m of snap.memories ?? []) {
+            if (!m?.origin || have.has(m.origin)) continue;
+            have.add(m.origin);
+            memories[m.origin] = { ...m, from: m.from ?? snap.id };
+            out.memories++;
+        }
+    } else if (kinds.memories === 'share' && snap.memories?.length) {
+        rec.memoriesLink = { source: snap.id, at: Date.now() };
+        out.memories = snap.memories.length;
+    }
+    rec.base = { notes: base, ...(Object.keys(memories).length ? { memories } : {}) };
     if (store) saveSettings();
     rec.carry = { source: snap.id, at: Date.now(), undo, kinds };
     saveMeta();
@@ -385,7 +428,7 @@ export function undoCarry() {
     const carry = rec?.carry;
     if (!carry?.undo) return false;
     const { undo, kinds } = carry;
-    for (const key of ['recap', 'base', 'summaryLink']) {
+    for (const key of ['recap', 'base', 'summaryLink', 'memoriesLink']) {
         if (undo[key]) rec[key] = undo[key];
         else delete rec[key];
     }
@@ -411,7 +454,7 @@ function isNewChat() {
 }
 
 function announce(snap, result) {
-    toastActions(t('carry.done', { chat: snap.id, notes: result.notes }), [{
+    toastActions(t('carry.done', { chat: snap.id, notes: result.notes, memories: result.memories }), [{
         label: t('carry.undo'),
         run: () => {
             undoCarry();
@@ -445,7 +488,7 @@ export async function onChatOpened() {
     const kinds = getCharacterScope();
     if (Object.values(kinds).every((v) => v === 'none')) return;
     const result = carryFrom(snap, kinds, { condense: getSettings().carry.recapMode === 'condense' });
-    if (!result.summary && !result.notes) {
+    if (!result.summary && !result.notes && !result.memories) {
         delete rec.carry;
         saveMeta();
         return;
@@ -476,18 +519,34 @@ function freezeShared(types) {
     const shared = sharedStore(false)?.notes ?? {};
     const base = { ...(rec.base?.notes ?? {}) };
     for (const n of Object.values(shared)) if (types.includes(n.type) && !n.deleted) base[n.id] = { ...n };
-    rec.base = { notes: base };
+    rec.base = { ...(rec.base ?? {}), notes: base };
+}
+
+/** 回憶從即時共用改成別的：把來源的回憶留一份在這個聊天。 */
+function freezeMemories() {
+    const rec = chatRecord(true);
+    const snap = rec.memoriesLink?.source ? getSnapshot(rec.memoriesLink.source) : null;
+    const memories = { ...(rec.base?.memories ?? {}) };
+    for (const m of snap?.memories ?? []) if (m?.origin && !memories[m.origin]) memories[m.origin] = { ...m, from: m.from ?? snap.id };
+    rec.base = { ...(rec.base ?? { notes: {} }), memories };
+    delete rec.memoriesLink;
 }
 
 function sharedTypes() {
     return NOTE_TYPES.filter(isShared);
 }
 
-function afterScopeChange(before) {
+function afterScopeChange(before, memShared = false) {
     const lost = before.filter((type) => !isShared(type));
     if (lost.length) freezeShared(lost);
-    // 摘要改成即時共用但還沒選來源：用最近聊的那個。
     const rec = chatRecord(true);
+    if (memShared && effectiveScope('memories') !== 'share' && rec.memoriesLink) freezeMemories();
+    // 回憶改成即時共用但還沒有來源：跟摘要同一個來源，沒有就用最近聊的那個。
+    if (effectiveScope('memories') === 'share' && !rec.memoriesLink?.source) {
+        const src = rec.summaryLink?.source ?? otherSnapshots()[0]?.id;
+        if (src) rec.memoriesLink = { source: src, at: Date.now() };
+    }
+    // 摘要改成即時共用但還沒選來源：用最近聊的那個。
     if (effectiveScope('summary') === 'share' && !rec.summaryLink?.source) {
         const snap = otherSnapshots()[0];
         if (snap) rec.summaryLink = { source: snap.id, at: Date.now() };
@@ -498,20 +557,24 @@ function afterScopeChange(before) {
 
 export function changeChatScope(kind, value) {
     const before = sharedTypes();
+    const mem = effectiveScope('memories') === 'share';
     setChatScope(kind, value);
-    afterScopeChange(before);
+    afterScopeChange(before, mem);
 }
 
 export function changeCharacterScope(kind, value) {
     const before = sharedTypes();
+    const mem = effectiveScope('memories') === 'share';
     setCharacterScope(kind, value);
-    afterScopeChange(before);
+    afterScopeChange(before, mem);
 }
 
 /** 摘要即時共用的來源改成另一個聊天。 */
 export function setSummarySource(snapshotId) {
     const rec = chatRecord(true);
     rec.summaryLink = { source: snapshotId, at: Date.now() };
+    // 回憶也即時共用時，跟著用同一個來源。
+    if (effectiveScope('memories') === 'share') rec.memoriesLink = { source: snapshotId, at: Date.now() };
     saveMeta();
     emit();
 }
@@ -519,12 +582,14 @@ export function setSummarySource(snapshotId) {
 export function initCarry() {
     setNotesBase(baseNotes);
     setNotesSync(syncShared);
+    setMemoriesBase(baseMemories);
     // 手動改了記事：馬上重播一次，共用的那份才會立刻更新（不用等畫面重畫）。
     onNotesChange(() => {
         try { getNotes(); } catch (e) { console.error(LOG_PREFIX, e); }
         scheduleSnapshot();
     });
     onSummaryChange(scheduleSnapshot);
+    onMemoriesChange(scheduleSnapshot);
     const c = ctx();
     if (!c?.eventSource || !c.eventTypes) return;
     c.eventSource.on(c.eventTypes.CHAT_CHANGED, () => {

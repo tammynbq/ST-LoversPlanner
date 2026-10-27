@@ -12,7 +12,7 @@
 import { ctx, MODULE } from './util.js';
 import { getSettings } from './settings.js';
 import { t } from './i18n.js';
-import { aiIndices, getChat, getEntry, hashText, isUserMessage } from './chat.js';
+import { aiIndices, chatKey, getChat, getEntry, hashText, isUserMessage } from './chat.js';
 import { aliasesOf } from './recall.js';
 
 const MAX_TITLE = 30;
@@ -114,6 +114,18 @@ function storyWhen() {
     };
 }
 
+// 從別的聊天帶來的回憶（carry.js 提供，避免互相 import）：
+// fn() → [{ origin, title, content, date, time, theater, from（來源聊天）, linked（即時共用、唯讀） }]
+let baseProvider = null;
+export function setMemoriesBase(fn) {
+    baseProvider = fn;
+}
+
+/** 這個聊天自己的回憶在快照裡的識別（帶到別的聊天後，用來認「是不是同一條」）。 */
+export function memoryOrigin(m) {
+    return m.origin ?? `${chatKey() ?? ''}#${m.key}`;
+}
+
 export function listMemories() {
     const rec = record(false);
     const removed = new Set(rec?.removed ?? []);
@@ -136,7 +148,19 @@ export function listMemories() {
         const w = floor >= 0 ? when(floor) : { date: '', time: '', dateGuessed: false };
         out.push({ ...m, key: m.id, source: 'manual', floor: floor >= 0 ? floor : null, ...w, ...(m.date ? { date: m.date, dateGuessed: false } : {}), surfaced: surfaced[m.id] ?? null });
     }
-    return out.sort((a, b) => (a.floor ?? Infinity) - (b.floor ?? Infinity));
+    // 帶來的（或即時共用的）回憶：排在這個聊天自己的前面（比較舊）；同一條（origin 一樣）只列一次。
+    let carried = [];
+    try { carried = baseProvider?.() ?? []; } catch (e) { console.error(e); }
+    const seen = new Set(out.map((m) => memoryOrigin(m)));
+    const before = [];
+    for (const m of carried) {
+        if (!m?.origin || !m.content || seen.has(m.origin)) continue;
+        seen.add(m.origin);
+        const key = `carry:${m.origin}`;
+        if (removed.has(key)) continue;
+        before.push({ ...m, ...(edited[key] ?? {}), key, source: 'carried', floor: null, dateGuessed: false, surfaced: surfaced[key] ?? null });
+    }
+    return [...before, ...out.sort((a, b) => (a.floor ?? Infinity) - (b.floor ?? Infinity))];
 }
 
 /** 手動收藏（floor：從哪一層收藏；沒有就是沒有出處的回憶）。 */

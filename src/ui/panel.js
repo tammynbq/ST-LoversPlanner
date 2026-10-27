@@ -786,8 +786,9 @@ function memoryCard(m, pinned) {
           ${!open && when ? `<span class="lp-row-preview">${esc(when)}</span>` : ''}
         </button>`;
     if (!open) return `<div class="lp-note-card lp-folded" data-fold-key="${esc(key)}" data-mem-key="${esc(m.key)}">${head}</div>`;
-    const from = m.floor !== null && m.floor !== undefined
-        ? `<button type="button" class="lp-link" data-action="note-jump" data-index="${m.floor}">${esc(t('mem.from', { n: m.floor }))}</button>` : esc(t('mem.manual'));
+    const from = m.source === 'carried' ? esc(t(m.linked ? 'mem.fromLinked' : 'mem.fromChat', { chat: m.from ?? '' }))
+        : m.floor !== null && m.floor !== undefined
+            ? `<button type="button" class="lp-link" data-action="note-jump" data-index="${m.floor}">${esc(t('mem.from', { n: m.floor }))}</button>` : esc(t('mem.manual'));
     const last = m.surfaced === null ? t('mem.never') : t('mem.lastSurfaced', { n: m.surfaced });
     return `
       <div class="lp-note-card" data-fold-key="${esc(key)}" data-mem-key="${esc(m.key)}">
@@ -2597,7 +2598,7 @@ function onClick(e) {
             if (!view.imp.src) return;
             const kinds = Object.fromEntries(SCOPE_KINDS.map((k) => [k, view.imp.kinds.has(k) ? 'copy' : 'none']));
             importFrom(view.imp.src, kinds).then((r) => {
-                view.imp.result = r ? t('import.done', { notes: r.notes, summary: r.summary ? t('import.withRecap') : '' }) : '';
+                view.imp.result = r ? t('import.done', { notes: r.notes, memories: r.memories ?? 0, summary: r.summary ? t('import.withRecap') : '' }) : '';
                 if (isPanelOpen()) render();
             });
             return;

@@ -71,7 +71,7 @@ const meta = () => page.evaluate(() => window.__chatMetadata.lovers_planner ?? {
 
 // ===== 1. 舊聊天：設成獨立、留快照 =====
 let m = await meta();
-check('old chat set to separate', Object.values(m.scope ?? {}).every((v) => v === 'own') && Object.keys(m.scope ?? {}).length === 5, JSON.stringify(m.scope));
+check('old chat set to separate', Object.values(m.scope ?? {}).every((v) => v === 'own') && Object.keys(m.scope ?? {}).length === 6, JSON.stringify(m.scope));
 await sleep(1800);
 let s = await lp();
 const snapA = s.characters['shenyan.png']?.chats?.['聊天A'];
