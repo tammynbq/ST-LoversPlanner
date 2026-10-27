@@ -388,7 +388,7 @@ async function summarizeFloor(index) {
     try {
         const built = await buildL1Prompt(index);
         hash = built.hash;
-        const raw = await generateText(built.prompt, { maxTokens: built.maxTokens });
+        const raw = await generateText(built.prompt, { maxTokens: built.maxTokens, purpose: 'l1' });
         const parsed = parseL1(raw);
         if (!stillHere()) return;
         // 對照這一層之前的記事整理變化：配上 id、去掉重複新增和找不到的。

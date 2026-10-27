@@ -728,3 +728,11 @@
 .lp-ver .lp-row { gap: 8px; align-items: center; }
 .lp-ver-text { overflow-wrap: anywhere; }
 .lp-sum-by { font-size: 0.85em; }
+
+/* ===== 花費紀錄 ===== */
+.lp-usage-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; }
+.lp-usage-card { border: 1px solid var(--lp-border); border-radius: 8px; padding: 8px 10px; background: var(--lp-card); }
+.lp-usage-big { font-size: 1.15em; font-weight: 600; }
+.lp-usage-table { width: 100%; border-collapse: collapse; font-size: 0.9em; display: block; overflow-x: auto; }
+.lp-usage-table th, .lp-usage-table td { text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--lp-border); white-space: nowrap; }
+.lp-usage-recent { margin: 6px 0 0; padding-left: 1.2em; font-size: 0.88em; overflow-wrap: anywhere; }

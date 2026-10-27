@@ -56,7 +56,7 @@ export async function fillTitles() {
     try {
         for (let k = 0; k < todo.length; k += TITLE_BATCH) {
             const batch = todo.slice(k, k + TITLE_BATCH);
-            const raw = await generateText(buildPrompt(batch), { maxTokens: Math.max(3000, batch.length * 60) });
+            const raw = await generateText(buildPrompt(batch), { maxTokens: Math.max(3000, batch.length * 60), purpose: 'titles' });
             done += setTitlesManual(parseTitles(raw, batch.map((n) => n.id)));
             update({ done });
         }

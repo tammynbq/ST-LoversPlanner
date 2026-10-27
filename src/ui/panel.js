@@ -33,6 +33,7 @@ import { closedDateOf, noteDates, storyToday } from '../notedates.js';
 import { fillTitles, onTitleProgress, TITLE_BATCH, titleProgress } from '../titles.js';
 import { buildBackup, downloadBackup, importBackup, parseBackup, wipeChat } from '../backup.js';
 import { stHiddenCount } from '../sthide.js';
+import { clearUsage, localDay, onUsageChange, recentUsage, usageSummary } from '../usage.js';
 import { acceptAllDigests, acceptDigest, checkManualChapter, compressSelected, compressionDue, deleteChapter, digestLabel, editChapter, editVolume, structure } from '../compress.js';
 import { actionsFor, byLine, eventLabel, hintFor, revealFloor, runAction, sceneHtml, STATUS_ICONS, versionsHtml } from './message.js';
 import {
@@ -1357,6 +1358,8 @@ onCarryChange(scheduleRefresh);
 onCalendarChange(scheduleRefresh);
 onMemoriesChange(scheduleRefresh);
 onTitleProgress(() => { if (isPanelOpen() && ['notes', 'done'].includes(view.tab)) render(); });
+// 花費紀錄有新的一筆：設定頁的那一區打開著才重畫（不要打斷其他操作）。
+onUsageChange(() => { if (isPanelOpen() && view.tab === 'settings' && view.openSections.has('usage') && canAutoRefresh()) render(); });
 // 每次送出後更新標題列的統計（不整頁重畫）。
 onStatsChange(() => {
     const el = isPanelOpen() ? panel.querySelector('.lp-stats') : null;
@@ -1571,6 +1574,37 @@ function renderNotesTab(types = NOTE_TYPES) {
         <label class="lp-label" for="lp-note-sort">${esc(t('notes.sort'))}</label>
         <select id="lp-note-sort" class="text_pole lp-select" data-role="note-sort">${['due', 'newest', 'oldest'].map((k) => `<option value="${k}"${view.notes.sort === k ? ' selected' : ''}>${esc(t(`notes.sort.${k}`))}</option>`).join('')}</select></div>` : '';
     return `${searchBox(view.tab)}${sort}${dated ? titlesBar() : ''}${empty}${none}<div class="lp-notes-stack">${sections}</div>`;
+}
+
+const USAGE_ERRORS = ['empty', 'empty_notice', 'empty_length', 'timeout', 'http', 'network', 'parse', 'bad_response'];
+
+/** 設定 › 花費紀錄（v0.13.14）：今天／7 天／30 天、各模型、各用途、最近幾次。 */
+function renderUsageSection() {
+    const fmt = (n) => Math.round(n).toLocaleString();
+    const tok = (v) => `${v.est ? '≈' : ''}${fmt(v.input)} / ${fmt(v.output)}`;
+    const day = (n) => localDay(Date.now() - n * 86400000);
+    const periods = [['today', day(0)], ['week', day(6)], ['month', day(29)]];
+    const cards = periods.map(([k, since]) => {
+        const v = usageSummary(since).total;
+        return `<div class="lp-usage-card" data-role="usage-${k}"><div class="lp-label">${esc(t(`usage.${k}`))}</div>
+          <div class="lp-usage-big">${esc(t('usage.calls', { n: fmt(v.calls) }))}</div>
+          <div class="lp-note">${esc(t('usage.tokens', { tok: tok(v) }))}</div>
+          ${v.fails ? `<div class="lp-note lp-warn-text">${esc(t('usage.fails', { n: v.fails }))}</div>` : ''}</div>`;
+    }).join('');
+    const month = usageSummary(day(29));
+    const table = (rows, label) => rows.length ? `<table class="lp-usage-table"><thead><tr><th>${esc(label)}</th><th>${esc(t('usage.col.calls'))}</th><th>${esc(t('usage.col.tokens'))}</th><th>${esc(t('usage.col.fail'))}</th><th>${esc(t('usage.col.avg'))}</th></tr></thead><tbody>${rows.map((r) => `
+        <tr><td>${esc(r.name)}</td><td>${fmt(r.calls)}</td><td>${esc(tok(r))}</td><td>${r.calls ? Math.round((r.fails / r.calls) * 100) : 0}%</td><td>${r.calls ? (r.ms / r.calls / 1000).toFixed(1) : '–'}s</td></tr>`).join('')}</tbody></table>` : '';
+    const recent = recentUsage(20).map((r) => {
+        const time = new Date(r.at).toLocaleString(undefined, { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+        return `<li class="${r.ok ? '' : 'lp-warn-text'}">${esc(`${time}・${t(`usage.p.${r.purpose}`)}・${r.model}・${r.est ? '≈' : ''}${fmt(r.input)}/${fmt(r.output)}・${(r.ms / 1000).toFixed(1)}s${r.ok ? '' : `・${t('usage.failed')} ${USAGE_ERRORS.includes(r.error) ? t(`usage.err.${r.error}`) : (r.error ?? '')}`}`)}</li>`;
+    }).join('');
+    return `
+      <div class="lp-note">${esc(t('usage.desc'))}</div>
+      <div class="lp-usage-cards">${cards}</div>
+      ${month.total.calls ? `<div class="lp-scope-title">${esc(t('usage.byModel'))}</div>${table(month.byModel.map((r) => ({ ...r, name: r.model })), t('usage.col.model'))}
+      <div class="lp-scope-title">${esc(t('usage.byPurpose'))}</div>${table(month.byPurpose.map((r) => ({ ...r, name: t(`usage.p.${r.purpose}`) })), t('usage.col.purpose'))}` : `<div class="lp-note">${esc(t('usage.empty'))}</div>`}
+      ${recent ? `<details class="lp-preview-raw"><summary>${esc(t('usage.recent'))}</summary><ul class="lp-usage-recent" data-role="usage-recent">${recent}</ul></details>` : ''}
+      ${month.total.calls || recent ? `<div class="lp-row"><span class="lp-spacer"></span><button type="button" class="menu_button lp-btn lp-danger" data-action="usage-clear">${esc(t(view.usageConfirm ? 'usage.clearYes' : 'usage.clear'))}</button></div>` : ''}`;
 }
 
 /** 設定 › 資料管理：導出、導入、重新檢查番外、刪除（v0.13.7）。 */
@@ -2197,6 +2231,7 @@ function renderSettings() {
       ${section('scope', t('sec.scope'), t('sec.scope.hint'), scope)}
       ${section('recall', t('sec.recall'), t(r.vector.enabled ? 'sec.recall.hint.vector' : 'sec.recall.hint'), recall)}
       ${section('inject', t('sec.inject'), t('sec.inject.hint'), inject)}
+      ${section('usage', t('sec.usage'), t('sec.usage.hint'), renderUsageSection())}
       ${section('data', t('sec.data'), t('sec.data.hint'), renderDataSection())}
       ${section('advanced', t('sec.advanced'), t('sec.advanced.hint'), advanced)}
     </div>`;
@@ -2490,6 +2525,16 @@ function onClick(e) {
             return;
         case 'note-pin':
             pinNoteManual(btn.dataset.id, btn.dataset.on !== 'true');
+            render();
+            return;
+        case 'usage-clear':
+            if (!view.usageConfirm) {
+                view.usageConfirm = true;
+                render();
+                return;
+            }
+            view.usageConfirm = false;
+            clearUsage();
             render();
             return;
         case 'titles-fill':

@@ -373,7 +373,7 @@ export async function runCoarse(indices, existing = null) {
     const stillHere = () => chatKey() === chatId && indices.every((i, k) => getChat()[i] === msgs[k]);
     try {
         const built = await buildPrompt(indices);
-        const parsed = parseL1(await generateText(built.prompt, { maxTokens: built.maxTokens }));
+        const parsed = parseL1(await generateText(built.prompt, { maxTokens: built.maxTokens, purpose: 'catchup' }));
         if (!stillHere()) return false;
         const last = indices[indices.length - 1];
         const prevOps = existing ? (getEntry(last)?.ops ?? []) : [];

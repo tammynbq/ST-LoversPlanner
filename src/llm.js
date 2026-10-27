@@ -3,6 +3,7 @@
 import { ctx } from './util.js';
 import { getSettings } from './settings.js';
 import { t } from './i18n.js';
+import { recordUsage, roughTokens } from './usage.js';
 import { ApiError, chatCompletion } from './api/custom.js';
 
 /** 回覆是空的、或只有服務商自己的通知時，自動重試幾次（間隔）。 */
@@ -44,7 +45,7 @@ export async function generateText(prompt, opts = {}) {
     let timeouts = 0;
     for (;;) {
         try {
-            return cleanReply(await generateOnce(prompt, { ...opts, maxTokens }));
+            return await generateOnce(prompt, { ...opts, maxTokens });
         } catch (e) {
             if (e instanceof ApiError && e.code === 'empty_length' && longer < 2 && maxTokens < MAX_TOKENS_CAP) {
                 longer++;
@@ -72,19 +73,38 @@ export function systemText() {
     return [s.adultNote ? t('prompt.adultNote') : '', String(s.preface ?? '').trim()].filter(Boolean).join('\n\n');
 }
 
-async function generateOnce(prompt, { maxTokens = 512 } = {}) {
+/** 呼叫一次模型，回傳整理過的回覆（cleanReply），並記進花費紀錄（成功、失敗、空回都記；重試的每一次都算一次呼叫）。 */
+async function generateOnce(prompt, { maxTokens = 512, purpose = 'other' } = {}) {
     const s = getSettings();
     const system = systemText();
-    if (s.source === 'custom') {
-        if (!s.custom.url || !s.custom.model) throw new ApiError('need_custom');
-        const messages = [...(system ? [{ role: 'system', content: system }] : []), { role: 'user', content: prompt }];
-        const { text } = await chatCompletion(s.custom, messages, { maxTokens });
-        return text;
+    const model = modelLabel();
+    const started = Date.now();
+    const sentGuess = roughTokens(system) + roughTokens(prompt);
+    let usage = null;
+    let text = '';
+    try {
+        if (s.source === 'custom') {
+            if (!s.custom.url || !s.custom.model) throw new ApiError('need_custom');
+            const messages = [...(system ? [{ role: 'system', content: system }] : []), { role: 'user', content: prompt }];
+            const r = await chatCompletion(s.custom, messages, { maxTokens });
+            usage = r.usage;
+            text = r.text;
+        } else {
+            const c = ctx();
+            if (typeof c?.generateRaw !== 'function') throw new ApiError('no_main');
+            // generateRaw 不帶聊天紀錄和角色設定，只送我們給的提示詞（systemPrompt 是我們的系統提示詞）。
+            text = await c.generateRaw({ prompt, ...(system ? { systemPrompt: system } : {}), responseLength: maxTokens, trimNames: false });
+        }
+        const clean = cleanReply(text);
+        recordUsage({ purpose, model, input: usage?.input ?? sentGuess, output: usage?.output ?? roughTokens(text), est: !usage, ms: Date.now() - started, ok: true });
+        return clean;
+    } catch (e) {
+        // 還沒送出去就失敗的（沒設定好）不算呼叫。
+        if (!(e instanceof ApiError && ['need_custom', 'no_main', 'need_url'].includes(e.code))) {
+            recordUsage({ purpose, model, input: usage?.input ?? sentGuess, output: usage?.output ?? roughTokens(text), est: !usage, ms: Date.now() - started, ok: false, error: e?.code ?? e?.message ?? String(e) });
+        }
+        throw e;
     }
-    const c = ctx();
-    if (typeof c?.generateRaw !== 'function') throw new ApiError('no_main');
-    // generateRaw 不帶聊天紀錄和角色設定，只送我們給的提示詞（systemPrompt 是我們的系統提示詞）。
-    return await c.generateRaw({ prompt, ...(system ? { systemPrompt: system } : {}), responseLength: maxTokens, trimNames: false });
 }
 
 /** 現在是哪個模型在摘要（記在摘要上，方便比較不同模型寫的版本）。 */

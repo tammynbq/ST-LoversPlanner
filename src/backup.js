@@ -29,8 +29,9 @@ function clone(v) {
 
 function withoutSecrets(settings) {
     const out = clone(settings) ?? {};
-    // 角色的快照屬於各個聊天，不放進設定的備份。
+    // 角色的快照屬於各個聊天，不放進設定的備份；花費紀錄也不放。
     delete out.characters;
+    delete out.usage;
     for (const path of SECRET_PATHS) {
         let obj = out;
         for (const k of path.slice(0, -1)) obj = obj?.[k];
@@ -180,13 +181,15 @@ export function importBackup(data, { mode = 'merge', settings = false } = {}) {
     }
     if (settings && data.settings) {
         const cur = getSettings();
-        const keep = { custom: cur.custom?.key, vector: cur.recall?.vector?.key, characters: cur.characters };
+        const keep = { custom: cur.custom?.key, vector: cur.recall?.vector?.key, characters: cur.characters, usage: cur.usage };
         const next = clone(data.settings);
         delete next.characters;
+        delete next.usage;
         Object.assign(cur, next);
         if (cur.custom) cur.custom.key = keep.custom ?? '';
         if (cur.recall?.vector) cur.recall.vector.key = keep.vector ?? '';
         cur.characters = keep.characters;
+        cur.usage = keep.usage;
         saveSettings();
     }
     invalidateNotes();
