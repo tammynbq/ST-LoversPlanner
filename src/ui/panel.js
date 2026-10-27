@@ -25,7 +25,7 @@ import {
 import { errorText } from '../errors.js';
 import { cardFillBusy, fillFromCard } from '../cardfill.js';
 import { tidyBusy } from '../tidy.js';
-import { applyTheme } from '../theme.js';
+import { applyTheme, THEMES } from '../theme.js';
 import { fillFromWorld, listWorldEntries, WORLD_BATCH, worldFillState } from '../worldfill.js';
 import { getLastStats, onStatsChange, previewInjection } from '../hide.js';
 import { aiIndices, chatKey, getChat, getEntry } from '../chat.js';
@@ -2187,9 +2187,9 @@ function renderSettings() {
       <div class="lp-note">${esc(t('set.language.note'))}</div>
       <div class="lp-row">
         <label class="lp-label" for="lp-theme">${esc(t('set.theme'))}</label>
-        ${select('ui.theme', 'lp-theme', [['tavern', t('set.theme.tavern')], ['techo', t('set.theme.techo')]], true)}
+        ${select('ui.theme', 'lp-theme', THEMES.map((x) => [x, t(`set.theme.${x}`)]), true)}
       </div>
-      ${s.ui?.theme === 'techo' ? checkbox('ui.themeBlocks', t('set.theme.blocks'), true) : ''}
+      ${s.ui?.theme && s.ui.theme !== 'tavern' ? checkbox('ui.themeBlocks', t('set.theme.blocks'), true) : ''}
       <div class="lp-note" data-role="version">${esc(t('set.version', { version: getLoadedVersion() ?? '?' }))}</div>`;
 
     const model = `

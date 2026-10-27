@@ -45,9 +45,20 @@ await page.check('input[data-path="ui.themeBlocks"]');
 await page.waitForFunction(() => document.documentElement.classList.contains('lp-theme-techo-blocks'));
 check('blocks class', (await cls()).includes('lp-theme-techo-blocks'));
 await page.screenshot({ path: `${OUT}/theme.png` });
+// 夜間護眼（v0.13.23）：淡綠、淺藍、粉色
+for (const [v, bgWant] of [['night-mint', 'rgb(29, 39, 35)'], ['night-sky', 'rgb(28, 35, 44)'], ['night-sakura', 'rgb(38, 30, 34)']]) {
+  await page.selectOption('#lp-theme', v);
+  await page.waitForFunction((v) => document.documentElement.classList.contains(`lp-techo-${v.slice(6)}`), v);
+  const c = await cls();
+  const bgNow = await page.evaluate(() => getComputedStyle(document.querySelector('.lp-panel')).backgroundColor);
+  check(`${v}: classes and dark paper`, c.includes('lp-theme-techo') && c.includes('lp-techo-night') && bgNow === bgWant && ['mint', 'sky', 'sakura'].filter((x) => c.includes(`lp-techo-${x}`)).length === 1, `${c} ${bgNow}`);
+  await page.screenshot({ path: `${OUT}/look-${v}.png` });
+}
+await page.selectOption('#lp-theme', 'techo');
+check('back to day planner drops night classes', !(await cls()).includes('lp-techo-night') && (await cls()).includes('lp-theme-techo'));
 await page.selectOption('#lp-theme', 'tavern');
 await page.waitForFunction(() => !document.documentElement.classList.contains('lp-theme-techo'));
-check('back to tavern removes both', !(await cls()).includes('lp-theme-techo'));
+check('back to tavern removes all', !(await cls()).includes('lp-theme-techo') && !(await cls()).includes('lp-techo-'));
 check('font not added again', await page.evaluate(() => document.querySelectorAll('link[data-lp-font]').length === 1));
 
 const missing = await page.evaluate(async () => (await import('/src/i18n.js')).missingKeys());
