@@ -737,3 +737,5 @@
 .lp-usage-table { width: 100%; border-collapse: collapse; font-size: 0.9em; display: block; overflow-x: auto; }
 .lp-usage-table th, .lp-usage-table td { text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--lp-border); white-space: nowrap; }
 .lp-usage-recent { margin: 6px 0 0; padding-left: 1.2em; font-size: 0.88em; overflow-wrap: anywhere; }
+.lp-world-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; max-height: 50vh; overflow-y: auto; }
+.lp-world-list .lp-row-head { gap: 8px; width: 100%; }

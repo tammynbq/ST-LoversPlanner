@@ -566,6 +566,48 @@ export function fillFromCardManual(fills) {
     return { added, updated };
 }
 
+/**
+ * 🌍 從世界書填寫（v0.13.19，使用者要求）：list = [{ data }]（人物欄位，要有 name）。
+ * 已經有同一個人（名字或別稱對得上）就更新（只動空的和人設的欄位，名字不改），沒有就新增。欄位都標成人設（cardFields）。
+ * 回傳 { added, updated }。
+ */
+export function fillCharactersFromWorld(list) {
+    const notes = getNotes().notes;
+    const pool = [...notes.values()].filter((n) => n.type === 'character');
+    const ops = [];
+    const at = Date.now();
+    let added = 0;
+    let updated = 0;
+    for (const x of list ?? []) {
+        const data = cleanData('character', x?.data);
+        if (!data.name) continue;
+        const probe = { type: 'character', data };
+        const note = pool.find((n) => sameThing(n, probe));
+        if (note) {
+            delete data.name;
+            const d = cardData(notes.get(note.id) ?? note, data);
+            if (!Object.keys(d).length) continue;
+            ops.push({ op: 'update', id: note.id, data: d, raw: true, card: true, at });
+            updated++;
+        } else {
+            const id = newNoteId('character');
+            ops.push({ op: 'add', id, type: 'character', data, card: true, at });
+            pool.push({ id, type: 'character', data, cardFields: Object.keys(data) });
+            added++;
+        }
+    }
+    if (!ops.length) return { added, updated };
+    const rec = chatRecord(true);
+    rec.manualOps = [...manualOps(), ...ops];
+    emitNotesChange();
+    const c = ctx();
+    try {
+        if (typeof c?.saveMetadataDebounced === 'function') c.saveMetadataDebounced();
+        else c?.saveMetadata?.();
+    } catch (e) { /* 忽略 */ }
+    return { added, updated };
+}
+
 /** 一次新增很多條（行程轉成約定用）：list = [{ type, data, made?, fromFloor? }]。回傳新增了幾條。 */
 export function addNotesManualBatch(list) {
     const at = Date.now();

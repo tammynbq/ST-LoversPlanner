@@ -25,6 +25,7 @@ import {
 import { errorText } from '../errors.js';
 import { cardFillBusy, fillFromCard } from '../cardfill.js';
 import { tidyBusy } from '../tidy.js';
+import { fillFromWorld, listWorldEntries, WORLD_BATCH, worldFillState } from '../worldfill.js';
 import { getLastStats, onStatsChange, previewInjection } from '../hide.js';
 import { aiIndices, chatKey, getChat, getEntry } from '../chat.js';
 import { hl, isExpanded, isSectionOpen, matches, setExpanded, setSectionOpen, terms, toggleExpanded, toggleSection } from './fold.js';
@@ -111,6 +112,8 @@ const view = {
     openSections: new Set(['general']),
     notes: {
         cardMsg: '', // 「從人設填寫」的結果訊息
+        // 🌍 從世界書填寫：清單打開了沒、讀取中、條目、勾了哪些、結果訊息
+        world: { open: false, loading: false, list: [], picked: new Set(), msg: '' },
         editing: null, // 正在編輯的記事 id
         adding: null, // 正在新增的類型
         confirmClear: false,
@@ -1588,6 +1591,43 @@ function noteCard(note, query = '', today = null, roles = null) {
       </div>`;
 }
 
+/** 🌍 從世界書填寫：勾要填的條目（名字對得上已記人物的先勾好）。 */
+function worldCard() {
+    const w = view.notes.world;
+    if (!w.open) return '';
+    const st = worldFillState();
+    const head = `<div class="lp-scope-title">${esc(t('world.title'))}</div><div class="lp-note">${esc(t('world.desc'))}</div>`;
+    const msg = w.msg ? `<div class="lp-note" role="status" data-role="world-msg">${esc(w.msg)}</div>` : '';
+    const close = `<button type="button" class="menu_button lp-btn" data-action="note-world-close">${esc(t('extras.close'))}</button>`;
+    if (w.loading) return `<div class="lp-card" data-role="world">${head}<div class="lp-note">${esc(t('world.loading'))}</div></div>`;
+    if (!w.list.length) return `<div class="lp-card" data-role="world">${head}<div class="lp-note">${esc(t('world.none'))}</div>${msg}<div class="lp-row">${close}</div></div>`;
+    const rows = w.list.map((x) => {
+        const on = w.picked.has(x.id);
+        return `<li><button type="button" class="lp-row-head lp-pickable${on ? ' lp-picked' : ''}" data-action="world-pick" data-id="${esc(x.id)}" aria-pressed="${on}">
+          <span class="lp-pick-box" aria-hidden="true">${on ? '✓' : ''}</span>
+          <span class="lp-note-title">${esc(x.title)}</span>${x.known ? `<span class="lp-badge lp-st-ok">${esc(t('world.known'))}</span>` : ''}
+          <span class="lp-row-preview">${esc([x.keys.join('、'), x.content.slice(0, 60)].filter(Boolean).join('｜'))}</span></button></li>`;
+    }).join('');
+    const n = w.picked.size;
+    const calls = Math.ceil(n / WORLD_BATCH);
+    const busy = st.busy;
+    return `
+      <div class="lp-card" data-role="world">
+        ${head}
+        <div class="lp-row">
+          <button type="button" class="menu_button lp-btn lp-mini" data-action="world-all">${esc(t('bulk.all', { n: w.list.length }))}</button>
+          <button type="button" class="menu_button lp-btn lp-mini" data-action="world-none">${esc(t('bulk.none'))}</button>
+        </div>
+        <ul class="lp-world-list">${rows}</ul>
+        ${busy ? `<div class="lp-note" role="status">${esc(t('world.progress', { done: st.done, total: st.total }))}</div>` : ''}
+        ${msg}
+        <div class="lp-row">
+          <button type="button" class="menu_button lp-btn lp-primary" data-action="world-fill"${!n || busy ? ' disabled' : ''}>${esc(t('world.fill', { n, calls }))}</button>
+          ${close}
+        </div>
+      </div>`;
+}
+
 function renderNotesTab(types = NOTE_TYPES) {
     if (!isActive()) return '';
     const query = view.query[view.tab] ?? '';
@@ -1617,9 +1657,11 @@ function renderNotesTab(types = NOTE_TYPES) {
               ${open ? hint : ''}
               <span class="lp-spacer"></span>
               ${type === 'character' ? `<button type="button" class="menu_button lp-btn lp-mini" data-action="note-card-fill"${cardFillBusy() ? ' disabled' : ''} title="${esc(t('notes.cardFill.hint', { char: ctx()?.name2 || '{{char}}', user: ctx()?.name1 || '{{user}}' }))}">${esc(t(cardFillBusy() ? 'notes.cardFill.busy' : 'notes.cardFill'))}</button>` : ''}
+              ${type === 'character' ? `<button type="button" class="menu_button lp-btn lp-mini" data-action="note-world-open" aria-pressed="${view.notes.world.open}">${esc(t('world.open'))}</button>` : ''}
               <button type="button" class="menu_button lp-btn lp-mini" data-action="note-add" data-type="${type}">${esc(t('notes.add'))}</button>
             </div>
             ${type === 'character' && view.notes.cardMsg ? `<div class="lp-note" role="status" data-role="card-msg">${esc(view.notes.cardMsg)}</div>` : ''}
+            ${type === 'character' ? worldCard() : ''}
             ${adding}
             ${open ? `<div class="lp-card-grid">${list.map((n) => noteCard(n, query, today, roles)).join('')}</div>` : ''}
           </section>`;
@@ -2635,6 +2677,50 @@ function onClick(e) {
                 .catch((e) => { view.notes.cardMsg = t('notes.cardFill.fail', { error: errorText(e) }); })
                 .finally(() => { if (isPanelOpen()) render(); });
             return;
+        case 'note-world-open': {
+            const w = view.notes.world;
+            if (w.open) {
+                view.notes.world = { ...w, open: false };
+                render();
+                return;
+            }
+            view.notes.world = { open: true, loading: true, list: [], picked: new Set(), msg: '' };
+            render();
+            listWorldEntries()
+                .then((list) => { view.notes.world = { ...view.notes.world, loading: false, list, picked: new Set(list.filter((x) => x.known).map((x) => x.id)) }; })
+                .catch((e) => { view.notes.world = { ...view.notes.world, loading: false, msg: errorText(e) }; })
+                .finally(() => { if (isPanelOpen()) render(); });
+            return;
+        }
+        case 'note-world-close':
+            view.notes.world = { ...view.notes.world, open: false };
+            render();
+            return;
+        case 'world-pick': {
+            const set = view.notes.world.picked;
+            if (set.has(btn.dataset.id)) set.delete(btn.dataset.id);
+            else set.add(btn.dataset.id);
+            render();
+            return;
+        }
+        case 'world-all':
+            view.notes.world.picked = new Set(view.notes.world.list.map((x) => x.id));
+            render();
+            return;
+        case 'world-none':
+            view.notes.world.picked = new Set();
+            render();
+            return;
+        case 'world-fill': {
+            const w = view.notes.world;
+            const entries = w.list.filter((x) => w.picked.has(x.id));
+            w.msg = '';
+            fillFromWorld(entries, () => { if (isPanelOpen()) render(); })
+                .then((r) => { if (r) view.notes.world.msg = t('world.done', r); })
+                .catch((e) => { view.notes.world.msg = t('world.fail', { error: errorText(e), ...(e.partial ?? { added: 0, updated: 0 }) }); })
+                .finally(() => { if (isPanelOpen()) render(); });
+            return;
+        }
         case 'note-role':
             setRoleManual(btn.dataset.id, btn.dataset.roleSet || null);
             render();

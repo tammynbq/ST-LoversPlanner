@@ -51,6 +51,7 @@ window.SillyTavern = { getContext: () => ({
   characterId: window.__noChat ? undefined : 0, groupId: window.__group ? 'g1' : null,
   characters: window.__characters ?? [{ name: '沈言', avatar: 'shenyan.png' }],
   powerUserSettings: window.__powerUser ?? {},
+  loadWorldInfo: async (name) => window.__worlds?.[name] ?? null,
   name1: '小雨', name2: '沈言', chatId: window.__chatId || '雨天的約定', getCurrentLocale: () => window.__locale || 'zh-tw',
   chat: window.__chat, chatMetadata: window.__chatMetadata ?? chatMetadata,
   saveChat: async () => { window.__chatSaves++; },
