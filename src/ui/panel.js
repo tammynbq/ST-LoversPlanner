@@ -25,6 +25,7 @@ import {
 import { errorText } from '../errors.js';
 import { cardFillBusy, fillFromCard } from '../cardfill.js';
 import { tidyBusy } from '../tidy.js';
+import { applyTheme } from '../theme.js';
 import { fillFromWorld, listWorldEntries, WORLD_BATCH, worldFillState } from '../worldfill.js';
 import { getLastStats, onStatsChange, previewInjection } from '../hide.js';
 import { aiIndices, chatKey, getChat, getEntry } from '../chat.js';
@@ -317,6 +318,7 @@ async function applyTauriSurface() {
 // ===== 畫面 =====
 
 function render() {
+    applyTheme();
     const body = panel.querySelector('.lp-body');
     const scrollTop = body ? body.scrollTop : 0;
     // 重畫時保住正在打的字（章／卷總結的編輯框）。
@@ -2183,6 +2185,11 @@ function renderSettings() {
         ${select('language', 'lp-lang', [['auto', t('set.language.auto', { name: hostName })], ...LOCALES.map((l) => [l, LOCALE_NAMES[l]])], true)}
       </div>
       <div class="lp-note">${esc(t('set.language.note'))}</div>
+      <div class="lp-row">
+        <label class="lp-label" for="lp-theme">${esc(t('set.theme'))}</label>
+        ${select('ui.theme', 'lp-theme', [['tavern', t('set.theme.tavern')], ['techo', t('set.theme.techo')]], true)}
+      </div>
+      ${s.ui?.theme === 'techo' ? checkbox('ui.themeBlocks', t('set.theme.blocks'), true) : ''}
       <div class="lp-note" data-role="version">${esc(t('set.version', { version: getLoadedVersion() ?? '?' }))}</div>`;
 
     const model = `

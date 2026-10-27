@@ -17,6 +17,7 @@ import { initCatchup } from './src/catchup.js';
 import { scheduleStHide, syncStHide } from './src/sthide.js';
 import { onSummaryChange } from './src/summarize.js';
 import { mergePlans } from './src/planmerge.js';
+import { applyTheme } from './src/theme.js';
 
 function onSettingChanged(path) {
     if (path === 'language') relabelEntries();
@@ -39,6 +40,7 @@ async function start() {
     }
 
     initSettings();
+    applyTheme();
     setPanelHooks({ onSettingChanged });
     mountWandEntry();
     mountSettingsDrawer();

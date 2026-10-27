@@ -8,7 +8,8 @@ const CHAT = [];
 for (let i = 0; i < 40; i++) { const ai = i % 2 === 1; CHAT.push({ name: ai ? '沈言' : '小雨', is_user: !ai, mes: `${ai ? 'AI' : 'U'}${i} 今天也在一起，聊了很多事情。`, send_date: `d${i}`, extra: {} }); }
 const b = await chromium.launch();
 const page = await b.newPage({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2 });
-await page.addInitScript((chat) => { window.__chat = chat; window.__presetSettings = { lovers_planner: { settingsVersion: 5, summary: { mode: 'manual' }, recall: { notes: false, memory: false }, compress: { auto: false }, calendar: { enabled: true, track: { period: true, intimacy: true, anniversary: true } } } }; }, CHAT);
+await page.addInitScript((theme) => { window.__theme = theme; }, process.env.THEME ?? 'tavern');
+await page.addInitScript((chat) => { window.__chat = chat; window.__presetSettings = { lovers_planner: { settingsVersion: 5, summary: { mode: 'manual' }, recall: { notes: false, memory: false }, compress: { auto: false }, calendar: { enabled: true, track: { period: true, intimacy: true, anniversary: true } }, ui: { theme: window.__theme ?? 'tavern', themeBlocks: true } } }; }, CHAT);
 await page.goto(`http://127.0.0.1:${process.env.PORT ?? 8765}/tests/harness.html`);
 await page.waitForFunction(() => Boolean(globalThis.loversPlannerInterceptor));
 await page.evaluate(async () => {
@@ -25,6 +26,7 @@ await page.evaluate(async () => {
   document.getElementById('extensionsMenu').style.display = '';
 });
 await page.click('#lp_wand_entry');
+await page.evaluate(async () => { const { addMemory } = await import('/src/memories.js'); addMemory({ title: '雨中告白', content: '沈言在雨中告白。', floor: 7 }); addMemory({ title: '看海', content: '一起去看海。', floor: 11 }); });
 for (const tab of ['summary', 'characters', 'items', 'notes', 'memories', 'done', 'settings']) {
   await page.click(`[data-tab="${tab}"]`);
   await page.waitForTimeout(300);

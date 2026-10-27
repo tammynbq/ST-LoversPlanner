@@ -777,3 +777,204 @@
     .lp-cal-marks { font-size: 0.65em; }
 }
 .lp-tabs::-webkit-scrollbar { display: none; }
+
+/* =====================================================================
+ * 📒 日系手帳主題（v0.13.22，使用者要求）：設定 › 一般 › 外觀。
+ * 方格紙的底、紙膠帶、索引貼的分頁、圓體字。<html> 上有 .lp-theme-techo 時才生效；
+ * 聊天裡的摘要區塊要另外勾「也套用」（.lp-theme-techo-blocks）。
+ * ===================================================================== */
+.lp-theme-techo .lp-overlay,
+.lp-theme-techo-blocks .lp-sum {
+    --lp-text: #5b4636;
+    --lp-muted: #a08c79;
+    --lp-accent: #e0849a;
+    --lp-border: #e6d7c2;
+    --lp-bg: #fbf5ea;
+    --lp-card: #fffdf8;
+    --lp-warn: #c98a1a;
+    --lp-ok: #5d9c70;
+    --lp-error: #cf6157;
+    --lp-info: #5a8dc2;
+    --lp-tape-pink: rgba(236, 150, 170, 0.55);
+    --lp-tape-mint: rgba(140, 200, 178, 0.6);
+    --lp-tape-butter: rgba(242, 205, 112, 0.65);
+    --lp-tape-sky: rgba(146, 188, 228, 0.6);
+    --lp-tape-lilac: rgba(186, 164, 222, 0.6);
+    --lp-tape-peach: rgba(244, 172, 136, 0.55);
+    --lp-shadow: 0 1px 0 #efe3d1, 0 3px 8px rgba(120, 88, 60, 0.07);
+    --lp-font: 'Huninn', 'Hiragino Maru Gothic ProN', 'PingFang TC', 'PingFang SC', 'Microsoft JhengHei', sans-serif;
+    font-family: var(--lp-font);
+    accent-color: var(--lp-accent);
+}
+.lp-theme-techo .lp-overlay { background: rgba(70, 48, 34, 0.45); }
+
+/* 紙：方格點點 */
+.lp-theme-techo .lp-panel {
+    background-color: var(--lp-bg);
+    background-image: radial-gradient(circle, #eadcc7 1px, transparent 1.3px);
+    background-size: 20px 20px;
+    border: none;
+    border-radius: 16px;
+    box-shadow: 0 18px 50px rgba(60, 38, 24, 0.35), inset 0 0 0 1px #efe2cf;
+    backdrop-filter: none;
+}
+@media (max-width: 768px) { .lp-theme-techo .lp-panel { border-radius: 0; } }
+
+/* 標題列：斜紋紙膠帶 */
+.lp-theme-techo .lp-header {
+    background: repeating-linear-gradient(-45deg, rgba(236, 150, 170, 0.16) 0 8px, rgba(255, 255, 255, 0.35) 8px 16px);
+    border-bottom: 2px dashed var(--lp-border);
+}
+.lp-theme-techo .lp-title { font-weight: 600; letter-spacing: 0.06em; }
+.lp-theme-techo .lp-title-icon { color: var(--lp-accent); }
+.lp-theme-techo .lp-icon-btn { border-radius: 999px; color: var(--lp-muted); }
+.lp-theme-techo .lp-icon-btn:hover, .lp-theme-techo .lp-icon-btn.lp-on { background: #fde6ec; color: var(--lp-accent); }
+.lp-theme-techo .lp-count { background: var(--lp-accent); color: #fff; }
+
+/* 分頁：索引貼 */
+.lp-theme-techo .lp-tabs { gap: 4px; padding-top: 8px; border-bottom: 2px solid var(--lp-border); }
+.lp-theme-techo .lp-tab {
+    min-height: 38px;
+    margin-top: 4px;
+    padding: 0 14px;
+    border: none;
+    border-radius: 10px 10px 0 0;
+    background: var(--lp-tab, #f3eadc);
+    color: #7b6553;
+    transition: transform 0.15s, background 0.15s;
+}
+.lp-theme-techo .lp-tab:nth-child(7n+1) { --lp-tab: #fbdbe3; }
+.lp-theme-techo .lp-tab:nth-child(7n+2) { --lp-tab: #d5ecdf; }
+.lp-theme-techo .lp-tab:nth-child(7n+3) { --lp-tab: #faecc4; }
+.lp-theme-techo .lp-tab:nth-child(7n+4) { --lp-tab: #d7e6f6; }
+.lp-theme-techo .lp-tab:nth-child(7n+5) { --lp-tab: #e6dcf4; }
+.lp-theme-techo .lp-tab:nth-child(7n+6) { --lp-tab: #fbe0d2; }
+.lp-theme-techo .lp-tab:nth-child(7n+7) { --lp-tab: #ece4d8; }
+.lp-theme-techo .lp-tab.lp-on {
+    transform: translateY(-4px);
+    background: color-mix(in srgb, var(--lp-tab) 70%, #c98a9a 30%);
+    color: #4a3428;
+    box-shadow: 0 -2px 0 rgba(255, 255, 255, 0.6) inset;
+}
+
+/* 卡片：便條紙 */
+.lp-theme-techo .lp-note-card,
+.lp-theme-techo .lp-floor-row,
+.lp-theme-techo .lp-group,
+.lp-theme-techo .lp-card,
+.lp-theme-techo .lp-sec,
+.lp-theme-techo .lp-preview,
+.lp-theme-techo .lp-check-row,
+.lp-theme-techo .lp-result {
+    background: var(--lp-card);
+    border: 1px solid var(--lp-border);
+    border-radius: 12px;
+    box-shadow: var(--lp-shadow);
+}
+.lp-theme-techo .lp-group-body { border-left: 2px dashed var(--lp-border); }
+.lp-theme-techo .lp-callout {
+    background: #fff8e3;
+    border: 1px solid #f0dca6;
+    border-radius: 12px;
+    box-shadow: var(--lp-shadow);
+}
+/* 章、卷的標題：螢光筆 */
+.lp-theme-techo .lp-group-title,
+.lp-theme-techo .lp-scope-title,
+.lp-theme-techo .lp-note-section .lp-scope-title {
+    background: linear-gradient(transparent 58%, var(--lp-tape-butter) 58%);
+    padding: 0 2px;
+}
+/* 設定的每一區：左邊一條紙膠帶 */
+.lp-theme-techo .lp-sec > summary { border-left: 6px solid var(--lp-sec, var(--lp-tape-pink)); border-radius: 12px 0 0 12px; }
+.lp-theme-techo .lp-sec:nth-of-type(5n+2) { --lp-sec: var(--lp-tape-mint); }
+.lp-theme-techo .lp-sec:nth-of-type(5n+3) { --lp-sec: var(--lp-tape-butter); }
+.lp-theme-techo .lp-sec:nth-of-type(5n+4) { --lp-sec: var(--lp-tape-sky); }
+.lp-theme-techo .lp-sec:nth-of-type(5n+5) { --lp-sec: var(--lp-tape-lilac); }
+
+/* 回憶錄：上面貼一段紙膠帶 */
+.lp-theme-techo .lp-memories .lp-note-card { position: relative; margin-top: 12px; overflow: visible; }
+.lp-theme-techo .lp-memories .lp-note-card::before {
+    content: '';
+    position: absolute;
+    top: -9px;
+    left: 50%;
+    width: 72px;
+    height: 18px;
+    transform: translateX(-50%) rotate(-3deg);
+    background: var(--lp-tape, var(--lp-tape-pink));
+    border-left: 2px dotted rgba(255, 255, 255, 0.7);
+    border-right: 2px dotted rgba(255, 255, 255, 0.7);
+    pointer-events: none;
+}
+.lp-theme-techo .lp-memories .lp-note-card:nth-of-type(4n+2)::before { --lp-tape: var(--lp-tape-mint); transform: translateX(-40%) rotate(2deg); }
+.lp-theme-techo .lp-memories .lp-note-card:nth-of-type(4n+3)::before { --lp-tape: var(--lp-tape-butter); transform: translateX(-60%) rotate(-1deg); }
+.lp-theme-techo .lp-memories .lp-note-card:nth-of-type(4n+4)::before { --lp-tape: var(--lp-tape-sky); }
+
+/* 按鈕：圓圓的、有一點厚度 */
+.lp-theme-techo .lp-overlay .menu_button.lp-btn,
+.lp-theme-techo-blocks .lp-sum .menu_button.lp-btn {
+    background: #fffdf8;
+    color: var(--lp-text);
+    border: 1.5px solid var(--lp-border);
+    border-radius: 999px;
+    box-shadow: 0 2px 0 #eadcc8;
+    filter: none;
+}
+.lp-theme-techo .lp-overlay .menu_button.lp-btn:hover,
+.lp-theme-techo-blocks .lp-sum .menu_button.lp-btn:hover { background: #fff1f4; border-color: #f2c2cd; }
+.lp-theme-techo .lp-overlay .menu_button.lp-btn:active,
+.lp-theme-techo-blocks .lp-sum .menu_button.lp-btn:active { transform: translateY(1px); box-shadow: 0 1px 0 #eadcc8; }
+.lp-theme-techo .lp-overlay .menu_button.lp-btn.lp-primary,
+.lp-theme-techo-blocks .lp-sum .menu_button.lp-btn.lp-primary {
+    background: var(--lp-accent);
+    border-color: var(--lp-accent);
+    color: #fff;
+    box-shadow: 0 2px 0 #c46b80;
+}
+.lp-theme-techo .lp-overlay .menu_button.lp-btn.lp-danger { color: var(--lp-error); border-color: #efc4bf; }
+.lp-theme-techo .lp-overlay .menu_button.lp-btn:disabled { opacity: 0.5; }
+
+/* 輸入框 */
+.lp-theme-techo .lp-overlay .text_pole,
+.lp-theme-techo .lp-overlay select,
+.lp-theme-techo-blocks .lp-sum .text_pole {
+    background: #fffdf8;
+    color: var(--lp-text);
+    border: 1.5px solid var(--lp-border);
+    border-radius: 10px;
+    font-family: var(--lp-font);
+}
+.lp-theme-techo .lp-overlay .text_pole:focus,
+.lp-theme-techo .lp-overlay select:focus { border-color: var(--lp-accent); outline: none; box-shadow: 0 0 0 3px #fde3ea; }
+.lp-theme-techo .lp-search { background: transparent; }
+
+/* 篩選標籤、狀態章 */
+.lp-theme-techo .lp-chip { background: #fffdf8; border: 1.5px solid var(--lp-border); color: #7b6553; }
+.lp-theme-techo .lp-chip.lp-on { background: #fde4ea; border-color: var(--lp-accent); color: #b5566c; }
+.lp-theme-techo .lp-badge,
+.lp-theme-techo-blocks .lp-sum .lp-badge { border-radius: 6px; border-width: 1.5px; background: rgba(255, 255, 255, 0.6); }
+.lp-theme-techo .lp-kind-tag { background: #faecc4; color: #9a6b12; }
+.lp-theme-techo .lp-link { color: #c06a80; text-decoration: underline dotted; text-underline-offset: 3px; }
+.lp-theme-techo .lp-pick-box { border-color: #cdb9a1; border-radius: 5px; }
+
+/* 行事曆：手帳的月曆頁 */
+.lp-theme-techo .lp-cal-cell { background: #fffdf8; border-color: #eee0cc; }
+.lp-theme-techo .lp-cal-cell:hover { background: #fff3f5; }
+.lp-theme-techo .lp-cal-grid > .lp-cal-head:nth-child(1) { color: var(--lp-error); }
+.lp-theme-techo .lp-cal-grid > .lp-cal-head:nth-child(7) { color: var(--lp-info); }
+.lp-theme-techo .lp-cal-today .lp-cal-num { background: var(--lp-accent); }
+.lp-theme-techo .lp-cal-period { background: #fde4ea; }
+.lp-theme-techo .lp-cal-empty { background: transparent; }
+
+/* 聊天裡的摘要區塊（勾了「也套用」） */
+.lp-theme-techo-blocks .lp-sum {
+    color: var(--lp-text);
+    background: var(--lp-bg);
+    background-image: radial-gradient(circle, #eadcc7 1px, transparent 1.3px);
+    background-size: 16px 16px;
+    border: 1px solid var(--lp-border);
+    border-radius: 12px;
+    box-shadow: var(--lp-shadow);
+}
+.lp-theme-techo-blocks .lp-sum .lp-sum-head { color: var(--lp-text); }

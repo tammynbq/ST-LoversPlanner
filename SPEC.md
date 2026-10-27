@@ -650,6 +650,9 @@ L0 原文 → L1 單層摘要 → L2（每 10 個 L1）→ L3（每 10 份 L2）
 
 ## 🐞 已知問題 / 踩過的坑
 
+- 新增測試檔前先確認檔名沒被用過（2026-10-27 差點用 Write 蓋掉原本的 tests/theme.test.mjs，已還原，新的叫 look.test.mjs）。
+- settings 裡新增的物件（例如 ui）一定要放進 DEFAULTS，不然 mergeDefaults 重新整理後會把它丟掉（v0.13.16 的 hideSkip 就是這樣，v0.13.22 修好）。
+
 - 測試裡自己寫的樓層 entry 如果 hash 對不上，會被當成「過期」，送出時攔截器等使用者處理過期提醒，__runInterceptor 就卡住不動。要用 floorSource(i).hash（2026-10-27，world 測試）。被 timeout 砍掉的 node 行程，console.log 到管線的輸出會遺失，要追蹤卡在哪一行請用 appendFileSync 寫檔。
 
 - 跑全部測試的迴圈只抓「FAIL」和「Error:」會漏掉 Playwright 逾時當掉的檔案（輸出是 TimeoutError，沒有 ERRORS 行）。要同時檢查輸出裡有沒有「ERRORS: none」（2026-10-27 發現 calendar 測試其實當掉了）。
@@ -772,3 +775,4 @@ L0 原文 → L1 單層摘要 → L2（每 10 個 L1）→ L3（每 10 份 L2）
 - 2026-10-27（v0.13.19，使用者要求，先不推送）：🌍 從世界書填寫（worldfill.js）：讀角色卡 data.extensions.world、內嵌 character_book、chat_metadata.world_info 的條目（停用的不讀），用 context.loadWorldInfo（沒有就 POST /api/worldinfo/get）。使用者勾條目（名字對得上已記人物的預先勾好），每 8 條一次呼叫，模型挑出人物整理成欄位；已有的人物只補空的和人設的欄位（名字不改），新的人物新增（不指定主角）；欄位標人設（cardFields），注入時不送。status、outfit 不從設定填。
 - 2026-10-27（v0.13.20，使用者要求）：回憶錄加進記憶範圍（SCOPE_KINDS 加 memories，預設複製帶走）。快照多存 memories（origin＝最早的「聊天#key」，一路帶下去認得出同一條；即時共用讀來的不放進快照，免得互相讀成一圈）。複製帶走存在 base.memories；即時共用存 memoriesLink（跟摘要同一個來源，沒有就最近的聊天），讀來源最新快照；改成不共用時把來源的留一份。帶來的回憶在這個聊天可以改、刪（edited／removed，key＝carry:origin）。
 - 2026-10-27（v0.13.21，使用者要求）：排版美化第一輪（手機 ≤560px）：篩選標籤一排左右滑（右邊淡出）、摘要分頁的多選／隱藏／排序平分一排、「補建舊樓層」和「立即壓縮」同一排、送出預覽標題不換行、記事區塊說明移到按鈕下一行、分頁列右邊淡出、月曆格子變矮。tests/screens.mjs 拍各分頁手機截圖（測試頁沒有 Font Awesome，標題列的圖示按鈕拍不出來，真的酒館裡有）。
+- 2026-10-27（v0.13.22，使用者要求）：外觀選項（settings.ui.theme：tavern 跟隨酒館｜techo 日系手帳；ui.themeBlocks 聊天裡的摘要區塊也套用）。theme.js 在 <html> 加 .lp-theme-techo／.lp-theme-techo-blocks，第一次用時載入 Google Fonts 的「粉圓」Huninn（Zen Maru Gothic 沒有繁中字，會混字）。樣式在 style.css 最後一段：方格紙底、斜紋紙膠帶標題列、索引貼分頁（7 色）、便條紙卡片、螢光筆標題、設定區塊左側紙膠帶、回憶錄卡片貼紙膠帶、圓按鈕、月曆週日紅週六藍。
