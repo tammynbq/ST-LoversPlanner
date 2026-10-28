@@ -84,7 +84,24 @@ function legacyHash(index) {
         if (!m.is_user) break;
         users.unshift(m);
     }
-    return hashText([...users.map((u) => u.mes), ai?.mes ?? ''].join('\u0000'));
+    return cachedHash(legacyCache, ai, users);
+}
+
+// 原文的 hash 記起來（v0.13.28）：每次判斷過期都要把整段原文（常常幾千字）重算一遍，長聊天會卡。
+// 用訊息物件當 key；原文（這則和前面的使用者發言）沒變就直接用記住的。
+const hashCache = new WeakMap();
+const legacyCache = new WeakMap();
+
+function cachedHash(cache, ai, users) {
+    const texts = [...users.map((u) => u.mes), ai?.mes ?? ''];
+    const hit = ai ? cache.get(ai) : null;
+    if (hit && hit.texts.length === texts.length && hit.texts.every((x, k) => x === texts[k])) {
+        hit.texts = texts; // 內容一樣但換成新字串時，下次比對就是同一個字串，很快
+        return hit.hash;
+    }
+    const hash = hashText(texts.join('\u0000'));
+    if (ai) cache.set(ai, { texts, hash });
+    return hash;
 }
 
 export function floorSource(index) {
@@ -97,7 +114,7 @@ export function floorSource(index) {
         if (isAiMessage(m)) break;
         if (isUserMessage(m)) users.unshift(m);
     }
-    const hash = hashText([...users.map((u) => u.mes), ai?.mes ?? ''].join('\u0000'));
+    const hash = cachedHash(hashCache, ai, users);
     return { ai, users, hash };
 }
 

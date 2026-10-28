@@ -30,9 +30,15 @@ export function detectHostLocale() {
     return 'en';
 }
 
+// 同一段同步執行裡只判斷一次（翻譯每個字串都會問，長聊天重畫時會問上萬次）。
+let localeCache = null;
+
 export function currentLocale() {
+    if (localeCache) return localeCache;
     const lang = getSettings().language;
-    return LOCALES.includes(lang) ? lang : detectHostLocale();
+    localeCache = LOCALES.includes(lang) ? lang : detectHostLocale();
+    queueMicrotask(() => { localeCache = null; });
+    return localeCache;
 }
 
 const DICT = {

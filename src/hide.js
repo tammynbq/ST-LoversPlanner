@@ -84,9 +84,20 @@ export function computeHidden(limit = getChat().length) {
 /** 粗估 token 數（只用來顯示「大約省了多少」，不需要精準）。 */
 export function estimateTokens(text) {
     const s = String(text ?? '');
+    // 長的原文記住結果（v0.13.28：每次送出都要數上千則被隱藏的原文，長聊天會慢）。
+    // 用字串本身當 key：瀏覽器會把字串的 hash 記在字串上，同一段原文第二次查幾乎不花時間。
+    const long = s.length > 200;
+    if (long && tokenCache.has(s)) return tokenCache.get(s);
     const cjk = (s.match(/[㐀-鿿豈-﫿]/g) ?? []).length;
-    return Math.ceil(cjk / 1.2 + (s.length - cjk) / 4);
+    const n = Math.ceil(cjk / 1.2 + (s.length - cjk) / 4);
+    if (long) {
+        if (tokenCache.size >= TOKEN_CACHE_MAX) tokenCache.delete(tokenCache.keys().next().value);
+        tokenCache.set(s, n);
+    }
+    return n;
 }
+const TOKEN_CACHE_MAX = 6000;
+const tokenCache = new Map();
 
 
 /**

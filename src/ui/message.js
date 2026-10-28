@@ -11,6 +11,7 @@ import { calendarOn, calTracked } from '../calendar.js';
 import { addMemory, memoriesOn } from '../memories.js';
 
 const expanded = new Set(); // 展開中的樓層
+const lastHtml = new WeakMap(); // 每個摘要區塊上次畫的內容
 const editing = new Set(); // 正在手動編輯的樓層
 
 export const STATUS_ICONS = {
@@ -261,7 +262,12 @@ function renderMes(el) {
     block.dataset.index = String(index);
     // 編輯中不要整個重畫，免得打到一半的字不見。
     if (editing.has(index) && block.querySelector('.lp-sum-editor')) return;
-    block.innerHTML = blockHtml(index);
+    // 內容沒變就不重寫（長聊天每次有變動都會全部重畫一輪，重寫 DOM 很花時間）。
+    const html = blockHtml(index);
+    if (block.dataset.lpHtml !== undefined && lastHtml.get(block) === html) return;
+    lastHtml.set(block, html);
+    block.dataset.lpHtml = '';
+    block.innerHTML = html;
 }
 
 export function renderBlock(index) {

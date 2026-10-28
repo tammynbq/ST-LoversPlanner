@@ -3,8 +3,18 @@
 export const MODULE = 'lovers_planner';
 export const LOG_PREFIX = '[LoversPlanner]';
 
+// 酒館的 getContext() 每次都會重新組一個很大的物件，插件一次畫面更新要讀上千次（v0.13.28 使用者回報 3000 多層的聊天打開會卡）。
+// 同一段同步執行裡只要一次，執行完（下一個 microtask）就丟掉，下次再重新要，不會拿到換聊天前的舊資料。
+let ctxCache = null;
+
 export function ctx() {
-    return globalThis.SillyTavern?.getContext?.() ?? null;
+    if (ctxCache) return ctxCache;
+    const c = globalThis.SillyTavern?.getContext?.() ?? null;
+    if (c) {
+        ctxCache = c;
+        queueMicrotask(() => { ctxCache = null; });
+    }
+    return c;
 }
 
 export function isTauriTavern() {
