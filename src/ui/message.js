@@ -199,10 +199,22 @@ function editorHtml(entry) {
       </div>`;
 }
 
-/** 目前會被隱藏的樓層（標示用）。renderAllBlocks 時算一次重複用。 */
-let hiddenCache = null;
+/**
+ * 目前會被隱藏的樓層（只用來在摘要區塊上標「已隱藏」）。
+ * v0.13.29 修：酒館打開聊天時每畫一則訊息就通知一次，以前每次都把整個聊天重算一遍，
+ * 3000 多則的聊天（而且幾乎全部隱藏）會卡好幾分鐘。現在算一次記住，摘要、記事、訊息變了，或過了 2 秒才重算。
+ * 送出時的攔截器不用這個，它每次都精確地重算。
+ */
+const HIDDEN_TTL_MS = 2000;
+let hiddenCache = null; // { at, len, set }
 function hiddenNow() {
-    return hiddenCache ?? computeHidden().hidden;
+    const len = getChat().length;
+    if (hiddenCache && hiddenCache.len === len && Date.now() - hiddenCache.at < HIDDEN_TTL_MS) return hiddenCache.set;
+    hiddenCache = { at: Date.now(), len, set: isActive() ? computeHidden().hidden : new Set() };
+    return hiddenCache.set;
+}
+function invalidateHidden() {
+    hiddenCache = null;
 }
 
 function blockHtml(index) {
@@ -276,12 +288,8 @@ export function renderBlock(index) {
 }
 
 export function renderAllBlocks() {
-    hiddenCache = isActive() ? computeHidden().hidden : new Set();
-    try {
-        document.querySelectorAll('#chat .mes').forEach(renderMes);
-    } finally {
-        hiddenCache = null;
-    }
+    invalidateHidden();
+    document.querySelectorAll('#chat .mes').forEach(renderMes);
 }
 
 /** 從大視窗「跳到該樓」：捲過去並展開摘要（edit=true 時直接進入編輯）。回傳 false 表示那層還沒載入到畫面上。 */
@@ -360,8 +368,8 @@ export function initMessageBlocks() {
             renderAllBlocks();
         });
     };
-    onSummaryChange(renderSoon);
-    onNotesChange(renderSoon);
+    onSummaryChange(() => { invalidateHidden(); renderSoon(); });
+    onNotesChange(() => { invalidateHidden(); renderSoon(); });
 
     const c = ctx();
     if (!c?.eventSource || !c.eventTypes) return;
@@ -369,9 +377,9 @@ export function initMessageBlocks() {
     const one = (id) => renderBlock(Number(id));
     const all = () => setTimeout(renderAllBlocks, 0);
     c.eventSource.on(ev.CHARACTER_MESSAGE_RENDERED, one);
-    c.eventSource.on(ev.MESSAGE_UPDATED, one);
-    c.eventSource.on(ev.MESSAGE_SWIPED, one);
-    c.eventSource.on(ev.MESSAGE_EDITED, one);
+    c.eventSource.on(ev.MESSAGE_UPDATED, (id) => { invalidateHidden(); one(id); });
+    c.eventSource.on(ev.MESSAGE_SWIPED, (id) => { invalidateHidden(); one(id); });
+    c.eventSource.on(ev.MESSAGE_EDITED, (id) => { invalidateHidden(); one(id); });
     // 新訊息送出後，前一層的提示（「等你送出下一句」）要更新。
     c.eventSource.on(ev.USER_MESSAGE_RENDERED, all);
     c.eventSource.on(ev.MESSAGE_DELETED, () => {

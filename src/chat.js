@@ -28,7 +28,19 @@ export function isHiddenByUser(m) {
 export function isHiddenBySelf(m) {
     if (!isHiddenByUser(m)) return false;
     const mine = ctx()?.chatMetadata?.[MODULE]?.stHidden;
-    return !(Array.isArray(mine) && m.send_date && mine.includes(m.send_date));
+    if (!Array.isArray(mine) || !m.send_date) return true;
+    return !mineSet(mine).has(m.send_date);
+}
+
+// 戀人手帳自己標的清單（可能上千筆）：轉成 Set 查，不要每次逐筆比對（v0.13.29）。清單換了就重建。
+const mineSets = new WeakMap();
+function mineSet(list) {
+    let hit = mineSets.get(list);
+    if (!hit || hit.len !== list.length) {
+        hit = { len: list.length, set: new Set(list) };
+        mineSets.set(list, hit);
+    }
+    return hit.set;
 }
 
 export function isAiMessage(m) {
