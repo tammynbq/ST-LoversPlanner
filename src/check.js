@@ -17,7 +17,7 @@ import { cleanForSummary } from './filter.js';
 import { aiIndices, floorSource, getChat, getEntry } from './chat.js';
 import { completeNoteManual, deleteNoteManual, fieldLabel, getNotes, NOTE_FIELDS, noteTitle, updateNoteManual } from './notes.js';
 import { compressionDue, digestLabel, structure } from './compress.js';
-import { enqueue, enqueueCompress, floorState, unsummarizedIndices } from './summarize.js';
+import { enqueue, enqueueCompress, floorState, sideFloor, unsummarizedIndices } from './summarize.js';
 import { getCatchup, resumeCatchup } from './catchup.js';
 import { condenseRecap, getRecap } from './carry.js';
 import { aliasesOf } from './recall.js';
@@ -58,6 +58,8 @@ export function runChecks() {
         const state = floorState(i);
         const e = getEntry(i);
         if (state === 'fail') out.push(issue('fail', 'error', { floor: i, autoFix: true, text: e?.error ?? '' }));
+        // ⭐ 小劇場還沒讀或讀取失敗：回憶和約定沒記到（原文照樣不送）。
+        if (state === 'side' && (e?.pending || e?.error)) out.push(issue('sideUnread', 'warn', { floor: i, autoFix: true, text: e?.error ?? '' }));
         else if (state === 'stale') out.push(issue('stale', 'error', { floor: i, autoFix: true }));
         if (state !== 'ok' || !e || e.coarse) {
             if (state !== 'skip' && state !== 'side') prevSummary = null;
@@ -165,6 +167,8 @@ export function fixIssue(x) {
         case 'recapFail':
             condenseRecap();
             return true;
+        case 'sideUnread':
+            return sideFloor(x.floor);
         case 'dupNote':
             return mergeNotes(x.ids[0], x.ids[1]);
         case 'zeroItem':

@@ -53,7 +53,10 @@ export function hintFor(index, state) {
             return t('sum.hint.manual');
         }
         case 'skip': return t('sum.hint.skip');
-        case 'side': return entry?.error ? t('sum.hint.sideFail', { error: entry.error }) : t('sum.hint.side');
+        case 'side':
+            if (entry?.error) return t('sum.hint.sideFail', { error: entry.error });
+            // 標了小劇場但還沒讀（排隊時換了聊天、重新整理）：回憶和約定還沒記。
+            return entry?.pending ? t('sum.hint.sidePending') : t('sum.hint.side');
         case 'fail': return t('sum.hint.fail', { error: entry?.error ?? '' });
         case 'stale': return t('sum.hint.stale');
         case 'ok': return entry?.coarse ? t('sum.hint.coarse') : '';

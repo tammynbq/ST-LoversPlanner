@@ -970,13 +970,13 @@ function calendarDay(cal) {
 // ===== 🩺 檢查 =====
 
 const CHECK_GROUPS = {
-    gen: ['none', 'fail', 'stale', 'repaired', 'chapter-stale', 'chapter-fail', 'volume-stale', 'volume-fail', 'compressDue', 'catchupPaused', 'recapFail'],
+    gen: ['none', 'fail', 'sideUnread', 'stale', 'repaired', 'chapter-stale', 'chapter-fail', 'volume-stale', 'volume-fail', 'compressDue', 'catchupPaused', 'recapFail'],
     odd: ['empty', 'long', 'dup', 'noTime', 'noLocation'],
     notes: ['dupNote', 'zeroItem', 'longField'],
     audit: ['audit', 'auditError'],
 };
 const FIX_LABEL = {
-    none: 'check.fix.catchup', fail: 'check.fix.redo', stale: 'check.fix.redo', repaired: 'check.fix.redo', empty: 'check.fix.redo',
+    none: 'check.fix.catchup', fail: 'check.fix.redo', sideUnread: 'act.sideredo', stale: 'check.fix.redo', repaired: 'check.fix.redo', empty: 'check.fix.redo',
     long: 'check.fix.redo', dup: 'check.fix.redo', audit: 'check.fix.redo', auditError: null,
     'chapter-stale': 'check.fix.redo', 'chapter-fail': 'check.fix.redo', 'volume-stale': 'check.fix.redo', 'volume-fail': 'check.fix.redo',
     compressDue: 'check.fix.compress', catchupPaused: 'check.fix.resume', recapFail: 'check.fix.condense',
