@@ -26,6 +26,7 @@ import { aiIndices, chatKey, getChat, getEntry, isUserMessage } from './chat.js'
 import { getNotes, invalidateNotes, NOTE_TYPES, noteTitle, onNotesChange, setNotesBase, setNotesSync } from './notes.js';
 import { sceneLine } from './lines.js';
 import { listMemories, memoryOrigin, onMemoriesChange, setMemoriesBase } from './memories.js';
+import { addCarriedEvents, calendarOn, carryItems, onCalendarChange, removeCarriedFrom } from './calendar.js';
 import { digestLabel, structure } from './compress.js';
 import { isActive, onSummaryChange } from './summarize.js';
 import {
@@ -230,10 +231,12 @@ export function writeSnapshot() {
     const notes = [...getNotes().notes.values()].filter((n) => n.state !== 'done').map((n) => plainNote(n, 0));
     // 回憶：自己的和複製帶來的（即時共用讀來的不放，免得兩個聊天互相讀成一圈）。
     const memories = listMemories().filter((m) => !m.linked).map((m) => plainMemory(m, id));
-    if (!lines.length && !notes.length && !memories.length) return;
+    // 行事曆（生理期、親熱、紀念日，v0.13.33）：以前沒帶，新聊天的「上次生理期」和紀念日都是空的。
+    const calendar = calendarOn() ? carryItems(id) : [];
+    if (!lines.length && !notes.length && !memories.length && !calendar.length) return;
     const all = snapshots(true);
     const prev = all[id];
-    const next = { at: Date.now(), floors: aiIndices().length, lines, notes, ...(memories.length ? { memories } : {}) };
+    const next = { at: Date.now(), floors: aiIndices().length, lines, notes, ...(memories.length ? { memories } : {}), ...(calendar.length ? { calendar } : {}) };
     if (prev && JSON.stringify({ ...prev, at: 0 }) === JSON.stringify({ ...next, at: 0 })) return;
     all[id] = next;
     const ids = Object.keys(all);
@@ -368,7 +371,7 @@ function carryFrom(snap, kinds, { condense }) {
         recap: rec.recap ?? null, base: rec.base ?? null, summaryLink: rec.summaryLink ?? null, memoriesLink: rec.memoriesLink ?? null,
         scope: rec.scope ? { ...rec.scope } : null,
     };
-    const out = { summary: false, notes: 0, memories: 0, condense: false };
+    const out = { summary: false, notes: 0, memories: 0, calendar: 0, condense: false };
 
     if (kinds.summary === 'copy' && snap.lines?.length) {
         const raw = snap.lines.join('\n');
@@ -415,6 +418,8 @@ function carryFrom(snap, kinds, { condense }) {
         out.memories = snap.memories.length;
     }
     rec.base = { notes: base, ...(Object.keys(memories).length ? { memories } : {}) };
+    // 行事曆跟著摘要走：摘要有帶（複製或共用）就把生理期、親熱、紀念日複製過來。
+    if (kinds.summary && kinds.summary !== 'none' && snap.calendar?.length) out.calendar = addCarriedEvents(snap.calendar, snap.id);
     if (store) saveSettings();
     rec.carry = { source: snap.id, at: Date.now(), undo, kinds };
     saveMeta();
@@ -437,6 +442,7 @@ export function undoCarry() {
     for (const kind of SCOPE_KINDS) {
         if (kinds?.[kind] === 'share' && kind !== 'summary') rec.scope = { ...getChatScope(), ...(rec.scope ?? {}), [kind]: 'own' };
     }
+    removeCarriedFrom(carry.source);
     delete rec.carry;
     saveMeta();
     emit();
@@ -454,7 +460,7 @@ function isNewChat() {
 }
 
 function announce(snap, result) {
-    toastActions(t('carry.done', { chat: snap.id, notes: result.notes, memories: result.memories }), [{
+    toastActions(t('carry.done', { chat: snap.id, notes: result.notes, memories: result.memories, calendar: result.calendar ?? 0 }), [{
         label: t('carry.undo'),
         run: () => {
             undoCarry();
@@ -488,7 +494,7 @@ export async function onChatOpened() {
     const kinds = getCharacterScope();
     if (Object.values(kinds).every((v) => v === 'none')) return;
     const result = carryFrom(snap, kinds, { condense: getSettings().carry.recapMode === 'condense' });
-    if (!result.summary && !result.notes && !result.memories) {
+    if (!result.summary && !result.notes && !result.memories && !result.calendar) {
         delete rec.carry;
         saveMeta();
         return;
@@ -590,6 +596,7 @@ export function initCarry() {
     });
     onSummaryChange(scheduleSnapshot);
     onMemoriesChange(scheduleSnapshot);
+    onCalendarChange(scheduleSnapshot);
     const c = ctx();
     if (!c?.eventSource || !c.eventTypes) return;
     c.eventSource.on(c.eventTypes.CHAT_CHANGED, () => {

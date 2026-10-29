@@ -12,6 +12,7 @@ import { cleanForSummary, extractRef, scanTags, setTagMode, tagMode } from '../f
 import { getLoadedVersion } from '../update.js';
 import { VERSION } from '../version.js';
 import { allChanges, markSeen, seenVersion, unseenChanges } from '../changelog.js';
+import { analyzeChats, listOldChats, loadOldChat } from '../oldchats.js';
 import { anniversariesToday, burst, dismissOnThisDay, onThisDay, randomMemory, remindOnThisDay, takePetals } from '../eggs.js';
 import { addMemory, editMemory, listMemories, memoriesOn, nextPinned, onMemoriesChange, removeMemory, surfaceNext } from '../memories.js';
 import {
@@ -43,7 +44,7 @@ import { clearUsage, localDay, onUsageChange, recentUsage, usageSummary } from '
 import { acceptAllDigests, acceptDigest, checkManualChapter, compressSelected, compressionDue, deleteChapter, digestLabel, editChapter, editVolume, structure } from '../compress.js';
 import { actionsFor, byLine, eventLabel, hintFor, revealFloor, runAction, sceneHtml, STATUS_ICONS, versionsHtml } from './message.js';
 import {
-    addManualEvent, buildCalendar, ACTIVE_CAL_TYPES, calendarOn, calTracked, dayInfo, daysBetween, monthGrid, monthTitle, onCalendarChange,
+    addCarriedEvents, addManualEvent, buildCalendar, ACTIVE_CAL_TYPES, calendarOn, calTracked, dayInfo, daysBetween, monthGrid, monthTitle, onCalendarChange,
     periodStatus, removeEvent, restoreRemoved, shiftMonth, upcoming, weekdayName,
 } from '../calendar.js';
 import {
@@ -166,6 +167,8 @@ const view = {
     cal: { month: null, selected: null, addType: null },
     // 紀念日清單（v0.13.32）：正在改哪一條（同一個日子＋名稱的一組）。
     anniv: { editing: null },
+    // 📦 舊聊天整理（v0.13.33）：聊天清單、勾了哪些、讀取中、分析結果、訊息。
+    old: { open: false, loading: false, list: null, picked: new Set(), reading: '', result: null, ids: [], msg: '' },
     // 補建舊樓層的設定卡片。
     catchup: { open: false, from: null, to: null, fine: 30, block: null },
     // 補建前找到的番外：清單（算一次就好）和每層的選擇（預設跳過）。rescan：資料管理的「重新檢查所有樓層」。
@@ -798,6 +801,7 @@ function renderSummaryTab() {
       <div class="lp-summary">
         ${preview}
         ${recapCard()}
+        ${oldChatsCard()}
         ${searchBox('summary')}
         <div class="lp-row lp-sum-toolbar">
           <div class="lp-chips">${chips}</div>
@@ -957,7 +961,7 @@ function annivList(cal) {
     const editing = view.anniv.editing ? groups.find((g) => g.key === view.anniv.editing) : null;
     if (view.anniv.editing && !editing) view.anniv.editing = null;
     const rows = groups.map((g) => {
-        const from = g.items.some((x) => x.source === 'floor') ? t('anniv.fromStory') : t('anniv.manual');
+        const from = g.items.some((x) => x.source === 'floor') ? t('anniv.fromStory') : g.items.some((x) => x.source === 'carried') ? t('anniv.carried') : t('anniv.manual');
         const left = g.left === 0 ? t('anniv.today') : t('anniv.left', { n: g.left });
         return `<li class="lp-anniv-item${g.key === view.anniv.editing ? ' lp-on' : ''}" data-anniv="${esc(g.key)}">
           <span>🎂 <b>${esc(g.title || t('cal.type.anniversary'))}</b>・${Number(g.date.slice(0, 2))}/${Number(g.date.slice(3))}・${esc(left)}</span>
@@ -1149,6 +1153,102 @@ function renderCheck() {
         ${groups}
         ${audit}
       </div>`;
+}
+
+// ===== 摘要分頁：📦 舊聊天整理（v0.13.33，日記第一階段） =====
+
+function oldChatsCard() {
+    const o = view.old;
+    if (!o.open) {
+        return `<div class="lp-row" data-role="old-entry"><button type="button" class="menu_button lp-btn" data-action="old-open">${esc(t('old.open'))}</button><span class="lp-note">${esc(t('old.openHint'))}</span></div>`;
+    }
+    const head = `<div class="lp-scope-title">${esc(t('old.title'))}</div><div class="lp-note">${esc(t('old.desc'))}</div>`;
+    const close = `<button type="button" class="menu_button lp-btn" data-action="old-close">${esc(t('extras.close'))}</button>`;
+    const msg = o.msg ? `<div class="lp-note" role="status" data-role="old-msg">${esc(o.msg)}</div>` : '';
+    if (o.loading) return `<div class="lp-card lp-old" data-role="oldchats">${head}<div class="lp-note">${esc(t('old.loading'))}</div></div>`;
+    const list = o.list ?? [];
+    if (!list.length) return `<div class="lp-card lp-old" data-role="oldchats">${head}<div class="lp-note">${esc(t('old.none'))}</div>${msg}<div class="lp-row">${close}</div></div>`;
+    const rows = list.map((x) => {
+        const on = o.picked.has(x.id);
+        const when = x.last ? new Date(Number(x.last) || x.last) : null;
+        const meta = [t('old.items', { n: x.items.toLocaleString() }), x.size, when && !Number.isNaN(when.getTime()) ? when.toLocaleDateString() : ''].filter(Boolean).join('・');
+        return `<li><button type="button" class="lp-row-head lp-pickable${on ? ' lp-picked' : ''}" data-action="old-pick" data-id="${esc(x.id)}" aria-pressed="${on}">
+          <span class="lp-pick-box" aria-hidden="true">${on ? '✓' : ''}</span>
+          <span class="lp-note-title">${esc(x.id)}</span>
+          <span class="lp-row-preview">${esc(meta)}</span></button></li>`;
+    }).join('');
+    const reading = o.reading ? `<div class="lp-note" role="status" data-role="old-reading">${esc(o.reading)}</div>` : '';
+    return `
+      <div class="lp-card lp-old" data-role="oldchats">
+        ${head}
+        <ul class="lp-pick-list">${rows}</ul>
+        <div class="lp-row">
+          <button type="button" class="menu_button lp-btn lp-primary" data-action="old-read"${o.picked.size && !o.reading ? '' : ' disabled'}>${esc(t('old.read', { n: o.picked.size }))}</button>
+          ${close}
+        </div>
+        ${reading}${msg}
+        ${o.result ? oldResultHtml(o.result) : ''}
+      </div>`;
+}
+
+function oldResultHtml(r) {
+    const tt = r.totals;
+    const dated = r.days.filter((d) => d.date);
+    const range = dated.length ? `${dated[0].date} ～ ${dated[dated.length - 1].date}` : '';
+    const lines = [t('old.summary', { chats: r.chats.length, ai: tt.ai.toLocaleString(), days: tt.days, range })];
+    lines.push(t('old.summarized', { ok: tt.summarized.toLocaleString(), todo: tt.unsummarized.toLocaleString() }));
+    const extra = [];
+    if (tt.horae) extra.push(t('old.horae', { n: tt.horae }));
+    if (tt.undated) extra.push(t('old.undated', { n: tt.undated }));
+    if (tt.duplicates) extra.push(t('old.dup', { n: tt.duplicates }));
+    if (tt.skipped || tt.side) extra.push(t('old.skipped', { skip: tt.skipped, side: tt.side }));
+    const big = r.days.filter((d) => d.parts > 1).length;
+    const dayRows = r.days.map((d) => {
+        const label = d.date ? `${d.date}（${weekdayName(d.date, 'short')}）` : t('old.noDate');
+        const parts = [t('old.dayFloors', { n: d.ai }), d.ai ? t('old.dayDone', { ok: d.summarized, todo: d.ai - d.summarized }) : '', d.side ? t('old.daySide', { n: d.side }) : '',
+            t('old.dayRaw', { n: d.rawChars.toLocaleString() }), d.diary ? t('old.dayDiary', { n: d.diary.toLocaleString() }) : '', d.parts > 1 ? t('old.dayParts', { n: d.parts }) : ''].filter(Boolean);
+        return `<li class="lp-old-day${d.parts > 1 ? ' lp-old-big' : ''}${r.overlaps.includes(d.date) ? ' lp-old-overlap' : ''}" data-date="${esc(d.date)}"><b>${esc(label)}</b> <span class="lp-note">${esc(parts.join('・'))}</span></li>`;
+    }).join('');
+    const c = r.calendar;
+    const cal = c.items.length
+        ? `<div class="lp-row lp-old-cal"><span>${esc(t('old.cal', { period: c.period, intimacy: c.intimacy, anniversary: c.anniversary }))}</span>
+            <button type="button" class="menu_button lp-btn lp-primary" data-action="old-cal">${esc(t('old.calImport'))}</button></div>`
+        : `<div class="lp-note">${esc(t('old.calNone'))}</div>`;
+    return `
+      <div class="lp-old-result" data-role="old-result">
+        ${lines.map((x) => `<div>${esc(x)}</div>`).join('')}
+        ${extra.length ? `<div class="lp-note">${esc(extra.join('・'))}</div>` : ''}
+        <div class="lp-note">${esc(t('old.diaryTotal', { n: tt.diary.toLocaleString(), raw: tt.raw.toLocaleString() }) + (big ? t('old.big', { n: big }) : ''))}</div>
+        ${r.overlaps.length ? `<div class="lp-note lp-warn">${esc(t('old.overlaps', { n: r.overlaps.length }))}</div>` : ''}
+        ${cal}
+        <details class="lp-old-days" open><summary>${esc(t('old.days', { n: r.days.length }))}</summary><ul>${dayRows}</ul></details>
+        <div class="lp-note">${esc(t('old.next'))}</div>
+      </div>`;
+}
+
+async function readOldChats() {
+    const o = view.old;
+    // 照聊天清單的順序反過來讀（舊的先），分支聊天重複的訊息算在比較早的那個。
+    const ids = (o.list ?? []).map((x) => x.id).filter((id) => o.picked.has(id)).reverse();
+    const loaded = [];
+    o.msg = '';
+    o.result = null;
+    try {
+        for (const [k, id] of ids.entries()) {
+            o.reading = t('old.reading', { k: k + 1, n: ids.length, id });
+            if (isPanelOpen()) render();
+            loaded.push({ id, data: await loadOldChat(id) });
+        }
+        o.reading = t('old.analyzing');
+        if (isPanelOpen()) render();
+        await new Promise((r) => setTimeout(r, 0));
+        o.result = analyzeChats(loaded);
+        o.ids = ids;
+    } catch (e) {
+        o.msg = t('old.fail', { error: errorText(e) });
+    }
+    o.reading = '';
+    if (isPanelOpen()) render();
 }
 
 // ===== 摘要分頁：補建舊樓層 =====
@@ -2815,6 +2915,37 @@ function onClick(e) {
             view.notes.world = { ...view.notes.world, open: false };
             render();
             return;
+        case 'old-open':
+            view.old.open = true;
+            if (!view.old.list) {
+                view.old.loading = true;
+                listOldChats().then((list) => { view.old.list = list; }).catch((err) => { view.old.list = []; view.old.msg = t('old.fail', { error: errorText(err) }); })
+                    .finally(() => { view.old.loading = false; if (isPanelOpen()) render(); });
+            }
+            render();
+            return;
+        case 'old-close':
+            view.old.open = false;
+            render();
+            return;
+        case 'old-pick': {
+            const set = view.old.picked;
+            if (set.has(btn.dataset.id)) set.delete(btn.dataset.id);
+            else set.add(btn.dataset.id);
+            render();
+            return;
+        }
+        case 'old-read':
+            if (view.old.picked.size && !view.old.reading) readOldChats();
+            return;
+        case 'old-cal': {
+            const r = view.old.result;
+            if (!r) return;
+            const n = addCarriedEvents(r.calendar.items, view.old.ids.join('、'));
+            view.old.msg = n ? t('old.calDone', { n }) : t('old.calSame');
+            render();
+            return;
+        }
         case 'world-pick': {
             const set = view.notes.world.picked;
             if (set.has(btn.dataset.id)) set.delete(btn.dataset.id);

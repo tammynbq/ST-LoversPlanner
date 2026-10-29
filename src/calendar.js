@@ -166,9 +166,60 @@ export function addManualEvent(ev) {
 export function removeEvent(item) {
     const rec = record(true);
     if (item.source === 'manual') rec.manual = (rec.manual ?? []).filter((x) => x.id !== item.id);
+    else if (item.source === 'carried') rec.carried = (rec.carried ?? []).filter((x) => x.origin !== item.origin);
     else rec.removed = [...new Set([...(rec.removed ?? []), item.key])];
     saveMeta();
     return true;
+}
+
+// ===== 帶到其他聊天（v0.13.33） =====
+
+/**
+ * 這個聊天的行事曆事件（生理期、親熱、紀念日），帶到別的聊天用。
+ * origin 是最早記下它的「聊天#key」，一路帶下去也認得出同一筆。
+ */
+export function carryItems(chatId) {
+    return buildCalendar().items.filter((x) => ['period', 'intimacy', 'anniversary'].includes(x.type)).map((x) => ({
+        type: x.type,
+        date: x.date,
+        ...(x.title ? { title: x.title } : {}),
+        ...(x.state ? { state: x.state } : {}),
+        ...(x.count ? { count: x.count } : {}),
+        origin: x.origin ?? `${chatId}#${x.key ?? x.id}`,
+    }));
+}
+
+/** 把別的聊天的事件加進這個聊天（同一筆不重複；同一天同名的紀念日也不重複）。回傳加了幾筆。 */
+export function addCarriedEvents(list, from = '') {
+    const rec = record(true);
+    const have = new Set((rec.carried ?? []).map((x) => x.origin));
+    const cal = buildCalendar();
+    const annivs = new Set(cal.items.filter((x) => x.type === 'anniversary').map((x) => `${x.date}|${String(x.title ?? '').trim()}`));
+    const add = [];
+    for (const ev of list ?? []) {
+        if (!ev?.origin || have.has(ev.origin) || !['period', 'intimacy', 'anniversary'].includes(ev.type)) continue;
+        if (ev.type === 'anniversary') {
+            const k = `${ev.date}|${String(ev.title ?? '').trim()}`;
+            if (annivs.has(k)) continue;
+            annivs.add(k);
+        }
+        have.add(ev.origin);
+        add.push({ ...ev, ...(from && !ev.from ? { from } : {}) });
+    }
+    if (!add.length) return 0;
+    rec.carried = [...(rec.carried ?? []), ...add];
+    saveMeta();
+    return add.length;
+}
+
+/** 拿掉從某個聊天帶來的事件（復原帶入用）。 */
+export function removeCarriedFrom(from) {
+    const rec = record(false);
+    if (!rec?.carried?.length) return 0;
+    const before = rec.carried.length;
+    rec.carried = rec.carried.filter((x) => x.from !== from);
+    if (rec.carried.length !== before) saveMeta();
+    return before - rec.carried.length;
 }
 
 /** 隱藏過的樓層事件全部恢復。 */
@@ -218,6 +269,8 @@ export function buildCalendar() {
         });
     }
     for (const ev of rec?.manual ?? []) if (ev.type !== 'plan' && calTracked(ev.type)) items.push({ ...ev, source: 'manual' });
+    // 從其他聊天帶來的（v0.13.33）：舊聊天整理、帶到新聊天。
+    for (const ev of rec?.carried ?? []) if (ev.type !== 'plan' && calTracked(ev.type)) items.push({ ...ev, source: 'carried' });
     if (!today) today = normDate(s.start) || null;
 
     // 生理期（v0.13.1 使用者要求：不是每個人都有固定週期，不設週期、不預測）：

@@ -1658,3 +1658,14 @@ html.lp-techo-cloud.lp-theme-techo-blocks .lp-sum {
 .lp-anniv-item.lp-on { background: color-mix(in srgb, var(--lp-accent) 10%, transparent); }
 .lp-anniv-form { flex-wrap: wrap; gap: 6px; align-items: center; }
 .lp-anniv-form .lp-num { width: 4.2em; }
+
+/* ===== 舊聊天整理（v0.13.33） ===== */
+.lp-old.lp-card { margin: 8px 0 12px; display: flex; flex-direction: column; gap: 8px; }
+.lp-old .lp-pick-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; max-height: 40vh; overflow: auto; }
+.lp-old-result { display: flex; flex-direction: column; gap: 6px; border-top: 1px dashed var(--lp-border); padding-top: 8px; }
+.lp-old-cal { flex-wrap: wrap; gap: 8px; align-items: center; }
+.lp-old-days ul { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; max-height: 50vh; overflow: auto; }
+.lp-old-day { padding: 4px 6px; border-radius: 6px; overflow-wrap: anywhere; }
+.lp-old-big { background: color-mix(in srgb, var(--lp-warn) 10%, transparent); }
+.lp-old-overlap { outline: 1px dashed var(--lp-warn); }
+.lp-old .lp-row-head { gap: 8px; width: 100%; }

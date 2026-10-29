@@ -9,6 +9,19 @@ import { VERSION } from './version.js';
 
 export const CHANGES = [
     {
+        v: '0.13.33',
+        new: {
+            'zh-TW': ['📦 舊聊天整理（日記的第一步）：摘要分頁可以直接讀同角色的舊聊天（不會打開、不會卡），照故事日期分天、看每天多大，還能把生理期、親熱、紀念日帶進現在的聊天。'],
+            'zh-CN': ['📦 旧聊天整理（日记的第一步）：摘要分页可以直接读同角色的旧聊天（不会打开、不会卡），照故事日期分天、看每天多大，还能把生理期、亲热、纪念日带进现在的聊天。'],
+            en: ['📦 Old chats (first step toward diaries): the Summary tab can read this character\'s old chats without opening them, group them by story date with sizes, and bring periods, intimacy and anniversaries into this chat.'],
+        },
+        fix: {
+            'zh-TW': ['開同角色的新聊天時，生理期、親熱、紀念日以前不會跟著帶過去，現在會了（跟著摘要一起帶）。'],
+            'zh-CN': ['开同角色的新聊天时，生理期、亲热、纪念日以前不会跟着带过去，现在会了（跟着摘要一起带）。'],
+            en: ['Periods, intimacy and anniversaries now carry over to new chats with the same character (together with the summary).'],
+        },
+    },
+    {
         v: '0.13.32',
         new: {
             'zh-TW': ['🎂 「行事曆／約定」分頁多了紀念日清單：看得到全部紀念日、生日和還有幾天，可以直接新增、改、刪（不用先點月曆）。'],
