@@ -730,6 +730,18 @@
 .lp-ver-text { overflow-wrap: anywhere; }
 .lp-sum-by { font-size: 0.85em; }
 
+/* ===== 這一回送了什麼（v0.13.30） ===== */
+.lp-sent { margin-top: 8px; padding: 4px 10px; border: 1px dashed var(--lp-border); border-radius: 8px; font-size: 0.92em; }
+.lp-sent > summary { cursor: pointer; color: var(--lp-muted); }
+.lp-sent[open] > summary { margin-bottom: 4px; }
+.lp-sent-sum { margin-left: 4px; opacity: 0.85; }
+.lp-sent-sec { margin-top: 8px; font-weight: 600; }
+.lp-sent ul { margin: 2px 0 0; padding-left: 1.2em; line-height: 1.6; }
+.lp-sent li { overflow-wrap: anywhere; }
+.lp-why { display: inline-block; margin-left: 2px; padding: 0 6px; border-radius: 999px; font-size: 0.8em; background: color-mix(in srgb, currentColor 12%, transparent); }
+.lp-why-vec { background: color-mix(in srgb, #5b8def 25%, transparent); }
+.lp-sent-foot { margin: 8px 0 4px; font-size: 0.85em; color: var(--lp-muted); }
+
 /* ===== 花費紀錄 ===== */
 .lp-usage-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; }
 .lp-usage-card { border: 1px solid var(--lp-border); border-radius: 8px; padding: 8px 10px; background: var(--lp-card); }
@@ -1611,3 +1623,17 @@ html.lp-techo-cloud.lp-theme-techo-blocks .lp-sum {
     box-shadow: var(--lp-shadow);
 }
 .lp-theme-techo-blocks .lp-sum .lp-sum-head { color: var(--lp-text); }
+
+/* ===== 更新通知（v0.13.30） ===== */
+.lp-whatsnew.lp-card { margin-bottom: 12px; border: 1px solid color-mix(in srgb, var(--lp-accent, #c46a6a) 45%, transparent); background: color-mix(in srgb, var(--lp-accent, #c46a6a) 9%, var(--lp-card)); }
+.lp-whatsnew-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.lp-whatsnew-title { font-weight: 700; font-size: 1.05em; }
+.lp-whatsnew-ver { font-size: 0.85em; color: var(--lp-muted); }
+.lp-whatsnew-v { margin-top: 10px; font-weight: 700; }
+.lp-whatsnew-sec { margin-top: 6px; font-weight: 600; }
+.lp-whatsnew ul { margin: 2px 0 0; padding-left: 1.2em; line-height: 1.6; }
+.lp-whatsnew li { margin: 2px 0; overflow-wrap: anywhere; }
+.lp-whatsnew-all { margin-top: 6px; padding-top: 4px; border-top: 1px dashed var(--lp-border); }
+.lp-whatsnew-actions { margin-top: 10px; gap: 8px; flex-wrap: wrap; }
+.lp-changelog > summary { cursor: pointer; color: var(--lp-muted); margin-top: 6px; }
+.lp-new-dot { display: inline-block; margin-left: 6px; padding: 0 6px; border-radius: 999px; background: #e0625e; color: #fff; font-size: 11px; line-height: 16px; font-weight: 700; vertical-align: middle; }

@@ -11,6 +11,7 @@ import { warmVectors } from '../recall.js';
 import { cleanForSummary, extractRef, scanTags, setTagMode, tagMode } from '../filter.js';
 import { getLoadedVersion } from '../update.js';
 import { VERSION } from '../version.js';
+import { allChanges, markSeen, seenVersion, unseenChanges } from '../changelog.js';
 import { addMemory, editMemory, listMemories, memoriesOn, nextPinned, onMemoriesChange, removeMemory, surfaceNext } from '../memories.js';
 import {
     auditFloors, auditIssues, auditProgress, auditResults, fixAll, fixIssue, issueCount, pickAuditFloors, runChecks,
@@ -110,6 +111,7 @@ const RANGE_PAIRS = [
 
 const view = {
     tab: 'summary',
+    whatsNewAll: false, // 更新通知裡展開了全部更新紀錄
     openSections: new Set(['general']),
     notes: {
         cardMsg: '', // 「從人設填寫」的結果訊息
@@ -328,7 +330,7 @@ function render() {
     const searchFocus = active?.dataset?.search ? { scope: active.dataset.search, pos: active.selectionStart } : null;
     panel.setAttribute('aria-label', t('app.name'));
     panel.setAttribute('lang', currentLocale());
-    panel.innerHTML = renderHeader() + renderTabs() + `<div class="lp-body">${renderBanner()}${renderTab()}</div>`;
+    panel.innerHTML = renderHeader() + renderTabs() + `<div class="lp-body">${renderWhatsNew()}${renderBanner()}${renderTab()}</div>`;
     const newBody = panel.querySelector('.lp-body');
     if (newBody) newBody.scrollTop = scrollTop;
     const digestBox = panel.querySelector('[data-digest-text]');
@@ -404,6 +406,29 @@ function renderTabs() {
         return `<button type="button" role="tab" class="lp-tab${on ? ' lp-on' : ''}" aria-selected="${on}" data-action="tab" data-tab="${tab}">${esc(t(`tab.${tab}`))}</button>`;
     }).join('');
     return `<div class="lp-tabs" role="tablist">${items}</div>`;
+}
+
+/** 一個版本的更新內容（新功能／修正）。 */
+function changeHtml(c, { head = true } = {}) {
+    const list = (title, items) => (items.length ? `<div class="lp-whatsnew-sec">${esc(title)}</div><ul>${items.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : '');
+    return `${head ? `<div class="lp-whatsnew-v">v${esc(c.v)}</div>` : ''}${list(t('whatsnew.new'), c.news)}${list(t('whatsnew.fix'), c.fixes)}`;
+}
+
+/** 更新通知（v0.13.30）：有沒看過的更新時，大視窗最上面的卡片。 */
+function renderWhatsNew() {
+    const news = unseenChanges();
+    if (!news.length) return '';
+    const from = seenVersion();
+    const body = news.length === 1 ? changeHtml(news[0], { head: false }) : news.map((c) => changeHtml(c)).join('');
+    const all = view.whatsNewAll ? `<div class="lp-whatsnew-all">${allChanges().filter((c) => !news.some((n) => n.v === c.v)).map((c) => changeHtml(c)).join('')}</div>` : '';
+    return `<div class="lp-card lp-whatsnew" role="status" data-role="whatsnew">
+      <div class="lp-whatsnew-head"><span class="lp-whatsnew-title">${esc(t('whatsnew.title'))}</span><span class="lp-whatsnew-ver">${esc(from ? `v${from} → v${VERSION}` : `v${VERSION}`)}</span></div>
+      ${body}${all}
+      <div class="lp-row lp-whatsnew-actions">
+        <button type="button" class="menu_button lp-btn lp-primary" data-action="whatsnew-ok">${esc(t('whatsnew.ok'))}</button>
+        <button type="button" class="menu_button lp-btn" data-action="whatsnew-all">${esc(t(view.whatsNewAll ? 'whatsnew.less' : 'whatsnew.all'))}</button>
+      </div>
+    </div>`;
 }
 
 function renderBanner() {
@@ -2194,7 +2219,8 @@ function renderSettings() {
         ${select('ui.theme', 'lp-theme', THEMES.map((x) => [x, t(`set.theme.${x}`)]), true)}
       </div>
       ${s.ui?.theme && s.ui.theme !== 'tavern' ? checkbox('ui.themeBlocks', t('set.theme.blocks'), true) : ''}
-      <div class="lp-note" data-role="version">${esc(t('set.version', { version: getLoadedVersion() ?? '?' }))}</div>`;
+      <div class="lp-note" data-role="version">${esc(t('set.version', { version: getLoadedVersion() ?? '?' }))}</div>
+      <details class="lp-changelog" data-role="changelog"><summary>${esc(t('whatsnew.history'))}</summary><div class="lp-whatsnew">${allChanges().map((c) => changeHtml(c)).join('')}</div></details>`;
 
     const model = `
       ${radio('lp-source', 'source', 'main', t('set.source.main'))}
@@ -2899,6 +2925,15 @@ function onClick(e) {
             auditFloors(floors, () => { if (isPanelOpen() && view.check.open) render(); });
             return;
         }
+        case 'whatsnew-ok':
+            view.whatsNewAll = false;
+            markSeen();
+            render();
+            return;
+        case 'whatsnew-all':
+            view.whatsNewAll = !view.whatsNewAll;
+            render();
+            return;
         case 'global-toggle':
             view.check.open = false;
             view.global.open = !view.global.open;

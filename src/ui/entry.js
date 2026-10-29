@@ -4,6 +4,7 @@ import { escapeHtml as esc } from '../util.js';
 import { t } from '../i18n.js';
 import { openPanel } from './panel.js';
 import { VERSION } from '../version.js';
+import { hasNews, onSeenChange } from '../changelog.js';
 
 const WAND_ID = 'lp_wand_entry';
 const DRAWER_ID = 'lp_settings_drawer';
@@ -66,4 +67,24 @@ export function relabelEntries() {
         drawer.querySelector('.lp-drawer-hint').textContent = t('drawer.hint');
         drawer.querySelector('.lp-drawer-open').textContent = t('drawer.open');
     }
+    refreshNewBadges();
 }
+
+/** 有沒看過的更新時，入口旁邊標 NEW（v0.13.30）。 */
+export function refreshNewBadges() {
+    const on = hasNews();
+    for (const host of [document.querySelector(`#${WAND_ID} .lp-wand-label`), document.querySelector(`#${DRAWER_ID} .lp-drawer-title`)]) {
+        if (!host) continue;
+        let dot = host.parentElement.querySelector('.lp-new-dot');
+        if (on && !dot) {
+            dot = document.createElement('span');
+            dot.className = 'lp-new-dot';
+            host.after(dot);
+        }
+        if (dot) {
+            if (on) dot.textContent = t('whatsnew.badge');
+            else dot.remove();
+        }
+    }
+}
+onSeenChange(refreshNewBadges);

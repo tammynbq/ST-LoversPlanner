@@ -129,7 +129,7 @@ export async function selectRelevant({ keepFrom, limit = getChat().length, previ
     const r = s.recall ?? {};
     const notes = [...getNotes().notes.values()].filter((n) => n.state !== 'done' && isTracked(n.type));
     const text = scanText(keepFrom, limit).toLowerCase();
-    const out = { filtered: Boolean(r.notes), notes: new Map(), total: notes.length, memories: [], vector: 'off', error: '' };
+    const out = { filtered: Boolean(r.notes), notes: new Map(), total: notes.length, memories: [], vector: 'off', error: '', fetched: 0 };
 
     // ===== 記事：一定送的、名字有出現的、最近的 =====
     const rest = [];
@@ -182,8 +182,9 @@ export async function selectRelevant({ keepFrom, limit = getChat().length, previ
             try {
                 const query = text.slice(-QUERY_CHARS);
                 const inputs = [query, ...rest.map(noteLine), ...candidates.map((c) => c.line)];
-                const { vectors } = await withTimeout(getVectors(cfg, inputs), VECTOR_TIMEOUT_MS);
+                const { vectors, fetched } = await withTimeout(getVectors(cfg, inputs), VECTOR_TIMEOUT_MS);
                 sims = vectors.slice(1).map((v) => cosine(vectors[0], v));
+                out.fetched = fetched;
                 out.vector = 'ok';
             } catch (e) {
                 console.warn(LOG_PREFIX, '向量失敗，這次只用關鍵字', e);

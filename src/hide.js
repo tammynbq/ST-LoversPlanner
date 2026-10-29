@@ -16,7 +16,8 @@ import { compressionDue, digestLabel, structure } from './compress.js';
 import { selectRelevant } from './recall.js';
 import { recapLines } from './carry.js';
 import { calendarInjection } from './calendar.js';
-import { markSurfaced, pickReminders, remindersText } from './memories.js';
+import { markSurfaced, nextPinned, pickReminders, remindersText } from './memories.js';
+import { recordSend } from './sent.js';
 import { cleanForSummary } from './filter.js';
 
 /** 保留原文的 AI 樓層數（規格：最新 2 個）。 */
@@ -397,6 +398,7 @@ export async function interceptor(coreChat, contextSize, abort, type) {
             vector: selection?.vector ?? 'off',
             reminders: reminders.length,
         });
+        recordSend({ type, selection, reminders, pinnedKey: reminders.length ? nextPinned() : null, injectedTokens: lastStats.injectedTokens, hiddenTokens });
         markSurfaced(reminders);
         console.debug(LOG_PREFIX, '攔截器完成', lastStats);
     } catch (e) {

@@ -9,6 +9,7 @@ import { describeOp, getNotes, onNotesChange, opType, setFloorOpUndone } from '.
 import { computeHidden } from '../hide.js';
 import { calendarOn, calTracked } from '../calendar.js';
 import { addMemory, memoriesOn } from '../memories.js';
+import { floorOf, onSentChange, receiptOf } from '../sent.js';
 
 const expanded = new Set(); // 展開中的樓層
 const lastHtml = new WeakMap(); // 每個摘要區塊上次畫的內容
@@ -100,6 +101,44 @@ export function versionsHtml(index, { panel = false } = {}) {
           <div class="lp-ver-text">${esc(v.summary ?? '')}</div>
         </li>`).join('');
     return `<details class="lp-versions" data-role="versions"><summary>${esc(t('ver.title', { n: list.length }))}</summary><ul class="lp-ver-list">${rows}</ul></details>`;
+}
+
+const why = (reason, score) => {
+    const label = ['pinnedMemory', 'random'].includes(reason) ? t(`sent.why.${reason}`) : t(`preview.why.${reason}`);
+    return `<span class="lp-why${reason === 'vector' ? ' lp-why-vec' : ''}">${esc(typeof score === 'number' ? `${label} ${score}%` : label)}</span>`;
+};
+
+/** 「這一回送了什麼」：這則回覆生成時送出的記事、召回的舊樓層和想起的回憶（v0.13.30）。 */
+export function sentHtml(index) {
+    const r = receiptOf(index);
+    if (!r) return '';
+    const parts = [t('sent.notesPart', { sent: r.notesSent, total: r.notesTotal })];
+    if (r.floors.length) parts.push(t('sent.floorsPart', { n: r.floors.length }));
+    if (r.reminders.length) parts.push(t('sent.remPart', { n: r.reminders.length }));
+    const list = (items) => `<ul>${items.join('')}</ul>`;
+    let html = '';
+    if (r.type === 'continue') html += `<div class="lp-note">${esc(t('sent.continue'))}</div>`;
+    if (!r.filtered) html += `<div class="lp-sent-sec">${esc(t('sent.notesAll', { n: r.notesTotal }))}</div>`;
+    else if (r.notes.length) {
+        html += `<div class="lp-sent-sec">${esc(t('sent.notes', { sent: r.notesSent, skip: Math.max(0, r.notesTotal - r.notesSent) }))}</div>`;
+        html += list(r.notes.map((n) => `<li>${n.type && n.type !== 'character' ? `${esc(t(`type.${n.type}`))}：` : ''}${esc(n.title)} ${why(n.reason, n.score)}</li>`));
+    }
+    if (r.floors.length) {
+        html += `<div class="lp-sent-sec">${esc(t('sent.floors', { n: r.floors.length }))}</div>`;
+        html += list(r.floors.map((f) => {
+            const i = floorOf(f);
+            const at = i === null ? `<span class="lp-note">${esc(t('sent.floorGone'))}</span>` : `<button type="button" class="lp-link" data-lp-act="sent-jump" data-floor="${i}">#${i}</button>`;
+            return `<li>${at} ${esc(f.line)} ${why(f.reason, f.score)}</li>`;
+        }));
+    }
+    if (r.reminders.length) {
+        html += `<div class="lp-sent-sec">${esc(t('sent.reminders', { n: r.reminders.length }))}</div>`;
+        html += list(r.reminders.map((m) => `<li>${esc(m.title)} ${why(m.reason === 'pinned' ? 'pinnedMemory' : 'random')}</li>`));
+    }
+    if (r.filtered && !r.notes.length && !r.floors.length && !r.reminders.length) html += `<div class="lp-note">${esc(t('sent.none'))}</div>`;
+    const vector = r.vector === 'ok' ? t('sent.vector.ok', { n: r.fetched }) : r.vector === 'error' ? t('sent.vector.error', { error: r.error }) : t('sent.vector.off');
+    html += `<div class="lp-sent-foot${r.vector === 'error' ? ' lp-warn' : ''}">${esc(vector)}<br>${esc(t('sent.tokens', { n: r.injectedTokens.toLocaleString(), saved: r.hiddenTokens.toLocaleString() }))}</div>`;
+    return `<details class="lp-sent" data-role="sent"><summary>${esc(t('sent.title'))} <span class="lp-sent-sum">${esc(parts.join('・'))}</span></summary>${html}</details>`;
 }
 
 /** 執行一個操作；回傳 true 表示需要進入編輯模式。 */
@@ -237,7 +276,7 @@ function blockHtml(index) {
             const actions = actionsFor(state, index).map((a) =>
                 `<button type="button" class="menu_button lp-btn${['summarize', 'redo', 'retry'].includes(a) || (a === 'sideredo' && entry?.error) ? ' lp-primary' : ''}" data-lp-act="${a}">${esc(t(`act.${a}`))}</button>`).join('');
             const by = summary && entry?.by ? `<div class="lp-note lp-sum-by">${esc(byLine(entry.by))}</div>` : '';
-            body = `${hint}${scene}${text}${by}${changes}${actions ? `<div class="lp-sum-actions">${actions}</div>` : ''}${versionsHtml(index)}`;
+            body = `${hint}${scene}${text}${by}${changes}${actions ? `<div class="lp-sum-actions">${actions}</div>` : ''}${versionsHtml(index)}${sentHtml(index)}`;
         }
     }
 
@@ -343,6 +382,9 @@ function onChatClick(e) {
         editing.delete(index);
     } else if (act === 'restore') {
         restoreVersion(index, Number(btn.dataset.k));
+    } else if (act === 'sent-jump') {
+        if (!revealFloor(Number(btn.dataset.floor))) toast(t('sent.notLoaded'), 'info');
+        return;
     } else if (runAction(index, act)) {
         editing.add(index);
         expanded.add(index);
@@ -370,6 +412,7 @@ export function initMessageBlocks() {
     };
     onSummaryChange(() => { invalidateHidden(); renderSoon(); });
     onNotesChange(() => { invalidateHidden(); renderSoon(); });
+    onSentChange((index) => renderBlock(index));
 
     const c = ctx();
     if (!c?.eventSource || !c.eventTypes) return;

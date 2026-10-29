@@ -18,6 +18,7 @@ import { scheduleStHide, syncStHide } from './src/sthide.js';
 import { onSummaryChange } from './src/summarize.js';
 import { mergePlans } from './src/planmerge.js';
 import { applyTheme } from './src/theme.js';
+import { initSent } from './src/sent.js';
 
 function onSettingChanged(path) {
     if (path === 'language') relabelEntries();
@@ -51,6 +52,7 @@ async function start() {
     initCarry();
     initCatchup();
     initAttention();
+    initSent();
     initMessageBlocks();
     renderAllBlocks();
     initUpdateWatch();

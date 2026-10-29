@@ -1,6 +1,7 @@
 // 插件的全域設定：存在酒館的 extensionSettings 裡。
 
 import { ctx, MODULE } from './util.js';
+import { VERSION } from './version.js';
 
 export const VECTOR_URL = 'https://api.siliconflow.cn/v1';
 export const VECTOR_MODEL = 'BAAI/bge-m3';
@@ -88,7 +89,8 @@ export const DEFAULTS = Object.freeze({
     // 畫面（v0.13.16 起）：hideSkip 摘要分頁隱藏 👻 跳過的樓層；
     // theme 外觀（v0.13.22，使用者要求）：'tavern' 跟隨酒館主題 | 'techo' 日系手帳；themeBlocks 聊天裡的摘要區塊也套用。
     // （以前 ui 不在預設值裡，重新整理後 hideSkip 會被 mergeDefaults 丟掉。）
-    ui: { hideSkip: false, theme: 'tavern', themeBlocks: false },
+    // seenVersion（v0.13.30）：看過哪一版的更新通知；新安裝時直接設成目前版本，不跳通知。
+    ui: { hideSkip: false, theme: 'tavern', themeBlocks: false, seenVersion: '' },
     // 角色還沒有自己的「共同設定」時用的初始值：'none' | 'copy' | 'share'（見 scope.js）
     scope: {
         summary: 'copy',
@@ -203,6 +205,8 @@ export function initSettings() {
     if (saved && !(saved.settingsVersion >= 5)) {
         if (s.compress.l2PerL3 === 10) s.compress.l2PerL3 = DEFAULTS.compress.l2PerL3;
     }
+    // 新安裝的不用看「更新了什麼」。
+    if (!saved) s.ui.seenVersion = VERSION;
     s.settingsVersion = DEFAULTS.settingsVersion;
     // 舊版的 'auto' 就是現在的 'before'。
     if (s.summary.mode === 'auto') s.summary.mode = 'before';
