@@ -76,10 +76,10 @@ check('dismiss hides it', !(await page.$('[data-role="onthisday"]')));
 await page.evaluate(async () => (await import('/src/calendar.js')).addManualEvent({ type: 'anniversary', date: '04-05', title: '交往紀念日' }));
 await closePanel(); await openPanel();
 check('anniversary line', (await page.textContent('[data-role="anniversary"]').catch(() => '')).includes('交往紀念日'));
-check('petals the first time', Boolean(await page.$('.lp-panel .lp-burst')));
+check('petals the first time', Boolean(await page.$('.lp-burst:not(.lp-burst-up)')));
 await page.waitForTimeout(5500);
 await closePanel(); await openPanel();
-check('petals only once per story day', !(await page.$('.lp-panel .lp-burst')));
+check('petals only once per story day', !(await page.$('.lp-burst:not(.lp-burst-up)')));
 
 // ===== ③ 里程碑：98 → 100 層 =====
 const addAi = () => page.evaluate(async () => {
@@ -117,7 +117,7 @@ const tap = () => page.evaluate(() => document.querySelector('.lp-title-icon').c
 for (let k = 0; k < 4; k++) await tap();
 check('four clicks: nothing yet', !(await page.evaluate(() => window.__toasts.length)));
 await tap();
-check('five clicks: hearts and a line', Boolean(await page.$('.lp-panel .lp-burst-up')) && (await page.evaluate(() => window.__toasts.length)) === 1, JSON.stringify(await page.evaluate(() => window.__toasts)));
+check('five clicks: hearts and a line', Boolean(await page.$('.lp-burst-up')) && (await page.evaluate(() => window.__toasts.length)) === 1, JSON.stringify(await page.evaluate(() => window.__toasts)));
 
 const missing = await page.evaluate(async () => (await import('/src/i18n.js')).missingKeys());
 check('i18n keys complete', !missing.length, JSON.stringify(missing));

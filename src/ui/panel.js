@@ -349,7 +349,8 @@ function render() {
     panel.setAttribute('lang', currentLocale());
     panel.innerHTML = renderHeader() + renderTabs() + `<div class="lp-body">${renderWhatsNew()}${renderEggs()}${renderBanner()}${renderTab()}</div>`;
     // 紀念日：每個故事日飄一次花瓣（小彩蛋）。
-    if (isActive() && takePetals()) burst(panel, ['🌸', '💕', '🌷', '✿']);
+    // 放在大視窗外面那層：大視窗重畫時不會把花瓣一起清掉。
+    if (isActive() && takePetals()) burst(panel.parentElement ?? document.body, ['🌸', '💕', '🌷', '✿']);
     const newBody = panel.querySelector('.lp-body');
     if (newBody) newBody.scrollTop = scrollTop;
     const digestBox = panel.querySelector('[data-digest-text]');
@@ -3515,7 +3516,7 @@ function onClick(e) {
             eggLast = now;
             if (eggClicks < 5) return;
             eggClicks = 0;
-            burst(panel, ['💕', '💗', '💖', '❤️'], { up: true, count: 22 });
+            burst(panel.parentElement ?? document.body, ['💕', '💗', '💖', '❤️'], { up: true, count: 22 });
             const m = randomMemory();
             toast(m ? t('egg.secret', { title: m.title, content: m.content }) : t('egg.secretEmpty'), 'info');
             return;
