@@ -1650,3 +1650,11 @@ html.lp-techo-cloud.lp-theme-techo-blocks .lp-sum {
 .lp-burst-up span { top: auto; bottom: -40px; animation-name: lp-rise; }
 @keyframes lp-fall { to { transform: translate(30px, 110vh) rotate(260deg); opacity: 0.2; } }
 @keyframes lp-rise { to { transform: translate(-20px, -110vh) scale(1.3); opacity: 0; } }
+
+/* ===== 紀念日清單（v0.13.32） ===== */
+.lp-anniv.lp-card { margin-top: 12px; }
+.lp-anniv-list { list-style: none; margin: 6px 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.lp-anniv-item { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; padding: 4px 0; border-bottom: 1px dashed var(--lp-border); }
+.lp-anniv-item.lp-on { background: color-mix(in srgb, var(--lp-accent) 10%, transparent); }
+.lp-anniv-form { flex-wrap: wrap; gap: 6px; align-items: center; }
+.lp-anniv-form .lp-num { width: 4.2em; }

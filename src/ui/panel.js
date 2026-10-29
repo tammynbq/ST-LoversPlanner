@@ -164,6 +164,8 @@ const view = {
     mem: { editing: null, adding: false },
     // 行事曆：顯示哪個月（YYYY-MM）、選了哪天、新增表單。
     cal: { month: null, selected: null, addType: null },
+    // 紀念日清單（v0.13.32）：正在改哪一條（同一個日子＋名稱的一組）。
+    anniv: { editing: null },
     // 補建舊樓層的設定卡片。
     catchup: { open: false, from: null, to: null, fine: 30, block: null },
     // 補建前找到的番外：清單（算一次就好）和每層的選擇（預設跳過）。rescan：資料管理的「重新檢查所有樓層」。
@@ -929,7 +931,57 @@ function renderCalendarTab() {
         <span class="lp-scope-title">${esc(t('tab.calendar'))}</span>
         ${!open && cal.today ? `<span class="lp-note">${esc(t('cal.todayIs', { date: cal.today, weekday: weekdayName(cal.today, 'long') }))}</span>` : ''}
       </button></div>`;
-    return `<div class="lp-calendar" data-role="calendar">${toggle}${open ? `${calendarStatus(cal)}${nav}${grid}${calendarDay(cal)}` : ''}</div>`;
+    return `<div class="lp-calendar" data-role="calendar">${toggle}${open ? `${calendarStatus(cal)}${nav}${grid}${calendarDay(cal)}${annivList(cal)}` : ''}</div>`;
+}
+
+/** 紀念日：同一個日子＋名稱併成一組（劇情裡常提到好幾次），照「還有幾天」排。 */
+function annivGroups(cal) {
+    const base = cal.today ?? new Date().toISOString().slice(0, 10);
+    const groups = new Map();
+    for (const x of cal.items.filter((i) => i.type === 'anniversary' && /^\d{2}-\d{2}$/.test(i.date ?? ''))) {
+        const key = `${x.date}|${String(x.title ?? '').trim()}`;
+        if (!groups.has(key)) groups.set(key, { date: x.date, title: String(x.title ?? '').trim(), items: [] });
+        groups.get(key).items.push(x);
+    }
+    return [...groups.values()].map((g) => {
+        let next = `${base.slice(0, 4)}-${g.date}`;
+        if (next < base) next = `${Number(base.slice(0, 4)) + 1}-${g.date}`;
+        return { ...g, key: `${g.date}|${g.title}`, left: daysBetween(base, next) };
+    }).sort((a, b) => a.left - b.left || a.title.localeCompare(b.title));
+}
+
+/** 🎂 紀念日清單（v0.13.32，使用者找不到地方寫紀念日）：列出全部、還有幾天，直接新增、改、刪。 */
+function annivList(cal) {
+    if (!calTracked('anniversary')) return '';
+    const groups = annivGroups(cal);
+    const editing = view.anniv.editing ? groups.find((g) => g.key === view.anniv.editing) : null;
+    if (view.anniv.editing && !editing) view.anniv.editing = null;
+    const rows = groups.map((g) => {
+        const from = g.items.some((x) => x.source === 'floor') ? t('anniv.fromStory') : t('anniv.manual');
+        const left = g.left === 0 ? t('anniv.today') : t('anniv.left', { n: g.left });
+        return `<li class="lp-anniv-item${g.key === view.anniv.editing ? ' lp-on' : ''}" data-anniv="${esc(g.key)}">
+          <span>🎂 <b>${esc(g.title || t('cal.type.anniversary'))}</b>・${Number(g.date.slice(0, 2))}/${Number(g.date.slice(3))}・${esc(left)}</span>
+          <span class="lp-note">${esc(from)}${g.items.length > 1 ? esc(t('anniv.times', { n: g.items.length })) : ''}</span>
+          <span class="lp-spacer"></span>
+          <button type="button" class="menu_button lp-btn lp-mini" data-action="anniv-edit" data-key="${esc(g.key)}">${esc(t('anniv.edit'))}</button>
+          <button type="button" class="menu_button lp-btn lp-mini lp-danger" data-action="anniv-remove" data-key="${esc(g.key)}">${esc(t('anniv.remove'))}</button>
+        </li>`;
+    }).join('');
+    const m = editing ? Number(editing.date.slice(0, 2)) : '';
+    const d = editing ? Number(editing.date.slice(3)) : '';
+    return `
+      <div class="lp-card lp-anniv" data-role="anniv">
+        <div class="lp-scope-title">${esc(t('anniv.title'))}</div>
+        ${rows ? `<ul class="lp-anniv-list">${rows}</ul>` : `<div class="lp-note">${esc(t('anniv.none'))}</div>`}
+        <div class="lp-row lp-anniv-form">
+          <input type="number" class="text_pole lp-num" data-role="anniv-month" min="1" max="12" value="${m}" aria-label="${esc(t('anniv.month'))}"><span>${esc(t('anniv.month'))}</span>
+          <input type="number" class="text_pole lp-num" data-role="anniv-day" min="1" max="31" value="${d}" aria-label="${esc(t('anniv.day'))}"><span>${esc(t('anniv.day'))}</span>
+          <input type="text" class="text_pole lp-grow" data-role="anniv-title" value="${esc(editing?.title ?? '')}" placeholder="${esc(t('anniv.titlePh'))}" aria-label="${esc(t('cal.add.title'))}">
+          <button type="button" class="menu_button lp-btn lp-primary" data-action="anniv-save">${esc(t(editing ? 'anniv.save' : 'anniv.add'))}</button>
+          ${editing ? `<button type="button" class="menu_button lp-btn" data-action="anniv-cancel">${esc(t('anniv.cancel'))}</button>` : ''}
+        </div>
+        <div class="lp-note" data-role="anniv-msg"></div>
+      </div>`;
 }
 
 /** 有勾選的約定／待辦（含已完成），附上日期：[{ ...note, made, due }]。 */
@@ -2901,6 +2953,44 @@ function onClick(e) {
                 box?.querySelector('[data-role="cal-title-input"]')?.focus();
                 return;
             }
+            render();
+            return;
+        }
+        case 'anniv-edit':
+            view.anniv.editing = btn.dataset.key;
+            render();
+            panel.querySelector('[data-role="anniv-title"]')?.focus();
+            return;
+        case 'anniv-cancel':
+            view.anniv.editing = null;
+            render();
+            return;
+        case 'anniv-remove': {
+            const g = annivGroups(buildCalendar()).find((x) => x.key === btn.dataset.key);
+            for (const x of g?.items ?? []) removeEvent(x);
+            if (view.anniv.editing === btn.dataset.key) view.anniv.editing = null;
+            render();
+            return;
+        }
+        case 'anniv-save': {
+            const box = panel.querySelector('[data-role="anniv"]');
+            const month = Number(box?.querySelector('[data-role="anniv-month"]')?.value);
+            const day = Number(box?.querySelector('[data-role="anniv-day"]')?.value);
+            const title = String(box?.querySelector('[data-role="anniv-title"]')?.value ?? '').trim();
+            const valid = Number.isInteger(month) && Number.isInteger(day) && month >= 1 && month <= 12 && day >= 1 && day <= new Date(2024, month, 0).getDate();
+            if (!valid || !title) {
+                const msg = box?.querySelector('[data-role="anniv-msg"]');
+                if (msg) msg.textContent = t(valid ? 'anniv.needTitle' : 'anniv.bad');
+                box?.querySelector(valid ? '[data-role="anniv-title"]' : '[data-role="anniv-month"]')?.focus();
+                return;
+            }
+            const date = `${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+            if (view.anniv.editing) {
+                const g = annivGroups(buildCalendar()).find((x) => x.key === view.anniv.editing);
+                for (const x of g?.items ?? []) removeEvent(x);
+                view.anniv.editing = null;
+            }
+            addManualEvent({ type: 'anniversary', date, title });
             render();
             return;
         }

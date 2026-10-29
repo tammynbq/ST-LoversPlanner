@@ -9,6 +9,14 @@ import { VERSION } from './version.js';
 
 export const CHANGES = [
     {
+        v: '0.13.32',
+        new: {
+            'zh-TW': ['🎂 「行事曆／約定」分頁多了紀念日清單：看得到全部紀念日、生日和還有幾天，可以直接新增、改、刪（不用先點月曆）。'],
+            'zh-CN': ['🎂 「行事历／约定」分页多了纪念日清单：看得到全部纪念日、生日和还有几天，可以直接新增、改、删（不用先点月历）。'],
+            en: ['🎂 The Calendar tab now lists all anniversaries and birthdays with days left, and you can add, edit or delete them directly.'],
+        },
+    },
+    {
         v: '0.13.31',
         new: {
             'zh-TW': [
