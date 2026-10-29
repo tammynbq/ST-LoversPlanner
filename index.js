@@ -19,6 +19,7 @@ import { onSummaryChange } from './src/summarize.js';
 import { mergePlans } from './src/planmerge.js';
 import { applyTheme } from './src/theme.js';
 import { initSent } from './src/sent.js';
+import { initEggs } from './src/eggs.js';
 
 function onSettingChanged(path) {
     if (path === 'language') relabelEntries();
@@ -53,6 +54,7 @@ async function start() {
     initCatchup();
     initAttention();
     initSent();
+    initEggs();
     initMessageBlocks();
     renderAllBlocks();
     initUpdateWatch();

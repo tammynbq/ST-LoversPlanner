@@ -12,6 +12,7 @@ import { cleanForSummary, extractRef, scanTags, setTagMode, tagMode } from '../f
 import { getLoadedVersion } from '../update.js';
 import { VERSION } from '../version.js';
 import { allChanges, markSeen, seenVersion, unseenChanges } from '../changelog.js';
+import { anniversariesToday, burst, dismissOnThisDay, onThisDay, randomMemory, remindOnThisDay, takePetals } from '../eggs.js';
 import { addMemory, editMemory, listMemories, memoriesOn, nextPinned, onMemoriesChange, removeMemory, surfaceNext } from '../memories.js';
 import {
     auditFloors, auditIssues, auditProgress, auditResults, fixAll, fixIssue, issueCount, pickAuditFloors, runChecks,
@@ -108,6 +109,9 @@ const RANGE_PAIRS = [
     ['summary.minTokens', 'summary.maxTokens'],
     ['compress.ratioMin', 'compress.ratioMax'],
 ];
+
+let eggClicks = 0;
+let eggLast = 0;
 
 const view = {
     tab: 'summary',
@@ -330,7 +334,9 @@ function render() {
     const searchFocus = active?.dataset?.search ? { scope: active.dataset.search, pos: active.selectionStart } : null;
     panel.setAttribute('aria-label', t('app.name'));
     panel.setAttribute('lang', currentLocale());
-    panel.innerHTML = renderHeader() + renderTabs() + `<div class="lp-body">${renderWhatsNew()}${renderBanner()}${renderTab()}</div>`;
+    panel.innerHTML = renderHeader() + renderTabs() + `<div class="lp-body">${renderWhatsNew()}${renderEggs()}${renderBanner()}${renderTab()}</div>`;
+    // 紀念日：每個故事日飄一次花瓣（小彩蛋）。
+    if (isActive() && takePetals()) burst(panel, ['🌸', '💕', '🌷', '✿']);
     const newBody = panel.querySelector('.lp-body');
     if (newBody) newBody.scrollTop = scrollTop;
     const digestBox = panel.querySelector('[data-digest-text]');
@@ -357,7 +363,7 @@ function renderHeader() {
     }
     return `
     <div class="lp-header">
-      <div class="lp-title-icon fa-solid fa-book-open" aria-hidden="true"></div>
+      <div class="lp-title-icon fa-solid fa-book-open" aria-hidden="true" data-action="egg"></div>
       <div class="lp-title-text">
         <div class="lp-title">${esc(t('app.name'))}${subtitle ? ` <span class="lp-subtitle">· ${esc(subtitle)}</span>` : ''}</div>
         <div class="lp-stats">${esc(statsText())}</div>
@@ -429,6 +435,27 @@ function renderWhatsNew() {
         <button type="button" class="menu_button lp-btn" data-action="whatsnew-all">${esc(t(view.whatsNewAll ? 'whatsnew.less' : 'whatsnew.all'))}</button>
       </div>
     </div>`;
+}
+
+/** 小彩蛋：那年今日、今天是紀念日（v0.13.31）。 */
+function renderEggs() {
+    if (!isActive() || !hasCharacterChat()) return '';
+    let html = '';
+    const ann = anniversariesToday();
+    if (ann.length) html += `<div class="lp-egg-ann" data-role="anniversary">${esc(t('egg.anniversary', { titles: ann.join('、') }))}</div>`;
+    const day = onThisDay();
+    if (day) {
+        const head = day.years ? t('egg.dayYears', { n: day.years, date: day.date }) : t('egg.dayMonths', { n: day.months, date: day.date });
+        html += `<div class="lp-card lp-egg-day" data-role="onthisday">
+          <div class="lp-egg-title">${esc(head)}</div>
+          <div class="lp-egg-text">${day.title ? `<b>${esc(day.title)}</b>：` : ''}${esc(day.text)}</div>
+          <div class="lp-row lp-egg-actions">
+            ${day.memKey ? `<button type="button" class="menu_button lp-btn" data-action="egg-remind" data-key="${esc(day.memKey)}">${esc(t('egg.remind', { char: ctx()?.name2 ?? '' }))}</button>` : ''}
+            <button type="button" class="menu_button lp-btn" data-action="egg-dismiss">${esc(t('egg.dismiss'))}</button>
+          </div>
+        </div>`;
+    }
+    return html;
 }
 
 function renderBanner() {
@@ -2923,6 +2950,27 @@ function onClick(e) {
                 return;
             }
             auditFloors(floors, () => { if (isPanelOpen() && view.check.open) render(); });
+            return;
+        }
+        case 'egg-dismiss':
+            dismissOnThisDay();
+            render();
+            return;
+        case 'egg-remind':
+            remindOnThisDay(btn.dataset.key);
+            toast(t('egg.reminded'), 'success');
+            render();
+            return;
+        case 'egg': {
+            // 連點📔五下（每下間隔 1.5 秒內）。
+            const now = Date.now();
+            eggClicks = now - eggLast < 1500 ? eggClicks + 1 : 1;
+            eggLast = now;
+            if (eggClicks < 5) return;
+            eggClicks = 0;
+            burst(panel, ['💕', '💗', '💖', '❤️'], { up: true, count: 22 });
+            const m = randomMemory();
+            toast(m ? t('egg.secret', { title: m.title, content: m.content }) : t('egg.secretEmpty'), 'info');
             return;
         }
         case 'whatsnew-ok':

@@ -35,11 +35,11 @@ check('NEW on the wand entry', (await page.textContent('#lp_wand_entry')).includ
 check('NEW on the settings drawer', (await page.textContent('#lp_settings_drawer')).includes('NEW'));
 await openPanel(page);
 let card = await page.textContent('[data-role="whatsnew"]');
-check('card shows this version', card.includes('戀人手帳更新了') && card.includes(`v${version}`) && card.includes('這一回送了什麼') && !card.includes('長聊天打開會卡住'), card.slice(0, 160));
+check('card shows this version', card.includes('戀人手帳更新了') && card.includes(`v${version}`) && card.includes('那年今日') && !card.includes('這一回送了什麼'), card.slice(0, 160));
 await page.screenshot({ path: `${OUT}/whatsnew.png` });
 await page.click('[data-action="whatsnew-all"]');
 card = await page.textContent('[data-role="whatsnew"]');
-check('see all expands older versions', card.includes('v0.13.29') && card.includes('長聊天') && card.includes('收起更新紀錄'), card.slice(0, 200));
+check('see all expands older versions', card.includes('v0.13.30') && card.includes('這一回送了什麼') && card.includes('v0.13.29') && card.includes('收起更新紀錄'), card.slice(0, 200));
 await page.click('[data-action="whatsnew-ok"]');
 check('got it hides the card', !(await page.$('[data-role="whatsnew"]')));
 check('got it removes NEW', !(await page.textContent('#lp_wand_entry')).includes('NEW') && !(await page.textContent('#lp_settings_drawer')).includes('NEW'));
@@ -76,7 +76,7 @@ await page.close();
 page = await open({ lovers_planner: { settingsVersion: 5, language: 'en' } });
 await openPanel(page);
 card = await page.textContent('[data-role="whatsnew"]');
-check('english card', card.includes("Lover's Planner was updated") && card.includes('What was sent this turn') && card.includes('Got it'), card.slice(0, 160));
+check('english card', card.includes("Lover's Planner was updated") && card.includes('On this day') && card.includes('Got it'), card.slice(0, 160));
 const missing = await page.evaluate(async () => (await import('/src/i18n.js')).missingKeys());
 check('i18n keys complete', !missing.length, JSON.stringify(missing));
 // 每一版三種語言都有寫

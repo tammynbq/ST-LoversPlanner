@@ -9,6 +9,29 @@ import { VERSION } from './version.js';
 
 export const CHANGES = [
     {
+        v: '0.13.31',
+        new: {
+            'zh-TW': [
+                '📖 那年今日：故事裡的今天碰到以前的同一天，會跳出當時的回憶，還可以讓角色想起來。',
+                '🎂 紀念日、生日那天打開戀人手帳，會飄一陣花瓣。',
+                '🎉 一起寫到 100、500、1000…層時，有個小慶祝。',
+                '🤫 還有一個藏起來的小彩蛋，找找看～',
+            ],
+            'zh-CN': [
+                '📖 那年今日：故事里的今天碰到以前的同一天，会跳出当时的回忆，还可以让角色想起来。',
+                '🎂 纪念日、生日那天打开恋人手帐，会飘一阵花瓣。',
+                '🎉 一起写到 100、500、1000…层时，有个小庆祝。',
+                '🤫 还有一个藏起来的小彩蛋，找找看～',
+            ],
+            en: [
+                '📖 On this day: when the story reaches the same date as before, the memory from back then pops up, and you can let the character remember it.',
+                '🎂 On anniversaries and birthdays, petals drift down when you open Lover\'s Planner.',
+                '🎉 A small celebration at 100, 500, 1000… floors.',
+                '🤫 There is also a hidden easter egg. Try to find it~',
+            ],
+        },
+    },
+    {
         v: '0.13.30',
         new: {
             'zh-TW': [

@@ -1637,3 +1637,16 @@ html.lp-techo-cloud.lp-theme-techo-blocks .lp-sum {
 .lp-whatsnew-actions { margin-top: 10px; gap: 8px; flex-wrap: wrap; }
 .lp-changelog > summary { cursor: pointer; color: var(--lp-muted); margin-top: 6px; }
 .lp-new-dot { display: inline-block; margin-left: 6px; padding: 0 6px; border-radius: 999px; background: #e0625e; color: #fff; font-size: 11px; line-height: 16px; font-weight: 700; vertical-align: middle; }
+
+/* ===== 小彩蛋（v0.13.31） ===== */
+.lp-egg-ann { margin-bottom: 10px; padding: 6px 12px; border-radius: 999px; text-align: center; font-weight: 600; background: color-mix(in srgb, #e88aa2 18%, var(--lp-card)); }
+.lp-egg-day.lp-card { margin-bottom: 12px; border: 1px dashed color-mix(in srgb, #e88aa2 60%, transparent); }
+.lp-egg-title { font-weight: 700; margin-bottom: 4px; }
+.lp-egg-text { line-height: 1.6; overflow-wrap: anywhere; }
+.lp-egg-actions { margin-top: 8px; gap: 8px; flex-wrap: wrap; }
+.lp-title-icon[data-action="egg"] { cursor: default; user-select: none; }
+.lp-burst { position: fixed; inset: 0; pointer-events: none; overflow: hidden; z-index: 2147483647; }
+.lp-burst span { position: absolute; top: -40px; animation-name: lp-fall; animation-timing-function: linear; animation-fill-mode: forwards; opacity: 0.9; }
+.lp-burst-up span { top: auto; bottom: -40px; animation-name: lp-rise; }
+@keyframes lp-fall { to { transform: translate(30px, 110vh) rotate(260deg); opacity: 0.2; } }
+@keyframes lp-rise { to { transform: translate(-20px, -110vh) scale(1.3); opacity: 0; } }
