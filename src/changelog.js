@@ -9,6 +9,26 @@ import { VERSION } from './version.js';
 
 export const CHANGES = [
     {
+        v: '0.13.34',
+        new: {
+            'zh-TW': [
+                '📖 日記：舊聊天整理讀完之後，可以把每一天寫成一篇日記（太長的一天分段寫）。已經有摘要的樓層用摘要，不用重讀原文，省很多。',
+                '✍️ 日記寫法可以選「自然」（像回憶，有心情）或「精簡」（像紀錄）；每一天也能單獨換寫法重寫。OOC 不會寫進日記。',
+                '🗜️ 再壓一次：先勾要留的重點、選壓到多少，原版一直留著，壓得不好可以換回來；也可以把超過多少字的日子一起壓。',
+            ],
+            'zh-CN': [
+                '📖 日记：旧聊天整理读完之后，可以把每一天写成一篇日记（太长的一天分段写）。已经有摘要的楼层用摘要，不用重读原文，省很多。',
+                '✍️ 日记写法可以选「自然」（像回忆，有心情）或「精简」（像记录）；每一天也能单独换写法重写。OOC 不会写进日记。',
+                '🗜️ 再压一次：先勾要留的重点、选压到多少，原版一直留着，压得不好可以换回来；也可以把超过多少字的日子一起压。',
+            ],
+            en: [
+                '📖 Diary: after reading old chats, each day can be written as a diary entry (long days in parts). Floors that already have a summary send the summary instead of the original, which saves a lot.',
+                '✍️ Choose a natural (like a memory, with feelings) or concise (like a record) style, and rewrite single days in the other style. OOC is never written into the diary.',
+                '🗜️ Re-compress: tick the points to keep and pick how short; the original is always kept so you can switch back. Days over a length can be compressed together.',
+            ],
+        },
+    },
+    {
         v: '0.13.33',
         new: {
             'zh-TW': ['📦 舊聊天整理（日記的第一步）：摘要分頁可以直接讀同角色的舊聊天（不會打開、不會卡），照故事日期分天、看每天多大，還能把生理期、親熱、紀念日帶進現在的聊天。'],

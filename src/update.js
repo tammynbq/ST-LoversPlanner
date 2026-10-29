@@ -38,7 +38,7 @@ function storage() {
 }
 
 function busy() {
-    return mainBusy() || pendingCount() > 0 || isPanelOpen();
+    return mainBusy() || pendingCount({ tasks: true }) > 0 || isPanelOpen();
 }
 
 function reloadNow() {

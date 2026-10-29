@@ -32,6 +32,7 @@ const queue = [];
 const queued = new Set();
 let running = null; // 正在摘要的 index；壓縮中是 'compress'；粗略補建中是 'coarse'
 let runningCoarse = new Set(); // 粗略補建中的那一段樓層
+let runningTask = null; // 正在跑的一般工作（例如 'diary'）
 const coarseQueued = new Set(); // 排隊等粗略補建的樓層
 let compressHandler = null; // compress.js 的 runCompression（用註冊的方式，避免互相 import）
 let coarseHandler = null; // catchup.js 的 runCoarse
@@ -63,8 +64,12 @@ export function floorState(index) {
     return floorStatus(index);
 }
 
-export function pendingCount() {
-    return queue.length + (running === null ? 0 : 1);
+/**
+ * 排隊中＋進行中的工作數。預設不算排隊中的一般工作（寫日記）：送出前只等摘要，
+ * 不用等幾十段日記寫完（正在跑的那一個還是會等）。
+ */
+export function pendingCount({ tasks = false } = {}) {
+    return queue.filter((q) => tasks || q.kind !== 'task').length + (running === null ? 0 : 1);
 }
 
 /** side：⭐ 小劇場，只讀回憶和約定，不寫正劇摘要。 */
@@ -106,6 +111,30 @@ export function enqueueCoarse(indices) {
     notify(null);
     drain();
     return true;
+}
+
+/**
+ * 排一個一般工作（v0.13.34，寫日記用）：和摘要共用同一個隊伍，不會和正常生成、摘要同時呼叫模型。
+ * run 是 async 函式；換了聊天就不跑。
+ */
+export function enqueueTask(run, { label = 'task' } = {}) {
+    if (!isActive()) return false;
+    queue.push({ kind: 'task', run, label, chatId: chatKey() });
+    notify(null);
+    drain();
+    return true;
+}
+
+/** 隊伍裡還有幾個某種工作（例如還有幾段日記要寫）。 */
+export function queuedTasks(label) {
+    return queue.filter((q) => q.kind === 'task' && q.label === label).length + (runningTask === label ? 1 : 0);
+}
+
+/** 拿掉隊伍裡某種還沒開始的工作（暫停寫日記）。 */
+export function dropTasks(label) {
+    const before = queue.length;
+    for (let i = queue.length - 1; i >= 0; i--) if (queue[i].kind === 'task' && queue[i].label === label) queue.splice(i, 1);
+    if (queue.length !== before) notify(null);
 }
 
 export function isCompressing() {
@@ -156,12 +185,30 @@ export function waitForIdle(timeoutMs = 5 * 60 * 1000) {
 async function drain() {
     if (running !== null) return;
     if (getSettings().source === 'main' && mainBusy() && !holding) return;
-    const item = queue.shift();
+    // 摘要、壓縮先做，一般工作（寫日記）排在它們後面（不然新樓層的摘要要等幾十段日記）。
+    const first = queue.findIndex((q) => q.kind !== 'task');
+    const item = first >= 0 ? queue.splice(first, 1)[0] : queue.shift();
     if (!item) return;
     if (item.kind === 'coarse') item.indices.forEach((i) => coarseQueued.delete(i));
-    else if (item.kind !== 'compress') queued.delete(item.index);
+    else if (item.kind !== 'compress' && item.kind !== 'task') queued.delete(item.index);
     if (item.chatId !== chatKey()) {
         drain();
+        return;
+    }
+    if (item.kind === 'task') {
+        running = 'task';
+        runningTask = item.label;
+        notify(null);
+        try {
+            await item.run();
+        } catch (e) {
+            console.error(LOG_PREFIX, '工作出錯', item.label, e);
+        } finally {
+            running = null;
+            runningTask = null;
+            notify(null);
+            setTimeout(drain, 0);
+        }
         return;
     }
     if (item.kind === 'compress') {

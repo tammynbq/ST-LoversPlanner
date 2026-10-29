@@ -1669,3 +1669,18 @@ html.lp-techo-cloud.lp-theme-techo-blocks .lp-sum {
 .lp-old-big { background: color-mix(in srgb, var(--lp-warn) 10%, transparent); }
 .lp-old-overlap { outline: 1px dashed var(--lp-warn); }
 .lp-old .lp-row-head { gap: 8px; width: 100%; }
+
+/* ===== 日記（v0.13.34） ===== */
+.lp-diary-start { display: flex; flex-direction: column; gap: 6px; padding-top: 8px; border-top: 1px dashed var(--lp-border); }
+.lp-diary .lp-sec-body { display: flex; flex-direction: column; gap: 8px; }
+.lp-diary-batch { flex-wrap: wrap; gap: 6px; align-items: center; }
+.lp-diary-batch .lp-num { width: 5.5em; }
+.lp-diary-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.lp-diary-day { border: 1px solid var(--lp-border); border-radius: 8px; background: var(--lp-card); }
+.lp-diary-day > .lp-row-head { width: 100%; gap: 8px; padding: 6px 10px; flex-wrap: wrap; }
+.lp-diary-body { padding: 0 10px 10px; display: flex; flex-direction: column; gap: 6px; }
+.lp-diary-text { white-space: pre-wrap; line-height: 1.7; overflow-wrap: anywhere; }
+.lp-diary-actions, .lp-diary-versions { flex-wrap: wrap; gap: 6px; }
+.lp-diary-points ul, .lp-diary-keep { margin: 4px 0 0; padding-left: 1.2em; line-height: 1.6; }
+.lp-diary-keep { list-style: none; padding-left: 0; }
+.lp-diary-edit { width: 100%; min-height: 10em; }

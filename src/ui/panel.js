@@ -12,7 +12,10 @@ import { cleanForSummary, extractRef, scanTags, setTagMode, tagMode } from '../f
 import { getLoadedVersion } from '../update.js';
 import { VERSION } from '../version.js';
 import { allChanges, markSeen, seenVersion, unseenChanges } from '../changelog.js';
-import { analyzeChats, listOldChats, loadOldChat } from '../oldchats.js';
+import { analyzeChats, hasLoadedDays, listOldChats, loadOldChat } from '../oldchats.js';
+import {
+    buildCompressPrompt, compressDay, deleteDay, diaryPending, diaryStyle, dropCompressed, editDay, listDiary, MIN_SAFE_RATIO, onDiaryChange, pauseDiary, queueDays, RATIOS, setSources, useVersion,
+} from '../diary.js';
 import { anniversariesToday, burst, dismissOnThisDay, onThisDay, randomMemory, remindOnThisDay, takePetals } from '../eggs.js';
 import { addMemory, editMemory, listMemories, memoriesOn, nextPinned, onMemoriesChange, removeMemory, surfaceNext } from '../memories.js';
 import {
@@ -169,6 +172,8 @@ const view = {
     anniv: { editing: null },
     // 📦 舊聊天整理（v0.13.33）：聊天清單、勾了哪些、讀取中、分析結果、訊息。
     old: { open: false, loading: false, list: null, picked: new Set(), reading: '', result: null, ids: [], msg: '' },
+    // 📖 日記（v0.13.34）：展開的日子、正在編輯的、正在設定再壓一次的（比例、要留的重點）、一次壓很多天的設定。
+    diary: { open: new Set(), editing: null, compress: null, ratio: MIN_SAFE_RATIO, keep: new Set(), batchMin: 1000, batchRatio: MIN_SAFE_RATIO, msg: '', show: true },
     // 補建舊樓層的設定卡片。
     catchup: { open: false, from: null, to: null, fine: 30, block: null },
     // 補建前找到的番外：清單（算一次就好）和每層的選擇（預設跳過）。rescan：資料管理的「重新檢查所有樓層」。
@@ -802,6 +807,7 @@ function renderSummaryTab() {
         ${preview}
         ${recapCard()}
         ${oldChatsCard()}
+        ${diarySection()}
         ${searchBox('summary')}
         <div class="lp-row lp-sum-toolbar">
           <div class="lp-chips">${chips}</div>
@@ -1221,8 +1227,132 @@ function oldResultHtml(r) {
         <div class="lp-note">${esc(t('old.diaryTotal', { n: tt.diary.toLocaleString(), raw: tt.raw.toLocaleString() }) + (big ? t('old.big', { n: big }) : ''))}</div>
         ${r.overlaps.length ? `<div class="lp-note lp-warn">${esc(t('old.overlaps', { n: r.overlaps.length }))}</div>` : ''}
         ${cal}
-        <details class="lp-old-days" open><summary>${esc(t('old.days', { n: r.days.length }))}</summary><ul>${dayRows}</ul></details>
-        <div class="lp-note">${esc(t('old.next'))}</div>
+        ${diaryStartHtml(r)}
+        <details class="lp-old-days"><summary>${esc(t('old.days', { n: r.days.length }))}</summary><ul>${dayRows}</ul></details>
+      </div>`;
+}
+
+/** 讀完舊聊天之後：選寫法、看預估、開始寫日記。 */
+function diaryStartHtml(r) {
+    const dated = r.days.filter((d) => d.date && d.ai);
+    const calls = dated.reduce((n, d) => n + d.parts, 0);
+    const sumSent = dated.reduce((n, d) => n + d.sendChars, 0);
+    const style = diaryStyle();
+    const warn = getSettings().source === 'main' ? `<div class="lp-callout lp-warn">${esc(t('catchup.mainWarn'))}</div>` : '';
+    const pending = diaryPending();
+    return `
+      <div class="lp-diary-start" data-role="diary-start">
+        <div class="lp-scope-title">${esc(t('diary.startTitle'))}</div>
+        <div class="lp-row">
+          <label class="lp-label" for="lp-diary-style">${esc(t('diary.style'))}</label>
+          <select class="text_pole lp-select" id="lp-diary-style" data-path="diary.style">
+            <option value="natural"${style === 'natural' ? ' selected' : ''}>${esc(t('diary.style.natural'))}</option>
+            <option value="concise"${style === 'concise' ? ' selected' : ''}>${esc(t('diary.style.concise'))}</option>
+          </select>
+        </div>
+        <div class="lp-note">${esc(t('diary.estimate', { days: dated.length, calls, chars: sumSent.toLocaleString(), diary: r.totals.diary.toLocaleString() }))}</div>
+        <div class="lp-note">${esc(t('diary.filterHint'))}</div>
+        ${warn}
+        <div class="lp-row">
+          <button type="button" class="menu_button lp-btn lp-primary" data-action="diary-start"${pending || !calls ? ' disabled' : ''}>${esc(t('diary.start', { n: dated.length }))}</button>
+        </div>
+      </div>`;
+}
+
+const DIARY_STATE_ICON = { done: '✅', partial: '⏳', error: '⚠️', none: '…' };
+
+/** 📖 日記：每一天一列，點開看全文和重點，可以編輯、重寫、換寫法、再壓一次、換回原版、刪除。 */
+function diarySection() {
+    const list = listDiary();
+    const pending = diaryPending();
+    if (!list.length && !pending) return '';
+    const v = view.diary;
+    const total = list.reduce((n, d) => n + d.chars, 0);
+    const progress = pending ? `<div class="lp-callout lp-row" role="status" data-role="diary-progress"><span>${esc(t('diary.progress', { n: pending }))}</span><span class="lp-spacer"></span>
+        <button type="button" class="menu_button lp-btn" data-action="diary-pause">${esc(t('diary.pause'))}</button></div>` : '';
+    const loaded = hasLoadedDays();
+    const rows = list.map((d) => {
+        const open = v.open.has(d.date);
+        const head = `<button type="button" class="lp-row-head" data-action="diary-toggle" data-date="${esc(d.date)}" aria-expanded="${open}">
+            <span class="lp-sum-chev" aria-hidden="true">${open ? '▾' : '▸'}</span>
+            <b>${esc(d.date ? `${d.date}（${weekdayName(d.date, 'short')}）` : t('old.noDate'))}</b>
+            <span class="lp-note">${esc(DIARY_STATE_ICON[d.state])} ${esc(t('diary.chars', { n: d.chars.toLocaleString() }))}${d.use === 'compressed' ? ` ・${esc(t('diary.usingCompressed'))}` : ''}${d.parts.length > 1 ? ` ・${esc(t('old.dayParts', { n: d.parts.length }))}` : ''}</span>
+            ${open ? '' : `<span class="lp-row-preview">${esc((d.use === 'compressed' ? d.compressed.summary : d.original).slice(0, 60))}</span>`}
+          </button>`;
+        return `<li class="lp-diary-day" data-diary-date="${esc(d.date)}">${head}${open ? diaryBody(d, loaded) : ''}</li>`;
+    }).join('');
+    const batch = list.length ? `<div class="lp-row lp-diary-batch">
+        <span>${esc(t('diary.batch'))}</span>
+        <input type="number" class="text_pole lp-num" data-role="diary-batch-min" min="100" step="100" value="${v.batchMin}" aria-label="${esc(t('diary.batchMin'))}"><span>${esc(t('diary.batchUnit'))}</span>
+        ${ratioSelect('diary-batch-ratio', v.batchRatio)}
+        <button type="button" class="menu_button lp-btn" data-action="diary-batch">${esc(t('diary.batchGo'))}</button>
+      </div>${v.batchRatio < MIN_SAFE_RATIO ? `<div class="lp-note lp-warn">${esc(t('diary.lowRatio'))}</div>` : ''}` : '';
+    return `
+      <details class="lp-sec lp-diary" data-role="diary"${v.show ? ' open' : ''}>
+        <summary data-action="diary-show"><span class="lp-sec-title">${esc(t('diary.title'))}</span><span class="lp-sec-hint">${esc(t('diary.total', { days: list.length, chars: total.toLocaleString() }))}</span></summary>
+        <div class="lp-sec-body">
+          ${progress}
+          <div class="lp-note">${esc(t('diary.hint'))}</div>
+          ${v.msg ? `<div class="lp-note" role="status" data-role="diary-msg">${esc(v.msg)}</div>` : ''}
+          ${batch}
+          <ul class="lp-diary-list">${rows}</ul>
+        </div>
+      </details>`;
+}
+
+function ratioSelect(role, value) {
+    return `<select class="text_pole lp-select" data-role="${role}" aria-label="${esc(t('diary.ratio'))}">${RATIOS.map((r) => `<option value="${r}"${r === value ? ' selected' : ''}>${esc(t('diary.ratioOpt', { n: Math.round(r * 100) }))}</option>`).join('')}</select>`;
+}
+
+function diaryBody(d, loaded) {
+    const v = view.diary;
+    if (v.editing === d.date) {
+        return `<div class="lp-diary-body"><textarea class="text_pole lp-diary-edit" data-role="diary-edit" rows="8">${esc(d.use === 'compressed' ? d.compressed.summary : d.original)}</textarea>
+          <div class="lp-row"><button type="button" class="menu_button lp-btn lp-primary" data-action="diary-save" data-date="${esc(d.date)}">${esc(t('anniv.save'))}</button>
+          <button type="button" class="menu_button lp-btn" data-action="diary-edit-cancel">${esc(t('anniv.cancel'))}</button></div></div>`;
+    }
+    const meta = [d.parts.find((p) => p?.time)?.time, d.parts.find((p) => p?.location)?.location].filter(Boolean).join('・');
+    const text = d.use === 'compressed' ? d.compressed.summary : d.original;
+    const errors = d.errors.length ? `<div class="lp-note lp-warn">${esc(t('diary.errors', { error: d.errors[0] }))}</div>` : '';
+    const versions = d.compressed ? `<div class="lp-row lp-diary-versions">
+        <span class="lp-note">${esc(t('diary.versions', { orig: d.original.length.toLocaleString(), comp: d.compressed.summary.length.toLocaleString() }))}</span>
+        <button type="button" class="menu_button lp-btn lp-mini" data-action="diary-use" data-date="${esc(d.date)}" data-which="${d.use === 'compressed' ? 'original' : 'compressed'}">${esc(t(d.use === 'compressed' ? 'diary.useOriginal' : 'diary.useCompressed'))}</button>
+        <button type="button" class="menu_button lp-btn lp-mini lp-danger" data-action="diary-drop-compressed" data-date="${esc(d.date)}">${esc(t('diary.dropCompressed'))}</button>
+      </div>` : '';
+    const points = d.points.length ? `<details class="lp-diary-points"><summary>${esc(t('diary.points', { n: d.points.length }))}</summary><ul>${d.points.map((p) => `<li>${p.level === 'major' ? '⭐ ' : ''}${esc(p.text)}</li>`).join('')}</ul></details>` : '';
+    const compress = v.compress === d.date ? compressBox(d) : '';
+    const style = d.style === 'concise' ? 'natural' : 'concise';
+    return `<div class="lp-diary-body">
+        ${meta ? `<div class="lp-note">${esc(meta)}</div>` : ''}
+        <div class="lp-diary-text">${esc(text)}</div>
+        ${errors}${versions}${points}
+        <div class="lp-row lp-diary-actions">
+          <button type="button" class="menu_button lp-btn lp-mini" data-action="diary-edit" data-date="${esc(d.date)}">${esc(t('act.edit'))}</button>
+          <button type="button" class="menu_button lp-btn lp-mini" data-action="diary-compress-open" data-date="${esc(d.date)}"${d.original ? '' : ' disabled'}>${esc(t('diary.compress'))}</button>
+          <button type="button" class="menu_button lp-btn lp-mini" data-action="diary-rewrite" data-date="${esc(d.date)}"${loaded ? '' : ' disabled'}>${esc(t('diary.rewrite'))}</button>
+          <button type="button" class="menu_button lp-btn lp-mini" data-action="diary-restyle" data-date="${esc(d.date)}" data-style="${style}"${loaded ? '' : ' disabled'}>${esc(t(`diary.restyle.${style}`))}</button>
+          <button type="button" class="menu_button lp-btn lp-mini lp-danger" data-action="diary-delete" data-date="${esc(d.date)}">${esc(t('anniv.remove'))}</button>
+        </div>
+        ${loaded ? '' : `<div class="lp-note">${esc(t('diary.needReloadHint'))}</div>`}
+        ${compress}
+      </div>`;
+}
+
+/** 再壓一次的設定：勾要留的重點（重大的預設勾）、選比例，低於一半提醒。 */
+function compressBox(d) {
+    const v = view.diary;
+    const { length } = buildCompressPrompt(d.date, { ratio: v.ratio });
+    const rows = d.points.map((p, i) => `<li><label><input type="checkbox" data-role="diary-keep" data-k="${i}"${v.keep.has(i) ? ' checked' : ''}> ${p.level === 'major' ? '⭐ ' : ''}${esc(p.text)}</label></li>`).join('');
+    return `<div class="lp-card lp-diary-compress" data-role="diary-compress">
+        <div class="lp-scope-title">${esc(t('diary.compressTitle'))}</div>
+        <div class="lp-note">${esc(t('diary.compressHint'))}</div>
+        ${rows ? `<ul class="lp-diary-keep">${rows}</ul>` : `<div class="lp-note">${esc(t('diary.noPoints'))}</div>`}
+        <div class="lp-row">${ratioSelect('diary-ratio', v.ratio)}<span class="lp-note">${esc(t('diary.compressTo', { from: d.original.length.toLocaleString(), to: length.toLocaleString() }))}</span></div>
+        ${v.ratio < MIN_SAFE_RATIO ? `<div class="lp-note lp-warn">${esc(t('diary.lowRatio'))}</div>` : ''}
+        <div class="lp-row">
+          <button type="button" class="menu_button lp-btn lp-primary" data-action="diary-compress-go" data-date="${esc(d.date)}">${esc(t('diary.compressGo'))}</button>
+          <button type="button" class="menu_button lp-btn" data-action="diary-compress-cancel">${esc(t('anniv.cancel'))}</button>
+        </div>
       </div>`;
 }
 
@@ -1634,6 +1764,7 @@ function scheduleRefresh() {
 onSummaryChange(scheduleRefresh);
 onNotesChange(scheduleRefresh);
 onCarryChange(scheduleRefresh);
+onDiaryChange(scheduleRefresh);
 onCalendarChange(scheduleRefresh);
 onMemoriesChange(scheduleRefresh);
 onTitleProgress(() => { if (isPanelOpen() && ['notes', 'done'].includes(view.tab)) render(); });
@@ -2938,6 +3069,100 @@ function onClick(e) {
         case 'old-read':
             if (view.old.picked.size && !view.old.reading) readOldChats();
             return;
+        case 'diary-start': {
+            const r = view.old.result;
+            if (!r) return;
+            const style = panel.querySelector('#lp-diary-style')?.value === 'concise' ? 'concise' : 'natural';
+            const s0 = getSettings();
+            s0.diary = { ...(s0.diary ?? {}), style };
+            saveSettings();
+            setSources(view.old.ids);
+            const n = queueDays(r.days.filter((d) => d.date && d.ai).map((d) => d.date), { style });
+            view.diary.show = true;
+            view.diary.msg = n ? t('diary.queued', { n }) : t('diary.allDone');
+            render();
+            return;
+        }
+        case 'diary-pause':
+            pauseDiary();
+            render();
+            return;
+        case 'diary-show':
+            // <summary> 自己會切換開關；記下來，重畫後維持。
+            view.diary.show = !panel.querySelector('[data-role="diary"]')?.open;
+            return;
+        case 'diary-toggle': {
+            const set = view.diary.open;
+            if (set.has(btn.dataset.date)) set.delete(btn.dataset.date);
+            else set.add(btn.dataset.date);
+            render();
+            return;
+        }
+        case 'diary-edit':
+            view.diary.editing = btn.dataset.date;
+            render();
+            panel.querySelector('[data-role="diary-edit"]')?.focus();
+            return;
+        case 'diary-edit-cancel':
+            view.diary.editing = null;
+            render();
+            return;
+        case 'diary-save': {
+            const text = panel.querySelector('[data-role="diary-edit"]')?.value ?? '';
+            if (!editDay(btn.dataset.date, text)) return;
+            view.diary.editing = null;
+            render();
+            return;
+        }
+        case 'diary-use':
+            useVersion(btn.dataset.date, btn.dataset.which);
+            render();
+            return;
+        case 'diary-drop-compressed':
+            dropCompressed(btn.dataset.date);
+            render();
+            return;
+        case 'diary-delete':
+            deleteDay(btn.dataset.date);
+            view.diary.open.delete(btn.dataset.date);
+            render();
+            return;
+        case 'diary-rewrite':
+        case 'diary-restyle': {
+            const style = btn.dataset.action === 'diary-restyle' ? btn.dataset.style : undefined;
+            const n = queueDays([btn.dataset.date], { rewrite: true, ...(style ? { style } : {}) });
+            view.diary.msg = n ? t('diary.queued', { n }) : t('diary.needReload');
+            render();
+            return;
+        }
+        case 'diary-compress-open': {
+            const d = listDiary().find((x) => x.date === btn.dataset.date);
+            view.diary.compress = btn.dataset.date;
+            view.diary.keep = new Set((d?.points ?? []).map((p, i) => i));
+            render();
+            return;
+        }
+        case 'diary-compress-cancel':
+            view.diary.compress = null;
+            render();
+            return;
+        case 'diary-compress-go': {
+            const keep = [...panel.querySelectorAll('[data-role="diary-keep"]')].filter((x) => x.checked).map((x) => Number(x.dataset.k));
+            compressDay(btn.dataset.date, { ratio: view.diary.ratio, keep });
+            view.diary.compress = null;
+            view.diary.msg = t('diary.queued', { n: 1 });
+            render();
+            return;
+        }
+        case 'diary-batch': {
+            const min = Number(panel.querySelector('[data-role="diary-batch-min"]')?.value) || view.diary.batchMin;
+            view.diary.batchMin = min;
+            const days = listDiary().filter((d) => d.state === 'done' && d.original.length >= min && d.use !== 'compressed');
+            for (const d of days) compressDay(d.date, { ratio: view.diary.batchRatio });
+            view.diary.msg = days.length ? t('diary.queued', { n: days.length }) : t('diary.batchNone', { n: min });
+            render();
+            return;
+        }
         case 'old-cal': {
             const r = view.old.result;
             if (!r) return;
@@ -3492,6 +3717,17 @@ function onChange(e) {
         view.data[k] = el.type === 'checkbox' ? el.checked : el.value;
         view.data.confirmReplace = false;
         render();
+        return;
+    }
+    if (el.dataset?.role === 'diary-ratio' || el.dataset?.role === 'diary-batch-ratio') {
+        view.diary[el.dataset.role === 'diary-ratio' ? 'ratio' : 'batchRatio'] = Number(el.value) || MIN_SAFE_RATIO;
+        render();
+        return;
+    }
+    if (el.dataset?.role === 'diary-keep') {
+        const k = Number(el.dataset.k);
+        if (el.checked) view.diary.keep.add(k);
+        else view.diary.keep.delete(k);
         return;
     }
     if (el.dataset?.role === 'extra-choice') {

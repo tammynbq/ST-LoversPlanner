@@ -11,6 +11,39 @@ import { normDate } from './calendar.js';
 import { characterKey } from './scope.js';
 import { cleanForSummary } from './filter.js';
 
+/** 上次分析的每一天的內容（寫日記用，不存檔；重新整理後要再讀一次）。 */
+let lastUnits = new Map();
+
+/**
+ * 某一天切好的段落：[{ part, total, units }]（每段最多 PART_FLOORS 個 AI 樓層，從使用者發言前切開）。
+ * 沒讀過（或重新整理過）就回傳空陣列。
+ */
+export function dayParts(date) {
+    const units = lastUnits.get(date) ?? [];
+    const ai = units.filter((u) => u.ai).length;
+    if (!ai) return [];
+    const total = Math.max(1, Math.ceil(ai / PART_FLOORS));
+    const per = Math.ceil(ai / total);
+    const out = [];
+    let cur = [];
+    let n = 0;
+    for (const u of units) {
+        if (!u.ai && n >= per && out.length < total - 1) {
+            out.push(cur);
+            cur = [];
+            n = 0;
+        }
+        cur.push(u);
+        if (u.ai) n++;
+    }
+    if (cur.length) out.push(cur);
+    return out.map((list, k) => ({ part: k + 1, total: out.length, units: list }));
+}
+
+export function hasLoadedDays() {
+    return lastUnits.size > 0;
+}
+
 /** 一段最多幾個 AI 樓層（太長的一天切成幾段寫日記）。 */
 export const PART_FLOORS = 17;
 /** 日記大約每個 AI 樓層幾個字（自然版提示詞的設定），上下限是一段的。 */
@@ -90,7 +123,7 @@ export function analyzeChats(loaded) {
     const seen = new Set();
     const days = new Map();
     const day = (date) => {
-        if (!days.has(date)) days.set(date, { date, ai: 0, user: 0, summarized: 0, coarse: 0, side: 0, rawChars: 0, sumChars: 0, chats: new Set() });
+        if (!days.has(date)) days.set(date, { date, ai: 0, user: 0, summarized: 0, coarse: 0, side: 0, rawChars: 0, sumChars: 0, chats: new Set(), units: [], sendChars: 0 });
         return days.get(date);
     };
     const totals = { ai: 0, summarized: 0, unsummarized: 0, undated: 0, skipped: 0, side: 0, duplicates: 0, horae: 0 };
@@ -119,10 +152,13 @@ export function analyzeChats(loaded) {
                 if (!own && h) totals.horae++;
             }
             const d = day(cur);
-            const raw = cleanForSummary(m.mes ?? '').length;
+            const text = cleanForSummary(m.mes ?? '');
+            const raw = text.length;
             if (isUserMessage(m)) {
                 d.user++;
                 d.rawChars += raw;
+                d.units.push({ ai: false, name: m.name ?? '', text });
+                d.sendChars += raw;
                 continue;
             }
             info.ai++;
@@ -143,6 +179,11 @@ export function analyzeChats(loaded) {
             d.ai++;
             d.rawChars += raw;
             d.chats.add(id);
+            // 寫日記用：有單層摘要（不是粗略補建）就用摘要，沒有就用原文。
+            const time = e?.time || (m?.horae_meta ?? m?.extra?.horae_meta)?.timestamp?.story_time || '';
+            const summary = e?.status === 'ok' && !e.coarse && e.summary ? String(e.summary) : '';
+            d.units.push({ ai: true, name: m.name ?? '', text, summary, time: String(time) });
+            d.sendChars += summary ? summary.length : raw;
             if (e?.status === 'ok' && (e.summary || e.coarse)) {
                 d.summarized++;
                 totals.summarized++;
@@ -164,13 +205,14 @@ export function analyzeChats(loaded) {
         for (const ev of meta.calendar?.carried ?? []) if (EVENT_TYPES.includes(ev?.type) && ev.origin) events.push({ ...ev });
         chats.push(info);
     }
+    lastUnits = new Map([...days.values()].map((d) => [d.date, d.units]));
     const list = [...days.values()]
         .filter((d) => d.ai || d.side)
         .map((d) => {
             const parts = Math.max(1, Math.ceil(d.ai / PART_FLOORS));
             const per = d.ai ? Math.ceil(d.ai / parts) : 0;
             const diary = d.ai ? parts * Math.max(DIARY_MIN, Math.min(DIARY_MAX, per * DIARY_PER_FLOOR)) : 0;
-            return { date: d.date, ai: d.ai, user: d.user, summarized: d.summarized, coarse: d.coarse, side: d.side, rawChars: d.rawChars, sumChars: d.sumChars, parts, diary, chats: [...d.chats] };
+            return { date: d.date, ai: d.ai, user: d.user, summarized: d.summarized, coarse: d.coarse, side: d.side, rawChars: d.rawChars, sumChars: d.sumChars, sendChars: d.sendChars, parts, diary, chats: [...d.chats] };
         })
         .sort((a, b) => (a.date ? (b.date ? a.date.localeCompare(b.date) : -1) : 1));
     // 同一個 origin 只留一筆（帶來帶去的）。

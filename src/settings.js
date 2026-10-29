@@ -122,7 +122,9 @@ export const DEFAULTS = Object.freeze({
         depth: 4,
     },
     // null = 使用目前語言的預設模板；字串 = 使用者改過的內容。
-    prompts: { l1: null, l2: null, l3: null, recap: null, catchup: null, audit: null },
+    prompts: { l1: null, l2: null, l3: null, recap: null, catchup: null, audit: null, diary: null, diaryConcise: null, diaryCompress: null },
+    // 日記（v0.13.34）：style 'natural' 自然（像回憶，預設）| 'concise' 精簡（像紀錄）。
+    diary: { style: 'natural' },
     // 每張角色卡自己的資料，key 是角色卡頭像檔名：{ [avatar]: { scope } }
     characters: {},
     // 設定格式的版本，用來做一次性的轉換。
