@@ -1684,3 +1684,12 @@ html.lp-techo-cloud.lp-theme-techo-blocks .lp-sum {
 .lp-diary-points ul, .lp-diary-keep { margin: 4px 0 0; padding-left: 1.2em; line-height: 1.6; }
 .lp-diary-keep { list-style: none; padding-left: 0; }
 .lp-diary-edit { width: 100%; min-height: 10em; }
+
+/* ===== 好幾組 API（v0.13.35） ===== */
+.lp-profiles, .lp-routes { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--lp-border); }
+.lp-profile-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.lp-profile-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 4px 6px; border-radius: 6px; }
+.lp-profile-row.lp-on { background: color-mix(in srgb, var(--lp-accent) 10%, transparent); }
+.lp-profile-editor { display: flex; flex-direction: column; gap: 8px; }
+.lp-route-row { gap: 8px; flex-wrap: wrap; align-items: center; }
+.lp-route-row .lp-select { max-width: 100%; }

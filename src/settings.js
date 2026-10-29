@@ -122,6 +122,12 @@ export const DEFAULTS = Object.freeze({
         depth: 4,
     },
     // null = 使用目前語言的預設模板；字串 = 使用者改過的內容。
+    // 好幾組 API（v0.13.35，使用者要求）：custom 是原本那組；profiles 是另外存的 [{ id, name, url, key, model }]。
+    // routes：每種工作用哪一組（'inherit' 跟預設／'main'／'custom'／profile id）；fallback：失敗時改用哪一組（空的＝不改用）。
+    customName: '',
+    profiles: [],
+    routes: { l1: 'inherit', compress: 'inherit', catchup: 'inherit', diary: 'inherit', diaryCompress: 'inherit', other: 'inherit' },
+    fallback: '',
     prompts: { l1: null, l2: null, l3: null, recap: null, catchup: null, audit: null, diary: null, diaryConcise: null, diaryCompress: null },
     // 日記（v0.13.34）：style 'natural' 自然（像回憶，預設）| 'concise' 精簡（像紀錄）。
     diary: { style: 'natural' },

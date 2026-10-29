@@ -234,7 +234,7 @@ export function compressDay(date, opts = {}) {
         if (!day) return;
         const { prompt, length, from, kept } = buildCompressPrompt(date, opts);
         try {
-            const raw = await generateText(prompt, { maxTokens: Math.max(1024, length * 3), purpose: 'diary' });
+            const raw = await generateText(prompt, { maxTokens: Math.max(1024, length * 3), purpose: 'diaryCompress' });
             const v = parseDiary(raw);
             day.compressed = { summary: v.summary.trim(), at: Date.now(), by: modelLabel(), ratio: opts.ratio ?? MIN_SAFE_RATIO, keep: kept.map((p) => p.text), from };
             day.use = 'compressed';

@@ -11,6 +11,7 @@ import { warmVectors } from '../recall.js';
 import { cleanForSummary, extractRef, scanTags, setTagMode, tagMode } from '../filter.js';
 import { getLoadedVersion } from '../update.js';
 import { VERSION } from '../version.js';
+import { ROUTES, usesMain } from '../llm.js';
 import { allChanges, markSeen, seenVersion, unseenChanges } from '../changelog.js';
 import { analyzeChats, hasLoadedDays, listOldChats, loadOldChat } from '../oldchats.js';
 import {
@@ -186,6 +187,8 @@ const view = {
     imp: { src: null, kinds: null, result: null },
     // 向量模型：和自訂 API 一樣的草稿卡片。
     vector: { draft: null, models: [], manual: false, showKey: false, busy: false, status: null },
+    // 另外存的幾組 API（v0.13.35）：正在改哪一組（id，'new' 是新增中）、名字草稿，其他和自訂 API 的卡片一樣。
+    profile: { draft: null, models: [], manual: false, showKey: false, busy: false, status: null, editing: null, name: '' },
 };
 
 let overlay = null;
@@ -616,7 +619,7 @@ function bulkBar() {
         picked.size >= 2 && btn('bulk-compress', t('bulk.compress', { n: manual.floors?.length ?? picked.size }), 0, { disabled: !manual.floors }),
     ].filter(Boolean);
     const why = picked.size >= 2 && manual.error ? `<div class="lp-note" data-role="bulk-why">${esc(t(`bulk.compress.${manual.error}`))}</div>` : '';
-    const warn = getSettings().source === 'main' && g.summarize.length >= 10 ? `<div class="lp-callout lp-warn">${esc(t('bulk.mainWarn'))}</div>` : '';
+    const warn = usesMain('l1') && g.summarize.length >= 10 ? `<div class="lp-callout lp-warn">${esc(t('bulk.mainWarn'))}</div>` : '';
     return `
       <div class="lp-card lp-bulk" data-role="bulk">
         <div class="lp-row">
@@ -1238,7 +1241,7 @@ function diaryStartHtml(r) {
     const calls = dated.reduce((n, d) => n + d.parts, 0);
     const sumSent = dated.reduce((n, d) => n + d.sendChars, 0);
     const style = diaryStyle();
-    const warn = getSettings().source === 'main' ? `<div class="lp-callout lp-warn">${esc(t('diary.mainWarn'))}</div>` : '';
+    const warn = usesMain('diary') ? `<div class="lp-callout lp-warn">${esc(t('diary.mainWarn'))}</div>` : '';
     const pending = diaryPending();
     return `
       <div class="lp-diary-start" data-role="diary-start">
@@ -1421,7 +1424,7 @@ function catchupCard(todo) {
     const num = (key, value, min, max, label) =>
         `<input type="number" class="text_pole lp-num" data-cu="${key}" min="${min}" max="${max}" step="1" value="${value}" aria-label="${esc(label)}">`;
     const lastIndex = getChat().length - 1;
-    const warn = getSettings().source === 'main' ? `<div class="lp-callout lp-warn">${esc(t('catchup.mainWarn'))}</div>` : '';
+    const warn = usesMain('catchup') ? `<div class="lp-callout lp-warn">${esc(t('catchup.mainWarn'))}</div>` : '';
     return `
       <div class="lp-card lp-catchup" data-role="catchup">
         <div class="lp-scope-title">${esc(t('catchup.title'))}</div>
@@ -2536,8 +2539,10 @@ function renderSettings() {
       ${radio('lp-source', 'source', 'main', t('set.source.main'))}
       ${radio('lp-source', 'source', 'custom', t('set.source.custom'))}
       ${s.source === 'custom' ? renderCustom() : ''}
-      ${s.source === 'custom' ? `<div class="lp-row">${inline('set.custom.timeout', { n: numberInput('custom.timeout', t('set.custom.timeout.aria')) })}</div>
+      ${s.source === 'custom' || s.profiles?.length ? `<div class="lp-row">${inline('set.custom.timeout', { n: numberInput('custom.timeout', t('set.custom.timeout.aria')) })}</div>
       <div class="lp-note">${esc(t('set.custom.timeout.note'))}</div>` : ''}
+      ${renderProfiles()}
+      ${renderRoutes()}
       ${checkbox('model.adultNote', t('set.model.adultNote'))}
       <div class="lp-note">${esc(t('set.model.adultNote.note'))}</div>
       <label class="lp-field" for="lp-preface"><span class="lp-label">${esc(t('set.model.preface'))}</span>
@@ -2703,6 +2708,7 @@ function apiState(which) {
 
 function savedApi(which) {
     const s = getSettings();
+    if (which === 'profile') return (s.profiles ?? []).find((p) => p.id === view.profile.editing) ?? { url: '', key: '', model: '' };
     return which === 'vector' ? s.recall.vector : s.custom;
 }
 
@@ -2781,6 +2787,59 @@ function renderCustom(which = 'custom') {
       </div>`;
 }
 
+// ===== 好幾組 API、每種工作用哪一組（v0.13.35，使用者要求） =====
+
+function targetName(id) {
+    const s = getSettings();
+    if (id === 'main') return t('set.route.main');
+    if (id === 'custom') return s.customName || t('set.route.customDefault');
+    return (s.profiles ?? []).find((p) => p.id === id)?.name ?? '?';
+}
+
+function renderProfiles() {
+    const s = getSettings();
+    const v = view.profile;
+    const rows = (s.profiles ?? []).map((p) => `
+        <li class="lp-profile-row${v.editing === p.id ? ' lp-on' : ''}">
+          <span><b>${esc(p.name || t('set.profile.unnamed'))}</b> <span class="lp-note">${esc(p.model || t('set.profile.noModel'))}</span></span>
+          <span class="lp-spacer"></span>
+          <button type="button" class="menu_button lp-btn lp-mini" data-action="profile-edit" data-id="${esc(p.id)}">${esc(t('set.profile.edit'))}</button>
+          <button type="button" class="menu_button lp-btn lp-mini lp-danger" data-action="profile-delete" data-id="${esc(p.id)}">${esc(t('set.profile.delete'))}</button>
+        </li>`).join('');
+    const editor = v.editing ? `
+        <div class="lp-profile-editor" data-role="profile-editor">
+          <label class="lp-field" for="lp-profile-name"><span class="lp-label">${esc(t('set.profile.name'))}</span>
+            <input id="lp-profile-name" type="text" class="text_pole" data-role="profile-name" value="${esc(v.name)}" placeholder="${esc(t('set.profile.namePh'))}"></label>
+          ${renderCustom('profile')}
+          <div class="lp-row"><button type="button" class="menu_button lp-btn" data-action="profile-close">${esc(t('set.profile.close'))}</button></div>
+        </div>` : '';
+    return `
+      <div class="lp-profiles" data-role="profiles">
+        <div class="lp-scope-title">${esc(t('set.profiles.title'))}</div>
+        <div class="lp-note">${esc(t('set.profiles.desc'))}</div>
+        ${rows ? `<ul class="lp-profile-list">${rows}</ul>` : ''}
+        ${editor}
+        ${v.editing === 'new' ? '' : `<div class="lp-row"><button type="button" class="menu_button lp-btn" data-action="profile-add">${esc(t('set.profile.add'))}</button></div>`}
+      </div>`;
+}
+
+function renderRoutes() {
+    const s = getSettings();
+    const ids = ['main', 'custom', ...(s.profiles ?? []).map((p) => p.id)];
+    const select = (key, value, first) => `<select class="text_pole lp-select" data-route="${key}" aria-label="${esc(t(`set.route.${key}`))}">
+        ${[first, ...ids.map((id) => [id, targetName(id)])].map(([id, label]) => `<option value="${esc(id)}"${id === value ? ' selected' : ''}>${esc(label)}</option>`).join('')}
+      </select>`;
+    const rows = ROUTES.map((k) => `<div class="lp-row lp-route-row"><span class="lp-label">${esc(t(`set.route.${k}`))}</span><span class="lp-spacer"></span>${select(k, s.routes?.[k] ?? 'inherit', ['inherit', t('set.route.inherit', { name: targetName(s.source === 'custom' ? 'custom' : 'main') })])}</div>`).join('');
+    return `
+      <div class="lp-routes" data-role="routes">
+        <div class="lp-scope-title">${esc(t('set.routes.title'))}</div>
+        <div class="lp-note">${esc(t('set.routes.note'))}</div>
+        ${rows}
+        <div class="lp-row lp-route-row"><span class="lp-label">${esc(t('set.route.fallback'))}</span><span class="lp-spacer"></span>${select('fallback', s.fallback ?? '', ['', t('set.route.none')])}</div>
+        <div class="lp-note">${esc(t('set.route.fallbackNote'))}</div>
+      </div>`;
+}
+
 /** 跑一個連線動作：期間按鈕變灰、顯示「連接中」，結束後顯示結果。 */
 async function runCustom(task, which = 'custom') {
     const c = apiState(which);
@@ -2819,13 +2878,13 @@ function isEmbeddingName(m) {
     return /embed|bge|e5-|gte|m3e|jina|nomic|minilm/i.test(m);
 }
 
-function testCustom() {
+function testCustom(which = 'custom') {
     return runCustom(async () => {
-        const r = await testConnection(customDraft());
+        const r = await testConnection(customDraft(which));
         return r.kind === 'reply'
             ? t('set.custom.ok', { reply: r.reply, via: viaText(r.via) })
             : t('set.custom.okModels', { n: r.count, via: viaText(r.via) });
-    });
+    }, which);
 }
 
 function testVector() {
@@ -2840,7 +2899,18 @@ function saveCustom(which = 'custom') {
     const s = getSettings();
     const value = { url: normalizeBaseUrl(d.url).replace(/\/embeddings$/, ''), key: d.key.trim(), model: d.model.trim() };
     if (which === 'vector') Object.assign(s.recall.vector, value);
-    else s.custom = value;
+    else if (which === 'profile') {
+        const list = s.profiles ?? (s.profiles = []);
+        const name = view.profile.name.trim() || t('set.profile.default', { n: list.length + 1 });
+        const have = list.find((p) => p.id === view.profile.editing);
+        if (have) Object.assign(have, value, { name });
+        else {
+            const id = `p_${Math.random().toString(36).slice(2, 8)}`;
+            list.push({ id, name, ...value });
+            view.profile.editing = id;
+        }
+        view.profile.name = name;
+    } else s.custom = { ...s.custom, ...value };
     saveSettings();
     apiState(which).draft = { ...value };
     apiState(which).status = { type: 'saved', text: t('set.custom.saved') };
@@ -2927,6 +2997,37 @@ function onClick(e) {
         }
         case 'fetch-models':
             fetchModels(btn.dataset.api ?? 'custom');
+            return;
+        case 'profile-add':
+        case 'profile-edit': {
+            const id = btn.dataset.action === 'profile-add' ? 'new' : btn.dataset.id;
+            const p = (getSettings().profiles ?? []).find((x) => x.id === id);
+            Object.assign(view.profile, { editing: id, name: p?.name ?? '', draft: null, models: [], manual: false, status: null });
+            render();
+            panel.querySelector('#lp-profile-name')?.focus();
+            return;
+        }
+        case 'profile-close':
+            Object.assign(view.profile, { editing: null, draft: null, status: null });
+            render();
+            return;
+        case 'profile-delete': {
+            const s0 = getSettings();
+            const id = btn.dataset.id;
+            s0.profiles = (s0.profiles ?? []).filter((x) => x.id !== id);
+            // 用到這一組的工作改回「跟預設」，備援改成不改用。
+            for (const k of Object.keys(s0.routes ?? {})) if (s0.routes[k] === id) s0.routes[k] = 'inherit';
+            if (s0.fallback === id) s0.fallback = '';
+            if (view.profile.editing === id) Object.assign(view.profile, { editing: null, draft: null });
+            saveSettings();
+            render();
+            return;
+        }
+        case 'test-profile':
+            testCustom('profile');
+            return;
+        case 'save-profile':
+            saveCustom('profile');
             return;
         case 'test-custom':
             testCustom();
@@ -3724,6 +3825,14 @@ function onChange(e) {
         render();
         return;
     }
+    if (el.dataset?.route) {
+        const s0 = getSettings();
+        if (el.dataset.route === 'fallback') s0.fallback = el.value;
+        else s0.routes = { ...(s0.routes ?? {}), [el.dataset.route]: el.value };
+        saveSettings();
+        render();
+        return;
+    }
     if (el.dataset?.role === 'diary-keep') {
         const k = Number(el.dataset.k);
         if (el.checked) view.diary.keep.add(k);
@@ -3836,6 +3945,10 @@ function onInput(e) {
         if (box) box.textContent = catchupEstimate(unsummarizedIndices());
         const tags = panel.querySelector('[data-role="cu-tags-box"]');
         if (tags) tags.innerHTML = catchupTagList(unsummarizedIndices());
+        return;
+    }
+    if (el.dataset?.role === 'profile-name') {
+        view.profile.name = el.value;
         return;
     }
     if (el.dataset?.draft) {

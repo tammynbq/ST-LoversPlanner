@@ -9,6 +9,14 @@ import { VERSION } from './version.js';
 
 export const CHANGES = [
     {
+        v: '0.13.35',
+        new: {
+            'zh-TW': ['🔀 可以多存幾組 API，再選每種工作用哪一組（例如單層摘要用便宜的、壓縮和日記再壓一次用細膩的），還能設定「失敗時改用」另一組自動再試一次。在設定 › 模型來源。'],
+            'zh-CN': ['🔀 可以多存几组 API，再选每种工作用哪一组（例如单层摘要用便宜的、压缩和日记再压一次用细腻的），还能设定「失败时改用」另一组自动再试一次。在设置 › 模型来源。'],
+            en: ['🔀 Save several API groups and choose which job uses which (e.g. a cheap one for floor summaries, a careful one for compression and diary re-compress), plus a fallback group that is retried automatically on failure. In Settings › Model source.'],
+        },
+    },
+    {
         v: '0.13.34',
         new: {
             'zh-TW': [

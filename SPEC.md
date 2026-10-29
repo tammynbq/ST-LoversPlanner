@@ -936,3 +936,10 @@ L0 原文 → L1 單層摘要 → L2（每 10 個 L1）→ L3（每 10 份 L2）
   - 用量紀錄多一種 diary。
   - 用真實聊天看提示詞：預設過濾規則清不掉純文字的思考過程和狀態欄（使用者自己的設定才清得掉），所以開始前提醒去「摘要時跳過的內容」確認；送出字數的預估改成照實際會送的算（有摘要的層算摘要長度）。
   - 測試 tests/diary.test.mjs。日記還不會送給角色（第三階段）。
+- 2026-10-30（v0.13.35，使用者要求：摘要和壓縮可以用不同模型，存好幾組 API；也要失敗時改用另一組）：
+  - settings：customName、profiles（[{ id, name, url, key, model }]，原本的 custom 還是「自訂 API」那組，不搬）、routes（l1／compress／catchup／diary／diaryCompress／other → 'inherit'｜'main'｜'custom'｜profile id）、fallback（''＝不改用）。source（main／custom）照舊當「預設」。
+  - llm.js：用途 → 工作（side 算 l1；card、tidy、titles、check、recap 等算 other；日記再壓一次的用途改成 diaryCompress），targetId／targetConfig／usesMain／labelFor。generateText 先用那種工作的那一組（原本的重試照舊），失敗（parse 以外的錯誤）且有設定備援、而且不是同一組時，改用備援再試一次；兩次都記進調用紀錄。modelLabel() 不給用途時回傳剛剛實際回覆的那一組（備援時也對）。等待時間大家共用自訂 API 的設定。
+  - 摘要隊伍「等正常生成結束」改成：任何一種工作或備援會用到主 API 才等（usesMain()）。批次、補建、日記的「用主 API」提醒改看各自那種工作。
+  - 設定 › 模型來源：其他 API 組合（清單、改、刪、＋新增一組；編輯時是同一種卡片加名字欄）；每種工作用哪一組；失敗時改用。刪掉一組時，用到它的工作改回跟預設、備援改成不改用。
+  - 備份：profiles 的 Key 也不導出；導入時同一個 id 沿用這台裝置的 Key。順便修好：儲存自訂 API 時會把「等待時間」蓋掉（改成合併）。
+  - 測試 tests/profiles.test.mjs。

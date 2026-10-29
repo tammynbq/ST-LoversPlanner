@@ -37,6 +37,7 @@ function withoutSecrets(settings) {
         for (const k of path.slice(0, -1)) obj = obj?.[k];
         if (obj && path[path.length - 1] in obj) obj[path[path.length - 1]] = '';
     }
+    for (const p of out.profiles ?? []) if (p && 'key' in p) p.key = '';
     return out;
 }
 
@@ -181,13 +182,16 @@ export function importBackup(data, { mode = 'merge', settings = false } = {}) {
     }
     if (settings && data.settings) {
         const cur = getSettings();
-        const keep = { custom: cur.custom?.key, vector: cur.recall?.vector?.key, characters: cur.characters, usage: cur.usage };
+        const keep = { custom: cur.custom?.key, vector: cur.recall?.vector?.key, characters: cur.characters, usage: cur.usage,
+            profiles: new Map((cur.profiles ?? []).map((p) => [p.id, p.key])) };
         const next = clone(data.settings);
         delete next.characters;
         delete next.usage;
         Object.assign(cur, next);
         if (cur.custom) cur.custom.key = keep.custom ?? '';
         if (cur.recall?.vector) cur.recall.vector.key = keep.vector ?? '';
+        // 另外存的幾組 API：Key 不導出，導入時同一組（同 id）沿用這台裝置的 Key。
+        for (const p of cur.profiles ?? []) p.key = keep.profiles.get(p.id) ?? '';
         cur.characters = keep.characters;
         cur.usage = keep.usage;
         saveSettings();

@@ -11,7 +11,7 @@ import { getSettings, isTracked, trackedNoteTypes } from './settings.js';
 import { currentLocale, t } from './i18n.js';
 import { getTemplate } from './prompts.js';
 import { ApiError } from './api/custom.js';
-import { countTokens, generateText, modelLabel } from './llm.js';
+import { countTokens, generateText, modelLabel, usesMain } from './llm.js';
 import { errorText } from './errors.js';
 import { formatNotesForPrompt, invalidateNotes, normalizeModelOps, replay } from './notes.js';
 import { buildL1Parts } from './l1rules.js';
@@ -184,7 +184,7 @@ export function waitForIdle(timeoutMs = 5 * 60 * 1000) {
 
 async function drain() {
     if (running !== null) return;
-    if (getSettings().source === 'main' && mainBusy() && !holding) return;
+    if (usesMain() && mainBusy() && !holding) return;
     // 摘要、壓縮先做，一般工作（寫日記）排在它們後面（不然新樓層的摘要要等幾十段日記）。
     const first = queue.findIndex((q) => q.kind !== 'task');
     const item = first >= 0 ? queue.splice(first, 1)[0] : queue.shift();
