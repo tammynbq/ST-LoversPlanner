@@ -60,7 +60,7 @@ await page.click('[data-action="old-pick"]');
 await page.click('[data-action="old-read"]');
 await page.waitForSelector('[data-role="diary-start"]');
 const est = await page.textContent('[data-role="diary-start"]');
-check('estimate before starting', est.includes('3 天') && est.includes('4 次呼叫') && est.includes('主 API'), est.replace(/\s+/g, ' ').slice(0, 200));
+check('estimate before starting', est.includes('3 天') && est.includes('4 次呼叫') && est.includes('主 API') && est.includes('寫日記會呼叫'), est.replace(/\s+/g, ' ').slice(0, 200));
 await page.selectOption('#lp-diary-style', 'natural');
 await page.click('[data-action="diary-start"]');
 const idle = () => page.waitForFunction(async () => (await import('/src/diary.js')).diaryPending() === 0, null, { timeout: 20000 });

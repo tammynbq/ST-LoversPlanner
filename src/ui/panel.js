@@ -1238,7 +1238,7 @@ function diaryStartHtml(r) {
     const calls = dated.reduce((n, d) => n + d.parts, 0);
     const sumSent = dated.reduce((n, d) => n + d.sendChars, 0);
     const style = diaryStyle();
-    const warn = getSettings().source === 'main' ? `<div class="lp-callout lp-warn">${esc(t('catchup.mainWarn'))}</div>` : '';
+    const warn = getSettings().source === 'main' ? `<div class="lp-callout lp-warn">${esc(t('diary.mainWarn'))}</div>` : '';
     const pending = diaryPending();
     return `
       <div class="lp-diary-start" data-role="diary-start">
